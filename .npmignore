@@ -1,0 +1,12 @@
+src/
+tests/
+*.ts
+!*.d.ts
+tsconfig.json
+.eslintrc.json
+.prettierrc
+.gitignore
+*.log
+.DS_Store
+.env
+
