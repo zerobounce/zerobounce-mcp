@@ -17,7 +17,7 @@ You only need the repository locally if you're developing the server itself—ot
 ### 1. Install the MCP server
 
 ```bash
-npm install git+https://github.com/zerobounce/zerobounce-mcp.git
+npm install -g @zerobounce/mcp
 ```
 
 

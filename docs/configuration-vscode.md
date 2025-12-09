@@ -26,7 +26,7 @@ If you haven't installed the MCP extension yet:
 ### 1. Install the MCP server
 
 ```bash
-npm install git+https://github.com/zerobounce/zerobounce-mcp.git
+npm install -g @zerobounce/mcp
 ```
 ### 2. Configure VS Code
 

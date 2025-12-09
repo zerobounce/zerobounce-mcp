@@ -25,14 +25,10 @@ A comprehensive Model Context Protocol (MCP) server that provides full-featured 
 
 1. **Install the MCP server globally**
 ```bash
-npm install -g git+https://github.com/zerobounce/zerobounce-mcp.git
+npm install -g @zerobounce/mcp
 ```
 
-   This will:
-   - Clone the repository
-   - Install dependencies
-   - Build the server
-   - Install the `zerobounce-mcp` command globally
+   This will install the `zerobounce-mcp` command globally.
 
 2. **Get your ZeroBounce API key** from the [ZeroBounce Dashboard](https://www.zerobounce.net)
 
