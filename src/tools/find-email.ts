@@ -14,7 +14,7 @@ import {
 export const findEmailTool: ToolHandler = {
   definition: {
     name: 'find_email',
-    description: 'Find an email address based on domain, name, and/or company.',
+    description: 'Find an email address by person name and domain or company name.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -24,7 +24,7 @@ export const findEmailTool: ToolHandler = {
         },
         firstName: {
           type: 'string',
-          description: 'First name of the person',
+          description: 'First name of the person (required)',
         },
         middleName: {
           type: 'string',
@@ -39,7 +39,7 @@ export const findEmailTool: ToolHandler = {
           description: 'Company name',
         },
       },
-      required: [],
+      required: ['firstName'],
     },
   },
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
@@ -49,6 +49,10 @@ export const findEmailTool: ToolHandler = {
       const middleName = optionalString(args.middleName);
       const lastName = optionalString(args.lastName);
       const company = optionalString(args.company);
+
+      if (!firstName) {
+        throw new Error('"firstName" is required');
+      }
 
       // Per ZeroBounce docs, at least a domain or company is required
       if (!domain && !company) {

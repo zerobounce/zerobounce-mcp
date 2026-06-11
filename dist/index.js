@@ -260,7 +260,20 @@ var ZeroBounceClient = class {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || "https://api.zerobounce.net/v2";
     this.sdk = new import_zero_bounce_sdk.default();
-    this.sdk.init(this.apiKey);
+    this.sdk.init(this.apiKey, this.baseUrl);
+  }
+  /** SDK bulk APIs use 1-based column indexes; MCP tools accept 0-based. */
+  toSdkColumnIndex(column) {
+    return (column ?? 0) + 1;
+  }
+  toCsvBlob(fileContent) {
+    return fileContent instanceof Blob ? fileContent : new Blob([fileContent], { type: "text/csv" });
+  }
+  requireSdkResult(result, context) {
+    if (result === void 0) {
+      throw new Error(`ZeroBounce SDK returned no result for ${context}`);
+    }
+    return result;
   }
   /**
    * Validate a single email address
@@ -300,13 +313,14 @@ var ZeroBounceClient = class {
    * Send a file for bulk validation
    */
   async bulkValidateSendFile(fileContent, fileName, returnUrl, emailAddressColumn) {
-    const file = fileContent instanceof Blob ? new File([fileContent], fileName, { type: "text/csv" }) : new File([fileContent], fileName, { type: "text/csv" });
-    const result = await this.sdk.sendFile({
-      file,
-      // ZeroBounce docs are 1-based; default to 1 for first column when not provided
-      email_address_column: emailAddressColumn !== void 0 ? emailAddressColumn : 1,
-      return_url: returnUrl || false
-    });
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendFileStream(blob, fileName, {
+        email_address_column: this.toSdkColumnIndex(emailAddressColumn),
+        return_url: returnUrl || false
+      }),
+      "bulk validation send file"
+    );
     return result;
   }
   /**
@@ -335,12 +349,14 @@ var ZeroBounceClient = class {
    * Send a file for bulk AI scoring
    */
   async bulkAIScoringSendFile(fileContent, fileName, returnUrl, emailAddressColumn) {
-    const file = fileContent instanceof Blob ? new File([fileContent], fileName, { type: "text/csv" }) : new File([fileContent], fileName, { type: "text/csv" });
-    const result = await this.sdk.sendScoringFile({
-      file,
-      email_address_column: emailAddressColumn !== void 0 ? emailAddressColumn : 1,
-      return_url: returnUrl || false
-    });
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendScoringFileStream(blob, fileName, {
+        email_address_column: this.toSdkColumnIndex(emailAddressColumn),
+        return_url: returnUrl || false
+      }),
+      "bulk AI scoring send file"
+    );
     return result;
   }
   /**
@@ -386,28 +402,40 @@ var ZeroBounceClient = class {
    * Find an email address
    */
   async findEmail(request) {
-    if (!request.domain) {
-      throw new Error('The published ZeroBounce SDK requires "domain" for email finder.');
+    if (!request.first_name) {
+      throw new Error("first_name is required for email finder");
     }
-    const result = await this.sdk.guessFormat({
-      domain: request.domain,
-      first_name: request.first_name ?? null,
+    if (!request.domain && !request.company) {
+      throw new Error("Either domain or company is required for email finder");
+    }
+    const nameOptions = {
+      first_name: request.first_name,
       middle_name: request.middle_name ?? null,
       last_name: request.last_name ?? null
-    });
+    };
+    const result = this.requireSdkResult(
+      request.domain ? await this.sdk.findEmailByDomain({ domain: request.domain, ...nameOptions }) : await this.sdk.findEmailByCompanyName({
+        company_name: request.company,
+        ...nameOptions
+      }),
+      "email finder"
+    );
     return result;
   }
   // ========== Domain Search Operations ==========
   /**
-   * Search for emails in a domain
+   * Get likely email format for a domain or company
    */
   async domainSearch(request) {
-    const result = await this.sdk.guessFormat({
-      domain: request.domain,
-      first_name: request.first_name ?? null,
-      middle_name: null,
-      last_name: request.last_name ?? null
-    });
+    if (!request.domain && !request.company) {
+      throw new Error("Either domain or company is required for domain search");
+    }
+    const result = this.requireSdkResult(
+      request.domain ? await this.sdk.findEmailFormatByDomain({ domain: request.domain }) : await this.sdk.findEmailFormatByCompanyName({
+        company_name: request.company
+      }),
+      "domain search"
+    );
     return result;
   }
   // ========== Activity Data Operations ==========
@@ -803,7 +831,7 @@ var bulkAIScoringTools = createBulkFileTools({
 var findEmailTool = {
   definition: {
     name: "find_email",
-    description: "Find an email address based on domain, name, and/or company.",
+    description: "Find an email address by person name and domain or company name.",
     inputSchema: {
       type: "object",
       properties: {
@@ -813,7 +841,7 @@ var findEmailTool = {
         },
         firstName: {
           type: "string",
-          description: "First name of the person"
+          description: "First name of the person (required)"
         },
         middleName: {
           type: "string",
@@ -828,7 +856,7 @@ var findEmailTool = {
           description: "Company name"
         }
       },
-      required: []
+      required: ["firstName"]
     }
   },
   handler: async (client, args) => {
@@ -838,6 +866,9 @@ var findEmailTool = {
       const middleName = optionalString(args.middleName);
       const lastName = optionalString(args.lastName);
       const company = optionalString(args.company);
+      if (!firstName) {
+        throw new Error('"firstName" is required');
+      }
       if (!domain && !company) {
         throw new Error('Either "domain" or "company" is required');
       }
@@ -859,42 +890,30 @@ var findEmailTool = {
 var domainSearchTool = {
   definition: {
     name: "domain_search",
-    description: "Search for email addresses in a domain.",
+    description: "Get the likely email address format for a domain or company (Domain Search API).",
     inputSchema: {
       type: "object",
       properties: {
         domain: {
           type: "string",
-          description: "Domain to search"
-        },
-        firstName: {
-          type: "string",
-          description: "Optional first name"
-        },
-        lastName: {
-          type: "string",
-          description: "Optional last name"
+          description: "Domain to look up (e.g. example.com)"
         },
         company: {
           type: "string",
-          description: "Optional company name"
+          description: "Company name to look up (alternative to domain)"
         }
       },
-      required: ["domain"]
+      required: []
     }
   },
   handler: async (client, args) => {
     try {
-      const domain = requireString(args.domain, "domain");
-      const firstName = optionalString(args.firstName);
-      const lastName = optionalString(args.lastName);
+      const domain = optionalString(args.domain);
       const company = optionalString(args.company);
-      const result = await client.domainSearch({
-        domain,
-        first_name: firstName,
-        last_name: lastName,
-        company
-      });
+      if (!domain && !company) {
+        throw new Error('Either "domain" or "company" is required');
+      }
+      const result = await client.domainSearch({ domain, company });
       return createSuccessResponse(result);
     } catch (error) {
       return createErrorResponse(error);

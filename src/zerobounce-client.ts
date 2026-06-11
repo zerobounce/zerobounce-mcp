@@ -179,34 +179,27 @@ export interface FindEmailRequest {
 
 export interface FindEmailResult {
   email: string;
-  first_name: string;
-  last_name: string;
-  country: string;
-  region: string;
-  city: string;
-  zipcode: string;
-  processed_at: string;
+  email_confidence: string;
+  domain: string;
+  company_name: string;
+  did_you_mean: string;
+  failure_reason: string;
 }
 
 // Domain Search interfaces
 export interface DomainSearchRequest {
-  domain: string;
-  first_name?: string;
-  last_name?: string;
+  domain?: string;
   company?: string;
 }
 
 export interface DomainSearchResult {
-  email: string;
-  first_name: string;
-  last_name: string;
-  phone: string;
-  company: string;
-  country: string;
-  region: string;
-  city: string;
-  zipcode: string;
-  processed_at: string;
+  domain: string;
+  company_name: string;
+  format: string;
+  confidence: string;
+  did_you_mean: string;
+  failure_reason: string;
+  other_domain_formats: unknown[];
 }
 
 // Activity Data interfaces
@@ -254,9 +247,27 @@ export class ZeroBounceClient {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || 'https://api.zerobounce.net/v2';
 
-    // Initialize official SDK
+    // Initialize official SDK with optional regional API base URL
     this.sdk = new (ZeroBounceSDK as any)();
-    this.sdk.init(this.apiKey);
+    this.sdk.init(this.apiKey, this.baseUrl);
+  }
+
+  /** SDK bulk APIs use 1-based column indexes; MCP tools accept 0-based. */
+  private toSdkColumnIndex(column?: number): number {
+    return (column ?? 0) + 1;
+  }
+
+  private toCsvBlob(fileContent: string | Blob): Blob {
+    return fileContent instanceof Blob
+      ? fileContent
+      : new Blob([fileContent], { type: 'text/csv' });
+  }
+
+  private requireSdkResult<T>(result: T | undefined, context: string): T {
+    if (result === undefined) {
+      throw new Error(`ZeroBounce SDK returned no result for ${context}`);
+    }
+    return result;
   }
 
   /**
@@ -313,18 +324,15 @@ export class ZeroBounceClient {
     returnUrl?: string,
     emailAddressColumn?: number
   ): Promise<BulkFileSendResponse> {
-    // Use official SDK bulk sendFile. Provide a proper File with name and CSV type
-    const file =
-      fileContent instanceof Blob
-        ? new File([fileContent], fileName, { type: 'text/csv' })
-        : new File([fileContent], fileName, { type: 'text/csv' });
+    const blob = this.toCsvBlob(fileContent);
 
-    const result = await this.sdk.sendFile({
-      file,
-      // ZeroBounce docs are 1-based; default to 1 for first column when not provided
-      email_address_column: emailAddressColumn !== undefined ? emailAddressColumn : 1,
-      return_url: returnUrl || false,
-    });
+    const result = this.requireSdkResult(
+      await this.sdk.sendFileStream(blob, fileName, {
+        email_address_column: this.toSdkColumnIndex(emailAddressColumn),
+        return_url: returnUrl || false,
+      }),
+      'bulk validation send file'
+    );
 
     return result as BulkFileSendResponse;
   }
@@ -364,16 +372,15 @@ export class ZeroBounceClient {
     returnUrl?: string,
     emailAddressColumn?: number
   ): Promise<BulkFileSendResponse> {
-    const file =
-      fileContent instanceof Blob
-        ? new File([fileContent], fileName, { type: 'text/csv' })
-        : new File([fileContent], fileName, { type: 'text/csv' });
+    const blob = this.toCsvBlob(fileContent);
 
-    const result = await this.sdk.sendScoringFile({
-      file,
-      email_address_column: emailAddressColumn !== undefined ? emailAddressColumn : 1,
-      return_url: returnUrl || false,
-    });
+    const result = this.requireSdkResult(
+      await this.sdk.sendScoringFileStream(blob, fileName, {
+        email_address_column: this.toSdkColumnIndex(emailAddressColumn),
+        return_url: returnUrl || false,
+      }),
+      'bulk AI scoring send file'
+    );
 
     return result as BulkFileSendResponse;
   }
@@ -437,17 +444,29 @@ export class ZeroBounceClient {
    * Find an email address
    */
   async findEmail(request: FindEmailRequest): Promise<FindEmailResult> {
-    // Use deprecated guessFormat helper in the published SDK for compatibility
-    if (!request.domain) {
-      throw new Error('The published ZeroBounce SDK requires "domain" for email finder.');
+    if (!request.first_name) {
+      throw new Error('first_name is required for email finder');
     }
 
-    const result = await this.sdk.guessFormat({
-      domain: request.domain,
-      first_name: request.first_name ?? null,
+    if (!request.domain && !request.company) {
+      throw new Error('Either domain or company is required for email finder');
+    }
+
+    const nameOptions = {
+      first_name: request.first_name,
       middle_name: request.middle_name ?? null,
       last_name: request.last_name ?? null,
-    });
+    };
+
+    const result = this.requireSdkResult(
+      request.domain
+        ? await this.sdk.findEmailByDomain({ domain: request.domain, ...nameOptions })
+        : await this.sdk.findEmailByCompanyName({
+            company_name: request.company!,
+            ...nameOptions,
+          }),
+      'email finder'
+    );
 
     return result as FindEmailResult;
   }
@@ -455,18 +474,23 @@ export class ZeroBounceClient {
   // ========== Domain Search Operations ==========
 
   /**
-   * Search for emails in a domain
+   * Get likely email format for a domain or company
    */
-  async domainSearch(request: DomainSearchRequest): Promise<DomainSearchResult[]> {
-    // Use deprecated guessFormat helper as a stand-in for domain search
-    const result = await this.sdk.guessFormat({
-      domain: request.domain,
-      first_name: request.first_name ?? null,
-      middle_name: null,
-      last_name: request.last_name ?? null,
-    });
+  async domainSearch(request: DomainSearchRequest): Promise<DomainSearchResult> {
+    if (!request.domain && !request.company) {
+      throw new Error('Either domain or company is required for domain search');
+    }
 
-    return result as DomainSearchResult[];
+    const result = this.requireSdkResult(
+      request.domain
+        ? await this.sdk.findEmailFormatByDomain({ domain: request.domain })
+        : await this.sdk.findEmailFormatByCompanyName({
+            company_name: request.company!,
+          }),
+      'domain search'
+    );
+
+    return result as DomainSearchResult;
   }
 
   // ========== Activity Data Operations ==========
