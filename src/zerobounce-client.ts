@@ -510,9 +510,9 @@ export class ZeroBounceClient {
    * Requires file upload (multipart/form-data) with CSV file containing emails
    */
   async evaluateList(
-    fileContent: string | Blob,
-    fileName: string,
-    emailAddressColumn?: number
+    _fileContent: string | Blob,
+    _fileName: string,
+    _emailAddressColumn?: number
   ): Promise<ListEvaluatorResult> {
     throw new Error(
       'List Evaluator is not available via the official ZeroBounce Node SDK.'

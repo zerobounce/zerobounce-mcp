@@ -451,7 +451,7 @@ var ZeroBounceClient = class {
    * Evaluate the quality of an email list
    * Requires file upload (multipart/form-data) with CSV file containing emails
    */
-  async evaluateList(fileContent, fileName, emailAddressColumn) {
+  async evaluateList(_fileContent, _fileName, _emailAddressColumn) {
     throw new Error(
       "List Evaluator is not available via the official ZeroBounce Node SDK."
     );

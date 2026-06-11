@@ -1,6 +1,6 @@
 {
   "name": "@zerobounce/mcp",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Model Context Protocol server for ZeroBounce email validation, verification, and intelligence. Provides comprehensive email validation, AI scoring, email finder, domain search, and bulk processing capabilities for AI coding assistants.",
   "type": "module",
   "main": "dist/index.js",
@@ -48,13 +48,13 @@
     "url": "https://github.com/zerobounce/zerobounce-mcp/issues"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.24.0",
-    "@zerobounce/zero-bounce-sdk": "^2.1.6"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@zerobounce/zero-bounce-sdk": "^2.1.7"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@typescript-eslint/eslint-plugin": "^6.19.0",
-    "@typescript-eslint/parser": "^6.19.0",
+    "@typescript-eslint/eslint-plugin": "^8.61.0",
+    "@typescript-eslint/parser": "^8.61.0",
     "esbuild": "^0.27.0",
     "eslint": "^8.56.0",
     "prettier": "^3.2.4",
