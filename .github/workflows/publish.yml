@@ -31,5 +31,7 @@ jobs:
           fi
 
       - run: npm ci
+      - name: npm audit
+        run: npm audit --audit-level=low
       - run: npm run build
       - run: npm publish --access public
