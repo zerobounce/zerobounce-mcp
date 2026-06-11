@@ -30,98 +30,145 @@ var require_zeroBounceSDK = __commonJS({
   "node_modules/@zerobounce/zero-bounce-sdk/dist/zeroBounceSDK.js"(exports, module) {
     !(function(e, i) {
       "object" == typeof exports && "object" == typeof module ? module.exports = i() : "function" == typeof define && define.amd ? define([], i) : "object" == typeof exports ? exports.ZeroBounceSDK = i() : e.ZeroBounceSDK = i();
-    })(exports, (() => (() => {
+    })(exports, () => (() => {
       "use strict";
-      var e = { d: (i2, t2) => {
-        for (var a2 in t2) e.o(t2, a2) && !e.o(i2, a2) && Object.defineProperty(i2, a2, { enumerable: true, get: t2[a2] });
+      var e = { d: (i2, a2) => {
+        for (var t2 in a2) e.o(a2, t2) && !e.o(i2, t2) && Object.defineProperty(i2, t2, { enumerable: true, get: a2[t2] });
       }, o: (e2, i2) => Object.prototype.hasOwnProperty.call(e2, i2) }, i = {};
-      e.d(i, { default: () => s });
-      const t = { Accept: "*/*", "Accept-Encoding": "gzip, deflate, br", Connection: "keep-alive" };
-      async function a({ requestType: e2, body: i2 = null, params: a2 = null, path: r2, batch: n2 = false, returnText: s2 = false, scoring: l = false }) {
-        const o = `${n2 ? "https://bulkapi.zerobounce.net/v2" : "https://api.zerobounce.net/v2"}${r2}?${new URLSearchParams(a2)}`;
-        try {
-          const a3 = await fetch(o, { method: e2, headers: t, body: i2 });
-          if (s2) {
-            const e3 = await a3.text();
-            return e3.includes('"success":"False"') ? JSON.parse(e3) : (function(e4, i3) {
-              if (!window.navigator.msSaveOrOpenBlob) {
-                const t2 = document.createElement("a");
-                document.body.appendChild(t2);
-                const a4 = window.URL.createObjectURL(e4);
-                return t2.href = a4, t2.download = i3, t2.click(), setTimeout((() => {
-                  window.URL.revokeObjectURL(a4), document.body.removeChild(t2);
-                }), 0), i3;
-              }
-              window.navigator.msSaveOrOpenBlob(e4, i3);
-            })(new Blob([e3], { type: "application/json" }), `result${l ? "-scoring" : ""}.csv`);
+      e.d(i, { default: () => m });
+      const a = { Accept: "*/*", "Accept-Encoding": "gzip, deflate, br", Connection: "keep-alive" };
+      function t(e2, i2) {
+        const a2 = e2[i2];
+        return null != a2 && ("string" == typeof a2 ? "" !== a2.trim() : !!Array.isArray(a2) && a2.some((e3) => "string" == typeof e3 && "" !== e3.trim()));
+      }
+      function n() {
+        return "undefined" != typeof window && "undefined" != typeof document && "function" == typeof document.createElement;
+      }
+      function r(e2, i2, a2) {
+        const r2 = (i2.headers.get("content-type") || "").toLowerCase(), s2 = e2.trim();
+        if (r2.includes("application/json") || s2.startsWith("{") || s2.startsWith("[")) try {
+          const i3 = JSON.parse(e2);
+          if ((function(e3) {
+            return !(!e3 || "object" != typeof e3 || Array.isArray(e3)) && (!(!(i4 = e3) || "object" != typeof i4 || Array.isArray(i4) || !(Object.prototype.hasOwnProperty.call(i4, "success") && null != i4.success && (false === i4.success || "False" === i4.success || "false" === i4.success) || t(i4, "message") || t(i4, "error") || t(i4, "error_message"))) || Object.prototype.hasOwnProperty.call(e3, "success"));
+            var i4;
+          })(i3)) return i3;
+        } catch {
+        }
+        if (!i2.ok) try {
+          return JSON.parse(e2);
+        } catch {
+          throw new Error(e2 || `HTTP ${i2.status}`);
+        }
+        return n() ? (function(e3, i3) {
+          if (!n()) throw new Error("saveFile is only available in browser environments");
+          if (!window.navigator.msSaveOrOpenBlob) {
+            const a3 = document.createElement("a");
+            document.body.appendChild(a3);
+            const t2 = window.URL.createObjectURL(e3);
+            return a3.href = t2, a3.download = i3, a3.click(), setTimeout(() => {
+              window.URL.revokeObjectURL(t2), document.body.removeChild(a3);
+            }, 0), i3;
           }
-          if (403 === a3.status) throw new Error("[Error]: api_key is invalid");
-          return await a3.json();
+          window.navigator.msSaveOrOpenBlob(e3, i3);
+        })(new Blob([e2], { type: "text/csv" }), `result${a2 ? "-scoring" : ""}.csv`) : e2;
+      }
+      async function s({ requestType: e2, body: i2 = null, params: t2 = null, path: n2, batch: s2 = false, returnText: l2 = false, scoring: _2 = false, apiBaseURL: o2 }) {
+        const d2 = `${s2 ? "https://bulkapi.zerobounce.net/v2" : o2}${n2}?${new URLSearchParams(t2)}`;
+        try {
+          const t3 = await fetch(d2, { method: e2, headers: a, body: i2 });
+          if (l2) return r(await t3.text(), t3, _2);
+          if (403 === t3.status) throw new Error("[Error]: api_key is invalid");
+          return await t3.json();
         } catch (e3) {
           throw new Error(e3);
         }
       }
-      function r() {
+      function l() {
         console.error("ZeroBounce: Call init function first with a valid api key.");
       }
-      function n(e2, i2 = "") {
+      function _(e2, i2 = "") {
         console.error(`ZeroBounce: ${e2} parameter is missing. ${i2}`);
       }
-      const s = class {
+      const o = Object.freeze({ NONE: "", VALID: "valid", INVALID: "invalid", CATCH_ALL: "catch-all", UNKNOWN: "unknown", SPAMTRAP: "spamtrap", ABUSE: "abuse", DO_NOT_MAIL: "do_not_mail" }), d = Object.freeze({ NONE: "", ANTISPAM_SYSTEM: "antispam_system", GREYLISTED: "greylisted", MAIL_SERVER_TEMPORARY_ERROR: "mail_server_temporary_error", FORCIBLE_DISCONNECT: "forcible_disconnect", MAIL_SERVER_DID_NOT_RESPOND: "mail_server_did_not_respond", TIMEOUT_EXCEEDED: "timeout_exceeded", FAILED_SMTP_CONNECTION: "failed_smtp_connection", MAILBOX_QUOTA_EXCEEDED: "mailbox_quota_exceeded", EXCEPTION_OCCURRED: "exception_occurred", POSSIBLE_TRAP: "possible_trap", ROLE_BASED: "role_based", GLOBAL_SUPPRESSION: "global_suppression", MAILBOX_NOT_FOUND: "mailbox_not_found", NO_DNS_ENTRIES: "no_dns_entries", FAILED_SYNTAX_CHECK: "failed_syntax_check", POSSIBLE_TYPO: "possible_typo", UNROUTABLE_IP_ADDRESS: "unroutable_ip_address", LEADING_PERIOD_REMOVED: "leading_period_removed", DOES_NOT_ACCEPT_MAIL: "does_not_accept_mail", ALIAS_ADDRESS: "alias_address", ROLE_BASED_CATCH_ALL: "role_based_catch_all", DISPOSABLE: "disposable", TOXIC: "toxic", ALTERNATE: "alternate", MX_FORWARD: "mx_forward", BLOCKED: "blocked", ALLOWED: "allowed", ACCEPT_ALL: "accept_all", ROLE_BASED_ACCEPT_ALL: "role_based_accept_all", GOLD: "gold" }), p = Object.freeze({ PHASE_1: "phase_1", PHASE_2: "phase_2", COMBINED: "combined" });
+      class u {
+        static ApiURL = Object.freeze({ DEFAULT_API_URL: "https://api.zerobounce.net/v2", USA_API_URL: "https://api-us.zerobounce.net/v2", EU_API_URL: "https://api-eu.zerobounce.net/v2" });
+        static ZBValidateStatus = o;
+        static ZBValidateSubStatus = d;
+        static ZBDownloadType = p;
         constructor() {
-          this._initialized = false, this._api_key = null;
+          this._initialized = false, this._api_key = null, this._api_base_url = u.ApiURL.DEFAULT_API_URL;
         }
-        init(e2) {
-          e2 ? (this._api_key = e2, this._initialized = true) : n("Api key", "Please provide a valid API key.");
+        init(e2, i2 = u.ApiURL.DEFAULT_API_URL) {
+          e2 ? (this._api_key = e2, this._api_base_url = i2, this._initialized = true) : _("Api key", "Please provide a valid API key.");
         }
         getCredits() {
-          if (this._initialized) return a({ requestType: "GET", params: { api_key: this._api_key }, path: "/getcredits" });
-          r();
+          if (this._initialized) return s({ requestType: "GET", params: { api_key: this._api_key }, path: "/getcredits", apiBaseURL: this._api_base_url });
+          l();
         }
         validateEmail(e2, i2 = null) {
-          if (this._initialized) {
-            if (e2) return a({ requestType: "GET", params: { api_key: this._api_key, email: e2, ip_address: i2 }, path: "/validate" });
-            n("Email");
-          } else r();
+          if (!this._initialized) return void l();
+          if (!e2) return void _("Email");
+          let a2, t2;
+          if ("string" == typeof i2 ? a2 = i2 : i2 && "object" == typeof i2 && (a2 = i2.ip_address, t2 = i2.timeout), null != t2 && (t2 < 3 || t2 > 60)) return void (function(e3, i3 = "") {
+            console.error(`ZeroBounce: ${e3} parameter is invalid. ${i3}`);
+          })("timeout", "Must be between 3 and 60 seconds.");
+          const n2 = { api_key: this._api_key, email: e2 };
+          return null != a2 && (n2.ip_address = a2), null != t2 && (n2.timeout = t2), s({ requestType: "GET", params: n2, path: "/validate", apiBaseURL: this._api_base_url });
         }
         getApiUsage(e2, i2) {
           if (this._initialized) if (e2) {
-            if (i2) return a({ requestType: "GET", params: { api_key: this._api_key, start_date: e2, end_date: i2 }, path: "/getapiusage" });
-            n("End date", "Format: YYYY-MM-DD");
-          } else n("Start date", "Format: YYYY-MM-DD");
-          else r();
+            if (i2) return s({ requestType: "GET", params: { api_key: this._api_key, start_date: e2, end_date: i2 }, path: "/getapiusage", apiBaseURL: this._api_base_url });
+            _("End date", "Format: YYYY-MM-DD");
+          } else _("Start date", "Format: YYYY-MM-DD");
+          else l();
         }
         validateBatch(e2) {
-          if (!this._initialized) return void r();
-          if (!e2) return void n("Email list");
+          if (!this._initialized) return void l();
+          if (!e2) return void _("Email list");
           const i2 = { api_key: this._api_key, email_batch: e2 };
-          return a({ requestType: "POST", path: "/validatebatch", body: JSON.stringify(i2), batch: true });
+          return s({ requestType: "POST", path: "/validatebatch", body: JSON.stringify(i2), batch: true, apiBaseURL: this._api_base_url });
         }
         getEmailActivity(e2) {
           if (this._initialized) {
-            if (e2) return a({ requestType: "GET", params: { api_key: this._api_key, email: e2 }, path: "/activity" });
-            n("Email");
-          } else r();
+            if (e2) return s({ requestType: "GET", params: { api_key: this._api_key, email: e2 }, path: "/activity", apiBaseURL: this._api_base_url });
+            _("Email");
+          } else l();
         }
-        sendFile({ file: e2, email_address_column: i2, first_name_column: t2 = false, return_url: s2 = false, last_name_column: l = false, gender_column: o = false, ip_address_column: d = false, has_header_row: p = false, remove_duplicate: u = false }) {
-          if (!this._initialized) return void r();
-          if (!e2) return void n("file");
-          if (!i2) return void n("email_address_column");
-          const _ = new FormData();
-          return s2 && _.append("return_url", s2), t2 && _.append("first_name_column", t2), l && _.append("last_name_column", l), o && _.append("gender_column", o), d && _.append("ip_address_column", d), _.append("email_address_column", i2), _.append("file", e2), _.append("has_header_row", p), _.append("remove_duplicate", u), _.append("api_key", this._api_key), a({ requestType: "POST", path: "/sendfile", body: _, batch: true });
+        sendFile({ file: e2, email_address_column: i2, first_name_column: a2 = false, return_url: t2 = false, last_name_column: n2 = false, gender_column: r2 = false, ip_address_column: o2 = false, has_header_row: d2 = false, remove_duplicate: p2 = false, allowPhase2: u2 = null }) {
+          if (!this._initialized) return void l();
+          if (!e2) return void _("file");
+          if (!i2) return void _("email_address_column");
+          const m2 = new FormData();
+          return t2 && m2.append("return_url", t2), a2 && m2.append("first_name_column", a2), n2 && m2.append("last_name_column", n2), r2 && m2.append("gender_column", r2), o2 && m2.append("ip_address_column", o2), m2.append("email_address_column", i2), m2.append("file", e2), m2.append("has_header_row", d2), m2.append("remove_duplicate", p2), m2.append("api_key", this._api_key), null != u2 && m2.append("allow_phase_2", String(u2)), s({ requestType: "POST", path: "/sendfile", body: m2, batch: true, apiBaseURL: this._api_base_url });
         }
-        sendScoringFile({ file: e2, email_address_column: i2, return_url: t2 = false, has_header_row: s2 = false, remove_duplicate: l = false }) {
-          if (!this._initialized) return void r();
-          if (!e2) return void n("file: File");
-          if (!i2) return void n("email_address_column: number");
-          const o = new FormData();
-          return t2 && o.append("return_url", t2), o.append("file", e2), o.append("email_address_column", i2), o.append("has_header_row", s2), o.append("api_key", this._api_key), o.append("remove_duplicate", l), a({ requestType: "POST", path: "/scoring/sendfile", body: o, batch: true });
+        sendFileStream(e2, i2, { email_address_column: a2, first_name_column: t2 = false, return_url: n2 = false, last_name_column: r2 = false, gender_column: o2 = false, ip_address_column: d2 = false, has_header_row: p2 = false, remove_duplicate: u2 = false, allowPhase2: m2 = null } = {}) {
+          if (!this._initialized) return void l();
+          if (!e2) return void _("fileStreamOrBlob");
+          if (!i2) return void _("fileName");
+          if (!a2) return void _("email_address_column");
+          const c = new FormData();
+          return n2 && c.append("return_url", n2), t2 && c.append("first_name_column", t2), r2 && c.append("last_name_column", r2), o2 && c.append("gender_column", o2), d2 && c.append("ip_address_column", d2), c.append("email_address_column", a2), c.append("file", e2, i2), c.append("has_header_row", p2), c.append("remove_duplicate", u2), c.append("api_key", this._api_key), null != m2 && c.append("allow_phase_2", String(m2)), s({ requestType: "POST", path: "/sendfile", body: c, batch: true, apiBaseURL: this._api_base_url });
+        }
+        sendScoringFile({ file: e2, email_address_column: i2, return_url: a2 = false, has_header_row: t2 = false, remove_duplicate: n2 = false }) {
+          if (!this._initialized) return void l();
+          if (!e2) return void _("file: File");
+          if (!i2) return void _("email_address_column: number");
+          const r2 = new FormData();
+          return a2 && r2.append("return_url", a2), r2.append("file", e2), r2.append("email_address_column", i2), r2.append("has_header_row", t2), r2.append("api_key", this._api_key), r2.append("remove_duplicate", n2), s({ requestType: "POST", path: "/scoring/sendfile", body: r2, batch: true, apiBaseURL: this._api_base_url });
+        }
+        sendScoringFileStream(e2, i2, { email_address_column: a2, return_url: t2 = false, has_header_row: n2 = false, remove_duplicate: r2 = false } = {}) {
+          if (!this._initialized) return void l();
+          if (!e2) return void _("fileStreamOrBlob");
+          if (!i2) return void _("fileName");
+          if (!a2) return void _("email_address_column");
+          const o2 = new FormData();
+          return t2 && o2.append("return_url", t2), o2.append("file", e2, i2), o2.append("email_address_column", a2), o2.append("has_header_row", n2), o2.append("api_key", this._api_key), o2.append("remove_duplicate", r2), s({ requestType: "POST", path: "/scoring/sendfile", body: o2, batch: true, apiBaseURL: this._api_base_url });
         }
         _getStatusUtil(e2, i2) {
           if (this._initialized) {
-            if (e2) return a({ requestType: "GET", params: { api_key: this._api_key, file_id: e2 }, path: i2, batch: true });
-            n("File id");
-          } else r();
+            if (e2) return s({ requestType: "GET", params: { api_key: this._api_key, file_id: e2 }, path: i2, batch: true, apiBaseURL: this._api_base_url });
+            _("File id");
+          } else l();
         }
         getFileStatus(e2) {
           return this._getStatusUtil(e2, "/filestatus");
@@ -129,23 +176,23 @@ var require_zeroBounceSDK = __commonJS({
         getScoringFileStatus(e2) {
           return this._getStatusUtil(e2, "/scoring/filestatus");
         }
-        _getFileUtil(e2, i2, t2 = false) {
+        _getFileUtil(e2, i2, a2 = false, t2 = null) {
+          if (!this._initialized) return void l();
+          if (!e2) return void _("File id");
+          const n2 = { api_key: this._api_key, file_id: e2 };
+          return null != t2 && "object" == typeof t2 && (null != t2.downloadType && (n2.download_type = t2.downloadType), a2 || null == t2.activityData || (n2.activity_data = t2.activityData ? "true" : "false")), s({ requestType: "GET", params: n2, path: i2, batch: true, returnText: true, scoring: a2, apiBaseURL: this._api_base_url });
+        }
+        getFile(e2, i2 = null) {
+          return this._getFileUtil(e2, "/getfile", false, i2);
+        }
+        getScoringFile(e2, i2 = null) {
+          return this._getFileUtil(e2, "/scoring/getfile", true, i2);
+        }
+        _deleteFileUtil(e2, i2, a2 = false) {
           if (this._initialized) {
-            if (e2) return a({ requestType: "GET", params: { api_key: this._api_key, file_id: e2 }, path: i2, batch: true, returnText: true, scoring: t2 });
-            n("File id");
-          } else r();
-        }
-        getFile(e2) {
-          return this._getFileUtil(e2, "/getfile");
-        }
-        getScoringFile(e2) {
-          return this._getFileUtil(e2, "/scoring/getfile", true);
-        }
-        _deleteFileUtil(e2, i2, t2 = false) {
-          if (this._initialized) {
-            if (e2) return a({ requestType: "GET", params: { api_key: this._api_key, file_id: e2 }, path: i2, batch: true, scoring: t2 });
-            n("File id");
-          } else r();
+            if (e2) return s({ requestType: "GET", params: { api_key: this._api_key, file_id: e2 }, path: i2, batch: true, scoring: a2, apiBaseURL: this._api_base_url });
+            _("File id");
+          } else l();
         }
         deleteFile(e2) {
           return this._deleteFileUtil(e2, "/deletefile");
@@ -153,15 +200,41 @@ var require_zeroBounceSDK = __commonJS({
         deleteScoringFile(e2) {
           return this._deleteFileUtil(e2, "/scoring/deletefile", true);
         }
-        guessFormat({ domain: e2, first_name: i2 = null, middle_name: t2 = null, last_name: s2 = null }) {
-          if (this._initialized) {
-            if (e2) return a({ requestType: "GET", params: { api_key: this._api_key, domain: e2, first_name: i2, middle_name: t2, last_name: s2 }, path: "/guessformat" });
-            n("domain");
-          } else r();
+        findEmailByDomain({ domain: e2, first_name: i2, middle_name: a2 = null, last_name: t2 = null }) {
+          return this._findEmail({ domain: e2, first_name: i2, middle_name: a2, last_name: t2 });
         }
-      };
+        findEmailByCompanyName({ company_name: e2, first_name: i2, middle_name: a2 = null, last_name: t2 = null }) {
+          return this._findEmail({ company_name: e2, first_name: i2, middle_name: a2, last_name: t2 });
+        }
+        _findEmail({ domain: e2 = null, company_name: i2 = null, first_name: a2, middle_name: t2 = null, last_name: n2 = null }) {
+          if (!this._initialized) return void l();
+          if (!e2 && !i2) return _("domain"), void _("company_name");
+          if (!a2) return void _("first_name");
+          const r2 = { api_key: this._api_key, first_name: a2, middle_name: t2, last_name: n2 };
+          return null != e2 ? r2.domain = e2 : null != i2 && (r2.company_name = i2), s({ requestType: "GET", params: r2, path: "/guessformat", apiBaseURL: this._api_base_url });
+        }
+        findEmailFormatByDomain({ domain: e2 }) {
+          return this._findEmailFormat({ domain: e2 });
+        }
+        findEmailFormatByCompanyName({ company_name: e2 }) {
+          return this._findEmailFormat({ company_name: e2 });
+        }
+        _findEmailFormat({ domain: e2 = null, company_name: i2 = null }) {
+          if (!this._initialized) return void l();
+          if (!e2 && !i2) return _("domain"), void _("company_name");
+          const a2 = { api_key: this._api_key };
+          return null != e2 ? a2.domain = e2 : null != i2 && (a2.company_name = i2), s({ requestType: "GET", params: a2, path: "/guessformat", apiBaseURL: this._api_base_url });
+        }
+        guessFormat({ domain: e2, first_name: i2 = null, middle_name: a2 = null, last_name: t2 = null }) {
+          if (console.warn("guessFormat() is deprecated. Use findEmail for Email Finder API, or findEmailFormat for Domain Search API."), this._initialized) {
+            if (e2) return s({ requestType: "GET", params: { api_key: this._api_key, domain: e2, first_name: i2, middle_name: a2, last_name: t2 }, path: "/guessformat", apiBaseURL: this._api_base_url });
+            _("domain");
+          } else l();
+        }
+      }
+      const m = u;
       return i.default;
-    })()));
+    })());
   }
 });
 
@@ -248,7 +321,7 @@ var ZeroBounceClient = class {
    */
   async bulkValidateGetFile(fileId) {
     const result = await this.sdk.getFile(fileId);
-    return result;
+    return this.normalizeBulkFileResult(result);
   }
   /**
    * Delete bulk validation file
@@ -282,7 +355,24 @@ var ZeroBounceClient = class {
    */
   async bulkAIScoringGetFile(fileId) {
     const result = await this.sdk.getScoringFile(fileId);
-    return result;
+    return this.normalizeBulkFileResult(result);
+  }
+  normalizeBulkFileResult(result) {
+    if (result === void 0) {
+      throw new Error("ZeroBounce SDK returned no result");
+    }
+    if (typeof result === "string") {
+      return { success: true, csv: result };
+    }
+    if (result instanceof Blob) {
+      throw new Error("Unexpected Blob response from bulk get-file endpoint");
+    }
+    if (typeof result === "object" && result !== null) {
+      const error = result;
+      const message = Array.isArray(error.message) ? error.message.join(", ") : error.message ?? error.error_message ?? error.error;
+      throw new Error(message ?? JSON.stringify(result));
+    }
+    throw new Error(`Unexpected bulk get-file response: ${String(result)}`);
   }
   /**
    * Delete bulk AI scoring file

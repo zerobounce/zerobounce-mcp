@@ -130,11 +130,8 @@ export interface BulkFileStatusResponse {
 }
 
 export interface BulkFileGetResponse {
-  file_id: string;
-  file_name: string;
-  file_status: string;
-  file_contents?: string;
-  download_url?: string;
+  success: true;
+  csv: string;
 }
 
 export interface BulkFileDeleteResponse {
@@ -345,7 +342,7 @@ export class ZeroBounceClient {
    */
   async bulkValidateGetFile(fileId: string): Promise<BulkFileGetResponse> {
     const result = await this.sdk.getFile(fileId);
-    return result as BulkFileGetResponse;
+    return this.normalizeBulkFileResult(result);
   }
 
   /**
@@ -394,7 +391,36 @@ export class ZeroBounceClient {
    */
   async bulkAIScoringGetFile(fileId: string): Promise<BulkFileGetResponse> {
     const result = await this.sdk.getScoringFile(fileId);
-    return result as BulkFileGetResponse;
+    return this.normalizeBulkFileResult(result);
+  }
+
+  private normalizeBulkFileResult(result: unknown): BulkFileGetResponse {
+    if (result === undefined) {
+      throw new Error('ZeroBounce SDK returned no result');
+    }
+
+    if (typeof result === 'string') {
+      return { success: true, csv: result };
+    }
+
+    if (result instanceof Blob) {
+      throw new Error('Unexpected Blob response from bulk get-file endpoint');
+    }
+
+    if (typeof result === 'object' && result !== null) {
+      const error = result as {
+        message?: string | string[];
+        error?: string;
+        error_message?: string;
+      };
+      const message = Array.isArray(error.message)
+        ? error.message.join(', ')
+        : error.message ?? error.error_message ?? error.error;
+
+      throw new Error(message ?? JSON.stringify(result));
+    }
+
+    throw new Error(`Unexpected bulk get-file response: ${String(result)}`);
   }
 
   /**
