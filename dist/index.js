@@ -126,7 +126,7 @@ var require_zeroBounceSDK = __commonJS({
           if (!this._initialized) return void l();
           if (!e2) return void _("Email list");
           const i2 = { api_key: this._api_key, email_batch: e2 };
-          return s({ requestType: "POST", path: "/validatebatch", body: JSON.stringify(i2), batch: true, apiBaseURL: this._api_base_url });
+          return s({ requestType: "POST", path: "/validatebatch", body: JSON.stringify(i2), apiBaseURL: this._api_base_url });
         }
         getEmailActivity(e2) {
           if (this._initialized) {
