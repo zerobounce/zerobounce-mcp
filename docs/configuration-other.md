@@ -39,6 +39,46 @@ For any MCP client that follows the standard specification, you can start from t
 > **⚠️ Important:** 
 > - Replace `YOUR_API_KEY` with your actual ZeroBounce API key
 
+The key can also be supplied as an environment variable instead of a flag. Clients that
+spawn the server as a child process usually expose an `env` block for this:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "command": "zerobounce-mcp",
+      "env": { "ZEROBOUNCE_API_KEY": "YOUR_API_KEY" }
+    }
+  }
+}
+```
+
+`--api-key` wins if both are present.
+
+### A note on `${ZEROBOUNCE_API_KEY}` references
+
+Several clients support referencing a variable that already exists in their environment,
+for example `"ZEROBOUNCE_API_KEY": "${ZEROBOUNCE_API_KEY}"`. This is only safe when the
+variable is genuinely present in the **client process's** environment.
+
+Desktop clients launched from a Dock icon, Spotlight, or a Start-menu shortcut do not
+source `~/.zshrc`, `~/.bashrc`, or `~/.profile`, so exports in those files never reach
+them. When the reference cannot be resolved, some clients forward the literal string
+`${ZEROBOUNCE_API_KEY}` as the key. The server treats it as a valid non-empty key and
+starts, so the client shows the server connected with all tools available — yet every
+request fails with `api_key is invalid`.
+
+On macOS, publish the variable to the GUI session and restart the client:
+
+```bash
+zsh -ic 'launchctl setenv ZEROBOUNCE_API_KEY "$ZEROBOUNCE_API_KEY"'
+```
+
+Run it through an interactive shell as shown, otherwise `$ZEROBOUNCE_API_KEY` may expand
+to nothing and set an empty value. Verify with `launchctl getenv ZEROBOUNCE_API_KEY`.
+This setting is cleared on reboot, so prefer a login LaunchAgent — or simply write the
+key literally into the config file — if you need it to persist.
+
 
 ## Client-Specific Examples
 

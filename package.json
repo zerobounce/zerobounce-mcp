@@ -1,6 +1,6 @@
 {
   "name": "@zerobounce/mcp",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Model Context Protocol server for ZeroBounce email validation, verification, and intelligence. Provides comprehensive email validation, AI scoring, email finder, domain search, and bulk processing capabilities for AI coding assistants.",
   "type": "module",
   "main": "dist/index.js",

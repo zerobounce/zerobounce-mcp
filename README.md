@@ -92,6 +92,53 @@ Alternatively, supply the key through the `ZEROBOUNCE_API_KEY` environment varia
 
 The `--api-key` flag takes precedence when both are set.
 
+### Referencing an existing environment variable
+
+Some clients let you reference a variable that already exists in their own environment,
+rather than writing the key into the config file:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "command": "zerobounce-mcp",
+      "env": { "ZEROBOUNCE_API_KEY": "${ZEROBOUNCE_API_KEY}" }
+    }
+  }
+}
+```
+
+> **⚠️ This only works if the variable is present in the environment of the client
+> process itself** — not merely in your shell. A desktop client started from a macOS
+> Dock icon, Spotlight, or a Windows Start-menu shortcut does **not** read `~/.zshrc`,
+> `~/.bashrc`, or `~/.profile`, so an export placed there will be invisible to it.
+>
+> When the variable is missing, some clients pass the unresolved text
+> `${ZEROBOUNCE_API_KEY}` through as the key. That value is non-empty, so this server
+> accepts it and starts normally: the client reports the server as connected and lists
+> every tool, but each API call fails with `api_key is invalid`. The symptom looks like
+> an expired key or a ZeroBounce outage, while the actual cause is that the reference
+> was never expanded.
+>
+> To confirm, check whether the variable is really visible to GUI applications:
+>
+> ```bash
+> launchctl getenv ZEROBOUNCE_API_KEY   # macOS; empty output means it is not set
+> ```
+>
+> On macOS you can publish it to the GUI session, expanding the value through an
+> interactive shell so it does not silently resolve to an empty string:
+>
+> ```bash
+> zsh -ic 'launchctl setenv ZEROBOUNCE_API_KEY "$ZEROBOUNCE_API_KEY"'
+> ```
+>
+> Restart the client afterwards — it only inherits the variable if it is launched after
+> the change. Note that `launchctl setenv` does not survive a reboot; make it permanent
+> with a login LaunchAgent, or avoid the problem entirely by writing the key literally
+> into the config as shown above.
+
+
 Select your client below for detailed, client-specific setup steps:
 
 - **[Cursor](docs/configuration-cursor.md)** – Configure ZeroBounce MCP for Cursor IDE
@@ -392,6 +439,7 @@ The server handles errors gracefully and returns descriptive error messages:
 |-------|-------|----------|
 | Missing API key | API key not provided | Add the `--api-key` argument or set `ZEROBOUNCE_API_KEY` |
 | Invalid API key | API key is incorrect or expired | Verify your API key in the ZeroBounce dashboard |
+| `api_key is invalid` on every call, though the server connects | Config used `${ZEROBOUNCE_API_KEY}` but the client could not expand it, so the literal placeholder was sent as the key | See **Referencing an existing environment variable** — publish the variable to the client's environment, or write the key literally into the config |
 | Network errors | Cannot connect to ZeroBounce API | Check your internet connection and firewall settings |
 | Rate limiting | Too many requests | Wait and retry, or upgrade your ZeroBounce plan |
 | Invalid email format | Email address format is invalid | Check the email address format |
