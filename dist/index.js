@@ -1085,12 +1085,15 @@ function parseArgs() {
         throw new Error("--api-key requires a value");
       }
     } else if (arg.startsWith("--api-key=")) {
-      config.apiKey = arg.split("=")[1];
+      config.apiKey = arg.slice("--api-key=".length);
     }
   }
   if (!config.apiKey) {
+    config.apiKey = process.env.ZEROBOUNCE_API_KEY?.trim() ?? "";
+  }
+  if (!config.apiKey) {
     throw new Error(
-      "ZeroBounce API key is required. Provide it via --api-key flag."
+      "ZeroBounce API key is required. Provide it via the --api-key flag or the ZEROBOUNCE_API_KEY environment variable."
     );
   }
   return config;

@@ -77,6 +77,21 @@ Most MCP-compatible clients use the same basic configuration shape. A minimal ex
 }
 ```
 
+Alternatively, supply the key through the `ZEROBOUNCE_API_KEY` environment variable instead of the flag:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "command": "zerobounce-mcp",
+      "env": { "ZEROBOUNCE_API_KEY": "YOUR_API_KEY" }
+    }
+  }
+}
+```
+
+The `--api-key` flag takes precedence when both are set.
+
 Select your client below for detailed, client-specific setup steps:
 
 - **[Cursor](docs/configuration-cursor.md)** – Configure ZeroBounce MCP for Cursor IDE
@@ -375,7 +390,7 @@ The server handles errors gracefully and returns descriptive error messages:
 
 | Error | Cause | Solution |
 |-------|-------|----------|
-| Missing API key | API key not provided | Add `--api-key` argument |
+| Missing API key | API key not provided | Add the `--api-key` argument or set `ZEROBOUNCE_API_KEY` |
 | Invalid API key | API key is incorrect or expired | Verify your API key in the ZeroBounce dashboard |
 | Network errors | Cannot connect to ZeroBounce API | Check your internet connection and firewall settings |
 | Rate limiting | Too many requests | Wait and retry, or upgrade your ZeroBounce plan |
