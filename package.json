@@ -15,7 +15,9 @@
   "scripts": {
     "build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/sdk --banner:js='#!/usr/bin/env node' && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
+    "dev:http": "tsx src/mcpfy-server.ts",
     "start": "node dist/index.js",
+    "start:http": "tsx src/mcpfy-server.ts",
     "test": "node test-mcp.js",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -49,7 +51,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@zerobounce/zero-bounce-sdk": "^2.1.9"
+    "@zerobounce/zero-bounce-sdk": "^2.1.9",
+    "mcpfy-sdk": "^0.4.0",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
