@@ -15,9 +15,9 @@
   "scripts": {
     "build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/sdk --banner:js='#!/usr/bin/env node' && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
-    "dev:http": "tsx src/mcpfy-server.ts",
+    "dev:http": "tsx --env-file-if-exists=.env src/mcpfy-server.ts",
     "start": "node dist/index.js",
-    "start:http": "tsx src/mcpfy-server.ts",
+    "start:http": "tsx --env-file-if-exists=.env src/mcpfy-server.ts",
     "test": "node test-mcp.js",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",

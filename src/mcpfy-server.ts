@@ -69,6 +69,17 @@ function parsePortValue(value: string): number {
   return port;
 }
 
+/** mcpfy-sdk wraps the HTTP transport when MCPFY_API_KEY is set (skipped on MCPfy gateway). */
+function logPulseStatus(): void {
+  if (process.env.MCPFY_GATEWAY) {
+    return;
+  }
+
+  if (process.env.MCPFY_API_KEY?.trim()) {
+    console.error('MCPfy Pulse telemetry enabled');
+  }
+}
+
 async function main(): Promise<void> {
   const apiKey = parseApiKey();
   const port = parsePort();
@@ -83,6 +94,7 @@ async function main(): Promise<void> {
 
   registerZeroBounceTools(server, client);
 
+  logPulseStatus();
   await server.listen({ transport: 'http', port });
 }
 
