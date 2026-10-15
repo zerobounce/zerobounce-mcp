@@ -146,6 +146,51 @@ Select your client below for detailed, client-specific setup steps:
 - **[Other / generic clients](docs/configuration-other.md)** – Configure ZeroBounce MCP for Claude Desktop, Continue, Zed, and others
 
 
+## Remote (HTTP) Mode
+
+The server can also run as a stateless [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http)
+endpoint for hosting on a remote MCP platform:
+
+```bash
+npm run build
+PORT=3000 node dist/index.js --http
+```
+
+- MCP endpoint: `POST /mcp`. A browser `GET` returns `405 Method Not Allowed`, which is expected.
+- Health check: `GET /health`
+- Enable it with `--http` or `MCP_TRANSPORT=http`. The port comes from `--port` or `PORT` (default `3000`).
+
+In HTTP mode **each caller supplies their own ZeroBounce API key** on every request, either as
+`X-ZeroBounce-Api-Key: <key>` or `Authorization: Bearer <key>`. `ZEROBOUNCE_API_KEY` and
+`--api-key` are ignored, so a hosted deployment never spends a shared key's credits. A request
+without a key is rejected with `401`.
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "url": "https://your-host.example.com/mcp",
+      "headers": { "X-ZeroBounce-Api-Key": "your_api_key_here" }
+    }
+  }
+}
+```
+
+### Deploying from GitHub
+
+Most hosted MCP platforms that build from a GitHub repository need these settings:
+
+| Setting | Value |
+|---|---|
+| Repository / Branch | `zerobounce/zerobounce-mcp` / `main` |
+| Runtime / Preset | Node.js (MCP TypeScript SDK) |
+| Repository Root Directory | *(empty)* |
+| Build Command | `npm ci && npm run build` |
+| Start Command | `node dist/index.js --http` |
+| Port | `3000` |
+| Environment Variables | none required (set `PORT` only if you change the port) |
+
+
 ## Tools
 
 The ZeroBounce MCP server provides the following tools, organized by category:
