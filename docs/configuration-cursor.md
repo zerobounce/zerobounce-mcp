@@ -58,6 +58,25 @@ npm install -g @zerobounce/mcp
 6. **Restart Cursor**
    - Close and reopen Cursor for the changes to take effect
 
+### Connecting to a hosted server
+
+If ZeroBounce MCP is deployed as a remote server, point Cursor at its URL instead of a local command:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "url": "https://your-host.example.com/mcp",
+      "headers": { "X-ZeroBounce-Api-Key": "YOUR_API_KEY" }
+    }
+  }
+}
+```
+
+Replace `https://your-host.example.com/mcp` with the address of your deployment (see
+**Remote (HTTP) Mode** in `README.md`). Nothing needs to be installed locally, and the API key
+travels with every request in the `X-ZeroBounce-Api-Key` header.
+
 ## Getting Your API Key
 
 See **"Getting Your API Key"** in `README.md` for steps to obtain and manage your ZeroBounce API key.
@@ -133,6 +152,16 @@ Show me my ZeroBounce account credits and recent usage
 - Ensure there are no extra spaces in the configuration
 - Check that the API key hasn't expired
 - Try regenerating your API key in the dashboard
+
+#### Hosted Server Returns 401 or 405
+
+**Problem:** Connecting to a hosted server fails with `401` or `405`
+
+**Solutions:**
+- `401` means the request reached the server without an API key: check that the
+  `X-ZeroBounce-Api-Key` header is set and not empty
+- `405 Method Not Allowed` when you open the URL in a browser is expected; MCP clients use `POST`
+- Make sure the URL ends in `/mcp`
 
 #### Connection Errors
 

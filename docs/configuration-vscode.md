@@ -62,6 +62,36 @@ npm install -g @zerobounce/mcp
 6. **Save the configuration**
    - The MCP server should now be available in VS Code
 
+### Connecting to a hosted server
+
+If ZeroBounce MCP is deployed as a remote server, add it as an HTTP server in `.vscode/mcp.json`
+(or your user `mcp.json`). The `inputs` block makes VS Code prompt for the key once and store it
+securely instead of keeping it in the file:
+
+```json
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "zerobounce-api-key",
+      "description": "ZeroBounce API key",
+      "password": true
+    }
+  ],
+  "servers": {
+    "zerobounce": {
+      "type": "http",
+      "url": "https://your-host.example.com/mcp",
+      "headers": { "X-ZeroBounce-Api-Key": "${input:zerobounce-api-key}" }
+    }
+  }
+}
+```
+
+Replace `https://your-host.example.com/mcp` with the address of your deployment (see
+**Remote (HTTP) Mode** in `README.md`). Nothing needs to be installed locally, and the API key
+travels with every request in the `X-ZeroBounce-Api-Key` header.
+
 ## Verifying Installation
 
 After installation, verify the server is running:
@@ -144,6 +174,16 @@ Show me my ZeroBounce account status and usage for this month
 - Ensure no extra spaces or characters in the configuration
 - Verify the API key hasn't expired
 - Try regenerating your API key
+
+#### Hosted Server Returns 401 or 405
+
+**Problem:** Connecting to a hosted server fails with `401` or `405`
+
+**Solutions:**
+- `401` means the request reached the server without an API key: check that the
+  `X-ZeroBounce-Api-Key` header is set and not empty
+- `405 Method Not Allowed` when you open the URL in a browser is expected; MCP clients use `POST`
+- Make sure the URL ends in `/mcp`
 
 #### Connection Errors
 

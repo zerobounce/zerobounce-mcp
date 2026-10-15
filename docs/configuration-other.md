@@ -80,6 +80,57 @@ This setting is cleared on reboot, so prefer a login LaunchAgent — or simply w
 key literally into the config file — if you need it to persist.
 
 
+## Connecting to a Hosted Server
+
+If ZeroBounce MCP is deployed as a remote server, clients that support Streamable HTTP with
+custom headers can connect to its URL directly:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "url": "https://your-host.example.com/mcp",
+      "headers": { "X-ZeroBounce-Api-Key": "YOUR_API_KEY" }
+    }
+  }
+}
+```
+
+Replace `https://your-host.example.com/mcp` with the address of your deployment (see
+**Remote (HTTP) Mode** in `README.md`). Nothing needs to be installed locally, and the API key
+travels with every request in the `X-ZeroBounce-Api-Key` header. Clients that accept a bearer
+token instead of arbitrary headers can send the key as `Authorization: Bearer YOUR_API_KEY`.
+
+Clients that can only launch local commands can reach a hosted server through the
+[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://your-host.example.com/mcp",
+        "--header",
+        "X-ZeroBounce-Api-Key:${ZEROBOUNCE_API_KEY}"
+      ],
+      "env": { "ZEROBOUNCE_API_KEY": "YOUR_API_KEY" }
+    }
+  }
+}
+```
+
+Keep the header value free of spaces (`Name:value`), because some clients split arguments on
+whitespace; `mcp-remote` expands `${ZEROBOUNCE_API_KEY}` from the `env` block. This is also the
+way to use a hosted server from **Claude Desktop**, whose configuration file only launches local
+commands.
+
+A `401` response means the key header did not arrive; a `405` when opening the URL in a browser
+is expected, since MCP clients use `POST`.
+
+
 ## Client-Specific Examples
 
 ### Claude Desktop
