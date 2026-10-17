@@ -625,6 +625,80 @@ var getApiUsageTool = {
   }
 };
 
+// src/security/bulk-input.ts
+import { isIP } from "node:net";
+var MAX_BULK_FILE_CONTENT_BYTES = 32 * 1024 * 1024;
+function isPrivateOrLocalHost(hostname) {
+  const host = hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) {
+    return true;
+  }
+  const ipVersion = isIP(host);
+  if (ipVersion === 4) {
+    const parts = host.split(".").map((p) => Number(p));
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) {
+      return true;
+    }
+    const [a, b] = parts;
+    if (a === 10 || a === 127 || a === 0) {
+      return true;
+    }
+    if (a === 169 && b === 254) {
+      return true;
+    }
+    if (a === 172 && b >= 16 && b <= 31) {
+      return true;
+    }
+    if (a === 192 && b === 168) {
+      return true;
+    }
+    return false;
+  }
+  if (ipVersion === 6) {
+    if (host === "::1") {
+      return true;
+    }
+    if (host.startsWith("fe80:") || host.startsWith("fe80%")) {
+      return true;
+    }
+    const first = host.split(":")[0];
+    if (first.length >= 2 && (first.startsWith("fc") || first.startsWith("fd"))) {
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+function validateBulkReturnUrl(returnUrl) {
+  let parsed;
+  try {
+    parsed = new URL(returnUrl);
+  } catch {
+    throw new Error("returnUrl must be a valid URL");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("returnUrl must use HTTPS");
+  }
+  const hostname = parsed.hostname;
+  if (!hostname) {
+    throw new Error("returnUrl must include a hostname");
+  }
+  if (isPrivateOrLocalHost(hostname)) {
+    throw new Error("returnUrl must not target private, link-local, or loopback addresses");
+  }
+  if (isIP(hostname) === 0 && !hostname.includes(".")) {
+    throw new Error("returnUrl hostname must be a fully qualified domain name");
+  }
+}
+function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent") {
+  const bytes = Buffer.byteLength(fileContent, "utf8");
+  if (bytes > MAX_BULK_FILE_CONTENT_BYTES) {
+    throw new Error(
+      `${fieldName} exceeds maximum size of ${MAX_BULK_FILE_CONTENT_BYTES} bytes`
+    );
+  }
+}
+
 // src/tools/bulk-file-helpers.ts
 function createBulkFileTools(config) {
   const sendFileProperties = {
@@ -696,8 +770,12 @@ function createBulkFileTools(config) {
     handler: async (client, args) => {
       try {
         const fileContent = requireString(args.fileContent, "fileContent");
+        assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, "fileName");
         const returnUrl = optionalString(args.returnUrl);
+        if (returnUrl) {
+          validateBulkReturnUrl(returnUrl);
+        }
         const emailAddressColumn = config.supportsEmailAddressColumn ? optionalNumber(args.emailAddressColumn) : void 0;
         const domainColumn = config.supportsDomainColumn ? optionalNumber(args.domainColumn) : void 0;
         const companyNameColumn = config.supportsCompanyNameColumn ? optionalNumber(args.companyNameColumn) : void 0;
@@ -1073,7 +1151,19 @@ var ZeroBounceMCPServer = class {
   async close() {
     await this.server.close();
   }
+  /** HTTP mode: reuse one server instance; swap API key per request. */
+  updateApiKey(apiKey) {
+    this.config.apiKey = apiKey;
+    this.client = new ZeroBounceClient({
+      apiKey
+    });
+  }
 };
+var httpModeMcpServer;
+function getHttpBindHost() {
+  const host = process.env.MCP_HOST?.trim();
+  return host || "127.0.0.1";
+}
 async function runStdio(apiKey) {
   const server = new ZeroBounceMCPServer({ apiKey });
   await server.connect(new StdioServerTransport());
@@ -1112,7 +1202,12 @@ async function handleMcpRequest(req, res) {
     );
     return;
   }
-  const server = new ZeroBounceMCPServer({ apiKey });
+  if (!httpModeMcpServer) {
+    httpModeMcpServer = new ZeroBounceMCPServer({ apiKey });
+  } else {
+    httpModeMcpServer.updateApiKey(apiKey);
+  }
+  const server = httpModeMcpServer;
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: void 0 });
   res.on("close", () => {
     void transport.close();
@@ -1122,6 +1217,7 @@ async function handleMcpRequest(req, res) {
   await transport.handleRequest(req, res);
 }
 async function runHttp(port) {
+  const bindHost = getHttpBindHost();
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
     if (pathname === "/health") {
@@ -1141,9 +1237,9 @@ async function runHttp(port) {
   });
   await new Promise((resolve, reject) => {
     httpServer.once("error", reject);
-    httpServer.listen(port, resolve);
+    httpServer.listen(port, bindHost, resolve);
   });
-  console.error(`ZeroBounce MCP server listening on http://0.0.0.0:${port}/mcp`);
+  console.error(`ZeroBounce MCP server listening on http://${bindHost}:${port}/mcp`);
 }
 function parseArgs() {
   const args = process.argv.slice(2);

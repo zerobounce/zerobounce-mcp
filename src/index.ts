@@ -126,6 +126,21 @@ class ZeroBounceMCPServer {
   async close(): Promise<void> {
     await this.server.close();
   }
+
+  /** HTTP mode: reuse one server instance; swap API key per request. */
+  updateApiKey(apiKey: string): void {
+    this.config.apiKey = apiKey;
+    this.client = new ZeroBounceClient({
+      apiKey,
+    });
+  }
+}
+
+let httpModeMcpServer: ZeroBounceMCPServer | undefined;
+
+function getHttpBindHost(): string {
+  const host = process.env.MCP_HOST?.trim();
+  return host || '127.0.0.1';
 }
 
 async function runStdio(apiKey: string): Promise<void> {
@@ -175,7 +190,12 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse): Prom
     return;
   }
 
-  const server = new ZeroBounceMCPServer({ apiKey });
+  if (!httpModeMcpServer) {
+    httpModeMcpServer = new ZeroBounceMCPServer({ apiKey });
+  } else {
+    httpModeMcpServer.updateApiKey(apiKey);
+  }
+  const server = httpModeMcpServer;
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on('close', () => {
     void transport.close();
@@ -187,6 +207,7 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse): Prom
 }
 
 async function runHttp(port: number): Promise<void> {
+  const bindHost = getHttpBindHost();
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? '/', 'http://localhost');
 
@@ -210,9 +231,9 @@ async function runHttp(port: number): Promise<void> {
 
   await new Promise<void>((resolve, reject) => {
     httpServer.once('error', reject);
-    httpServer.listen(port, resolve);
+    httpServer.listen(port, bindHost, resolve);
   });
-  console.error(`ZeroBounce MCP server listening on http://0.0.0.0:${port}/mcp`);
+  console.error(`ZeroBounce MCP server listening on http://${bindHost}:${port}/mcp`);
 }
 
 // Parse command line arguments

@@ -12,6 +12,10 @@ import {
   optionalString,
   optionalNumber,
 } from './types.js';
+import {
+  assertBulkFileContentWithinLimit,
+  validateBulkReturnUrl,
+} from '../security/bulk-input.js';
 
 export interface BulkFileToolConfig {
   name: string;
@@ -119,8 +123,12 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
     handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
       try {
         const fileContent = requireString(args.fileContent, 'fileContent');
+        assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, 'fileName');
         const returnUrl = optionalString(args.returnUrl);
+        if (returnUrl) {
+          validateBulkReturnUrl(returnUrl);
+        }
         const emailAddressColumn = config.supportsEmailAddressColumn ? optionalNumber(args.emailAddressColumn) : undefined;
         const domainColumn = config.supportsDomainColumn ? optionalNumber(args.domainColumn) : undefined;
         const companyNameColumn = config.supportsCompanyNameColumn ? optionalNumber(args.companyNameColumn) : undefined;
