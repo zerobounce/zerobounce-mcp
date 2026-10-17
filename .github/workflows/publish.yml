@@ -1,37 +1,137 @@
-name: Publish to npm
+name: Publish
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        description: Tag to publish (e.g. v0.1.11)
+        required: true
 
 permissions:
-  id-token: write # Required for npm Trusted Publisher (OIDC)
   contents: read
 
 jobs:
-  publish:
+  validate-tag:
+    outputs:
+      tag_sha: ${{ steps.tag_sha.outputs.sha }}
+    name: Validate tag
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
-          package-manager-cache: false # never use caching in release builds
-
-      - name: Verify tag matches package version
+      - name: Validate tag input
+        env:
+          TAG: ${{ github.event.inputs.tag }}
         run: |
-          PKG_VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag v${TAG_VERSION} does not match package.json version ${PKG_VERSION}"
+          re='^v?[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$'
+          if [[ ! "$TAG" =~ $re ]]; then
+            echo "Error: the tag input must be a release tag such as v1.2.3."
             exit 1
           fi
 
-      - run: npm ci
-      - name: npm audit
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: refs/tags/${{ github.event.inputs.tag }}
+
+          persist-credentials: false
+      - name: Verify tag and package version
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            echo "Error: Tag is required."
+            exit 1
+          fi
+          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "Error: Tag '$TAG' does not exist."
+            exit 1
+          fi
+          TAG_VERSION="${TAG#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Error: package.json version ($PKG_VERSION) does not match tag ($TAG)."
+            exit 1
+          fi
+
+      - name: Record tag commit SHA
+        id: tag_sha
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          SHA=$(git rev-parse "refs/tags/$TAG^{commit}")
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Build, test and publish to npm
+    needs: [validate-tag]
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ github.event.inputs.tag }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies
         run: npm audit --audit-level=low
-      - run: npm run build
-      - run: npm publish --access public
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+            npm config set //registry.npmjs.org/:_authToken "$NODE_AUTH_TOKEN"
+          fi
+          npm publish --access public
+
+  release:
+    name: Create GitHub Release
+    needs: [validate-tag, publish]
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-tag.outputs.tag_sha }}
+          fetch-depth: 0
+
+          persist-credentials: false
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, skipping."
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TAG" \
+              --generate-notes
+          fi

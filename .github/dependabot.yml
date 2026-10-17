@@ -1,0 +1,40 @@
+# Dependabot: security updates only (no version-update PRs).
+# Grouped security PRs open weekly on Tuesday morning (Europe/Bucharest).
+# Auto-merge: .github/workflows/dependabot-auto-merge.yml (on PR + Tuesday cron).
+# https://docs.github.com/en/code-security/dependabot/dependabot-security-updates
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "06:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 0
+    labels:
+      - "dependabot-security"
+      - "npm dependencies"
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: tuesday
+      time: "06:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 0
+    labels:
+      - "dependabot-security"
+      - "github dependencies"
+    groups:
+      github-actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
