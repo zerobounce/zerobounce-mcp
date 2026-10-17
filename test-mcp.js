@@ -188,10 +188,12 @@ async function testMCPServer() {
     // Helper to check if error is a business logic error (acceptable)
     const isBusinessLogicError = (errorText) => {
       if (!errorText) return false;
-      const lowerError = errorText.toLowerCase();
-      // These are acceptable business logic errors, not endpoint failures
+      const lowerError = errorText.toLowerCase().replace(/_/g, ' ');
+      // These are acceptable business logic errors, not endpoint failures.
+      // The API reports a dummy key as "api_key is invalid", not "invalid api key".
       const acceptableErrors = [
         'invalid api key',
+        'api key is invalid',
         'ran out of credits',
         'insufficient credits',
         'no credits',
