@@ -70,3 +70,13 @@ export function optionalNumber(value: unknown): number | undefined {
   const num = typeof value === 'number' ? value : Number(value);
   return isNaN(num) ? undefined : num;
 }
+
+export function optionalBoolean(value: unknown): boolean | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return undefined;
+}

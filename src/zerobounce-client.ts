@@ -139,6 +139,13 @@ export interface BulkFileDeleteResponse {
   message?: string;
 }
 
+// Real-time AI scoring (GET/POST /v2/scoring)
+export interface RealtimeScoreEmailResult {
+  email: string;
+  score: number;
+  error?: string;
+}
+
 // AI Scoring interfaces
 export interface ScoreEmailResult {
   email: string;
@@ -273,8 +280,27 @@ export class ZeroBounceClient {
   /**
    * Validate a single email address
    */
-  async validateEmail(email: string, ipAddress?: string): Promise<EmailValidationResult> {
-    const result = await this.sdk.validateEmail(email, ipAddress ?? null);
+  async validateEmail(
+    email: string,
+    options?: {
+      ipAddress?: string;
+      timeout?: number;
+      activityData?: boolean;
+      verifyPlus?: boolean;
+    }
+  ): Promise<EmailValidationResult> {
+    const hasExtended =
+      options &&
+      (options.timeout != null || options.activityData != null || options.verifyPlus != null);
+    const sdkArg = hasExtended
+      ? {
+          ip_address: options?.ipAddress,
+          timeout: options?.timeout,
+          activityData: options?.activityData,
+          verifyPlus: options?.verifyPlus,
+        }
+      : (options?.ipAddress ?? null);
+    const result = await this.sdk.validateEmail(email, sdkArg);
     return result as EmailValidationResult;
   }
 
@@ -285,15 +311,27 @@ export class ZeroBounceClient {
    */
   async validateBatch(
     emails: string[],
-    _emailAddressColumn?: number
+    options?: {
+      emailAddressColumn?: number;
+      timeout?: number;
+      activityData?: boolean;
+      verifyPlus?: boolean;
+    }
   ): Promise<BatchValidationResult> {
-    // Build the email_batch payload as an array of objects:
-    // [{ email_address: "valid@example.com" }, ...]
     const emailBatch = emails.map((email) => ({
       email_address: email,
     }));
 
-    const result = await this.sdk.validateBatch(emailBatch);
+    const batchOptions =
+      options && (options.timeout != null || options.activityData != null || options.verifyPlus != null)
+        ? {
+            timeout: options.timeout,
+            activityData: options.activityData,
+            verifyPlus: options.verifyPlus,
+          }
+        : null;
+
+    const result = await this.sdk.validateBatch(emailBatch, batchOptions);
     return result as BatchValidationResult;
   }
 
@@ -503,19 +541,191 @@ export class ZeroBounceClient {
     return result as ActivityDataResult;
   }
 
+  /**
+   * Real-time AI scoring for a single email (GET or POST /v2/scoring).
+   */
+  async scoreEmail(
+    email: string,
+    options?: { usePost?: boolean }
+  ): Promise<RealtimeScoreEmailResult> {
+    const sdk = this.sdk as {
+      scoreEmail?: (
+        email: string,
+        opts?: { method?: 'POST' } | null
+      ) => Promise<RealtimeScoreEmailResult | undefined>;
+    };
+    if (typeof sdk.scoreEmail !== 'function') {
+      throw new Error(
+        'scoreEmail requires @zerobounce/zero-bounce-sdk with /v2/scoring support (upgrade SDK).'
+      );
+    }
+    const method = options?.usePost ? { method: 'POST' as const } : undefined;
+    const result = await sdk.scoreEmail(email, method);
+    return result as RealtimeScoreEmailResult;
+  }
+
   // ========== List Evaluator Operations ==========
 
   /**
    * Evaluate the quality of an email list
    * Requires file upload (multipart/form-data) with CSV file containing emails
    */
+  async bulkEmailFinderSendFile(
+    fileContent: string | Blob,
+    fileName: string,
+    domainColumn: number,
+    options?: {
+      firstNameColumn?: number;
+      lastNameColumn?: number;
+      middleNameColumn?: number;
+      fullNameColumn?: number;
+      hasHeaderRow?: boolean;
+    }
+  ): Promise<BulkFileSendResponse> {
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendEmailFinderFileStream(blob, fileName, {
+        domain_column: this.toSdkColumnIndex(domainColumn),
+        first_name_column: options?.firstNameColumn
+          ? this.toSdkColumnIndex(options.firstNameColumn)
+          : false,
+        last_name_column: options?.lastNameColumn
+          ? this.toSdkColumnIndex(options.lastNameColumn)
+          : false,
+        middle_name_column: options?.middleNameColumn
+          ? this.toSdkColumnIndex(options.middleNameColumn)
+          : false,
+        full_name_column: options?.fullNameColumn
+          ? this.toSdkColumnIndex(options.fullNameColumn)
+          : false,
+        has_header_row: options?.hasHeaderRow ?? false,
+      }),
+      'bulk email finder send file'
+    );
+    return result as BulkFileSendResponse;
+  }
+
+  async bulkEmailFinderFileStatus(fileId: string): Promise<BulkFileStatusResponse> {
+    const result = await this.sdk.getEmailFinderFileStatus(fileId);
+    return result as BulkFileStatusResponse;
+  }
+
+  async bulkEmailFinderGetFile(fileId: string): Promise<BulkFileGetResponse> {
+    const result = await this.sdk.getEmailFinderFile(fileId);
+    return this.normalizeBulkFileResult(result);
+  }
+
+  async bulkEmailFinderDeleteFile(fileId: string): Promise<BulkFileDeleteResponse> {
+    const result = await this.sdk.deleteEmailFinderFile(fileId);
+    return result as BulkFileDeleteResponse;
+  }
+
+  async bulkDomainSearchSendFile(
+    fileContent: string | Blob,
+    fileName: string,
+    domainColumn: number,
+    hasHeaderRow?: boolean
+  ): Promise<BulkFileSendResponse> {
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendDomainSearchFileStream(blob, fileName, {
+        domain_column: this.toSdkColumnIndex(domainColumn),
+        has_header_row: hasHeaderRow ?? false,
+      }),
+      'bulk domain search send file'
+    );
+    return result as BulkFileSendResponse;
+  }
+
+  async bulkDomainSearchFileStatus(fileId: string): Promise<BulkFileStatusResponse> {
+    const result = await this.sdk.getDomainSearchFileStatus(fileId);
+    return result as BulkFileStatusResponse;
+  }
+
+  async bulkDomainSearchGetFile(fileId: string): Promise<BulkFileGetResponse> {
+    const result = await this.sdk.getDomainSearchFile(fileId);
+    return this.normalizeBulkFileResult(result);
+  }
+
+  async bulkDomainSearchDeleteFile(fileId: string): Promise<BulkFileDeleteResponse> {
+    const result = await this.sdk.deleteDomainSearchFile(fileId);
+    return result as BulkFileDeleteResponse;
+  }
+
+  async sendListEvaluatorFile(
+    fileContent: string | Blob,
+    fileName: string,
+    emailAddressColumn: number
+  ): Promise<BulkFileSendResponse> {
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendListEvaluatorFileStream(blob, fileName, {
+        email_address_column: this.toSdkColumnIndex(emailAddressColumn),
+      }),
+      'list evaluator send file'
+    );
+    return result as BulkFileSendResponse;
+  }
+
+  async getListEvaluatorResult(fileId: string): Promise<Record<string, unknown>> {
+    const result = await this.sdk.getListEvaluatorResult(fileId);
+    return result as Record<string, unknown>;
+  }
+
+  async sendEvaluatedFile(fileContent: string | Blob, fileName: string): Promise<BulkFileSendResponse> {
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendEvaluatedFileStream(blob, fileName),
+      'send evaluated file'
+    );
+    return result as BulkFileSendResponse;
+  }
+
+  async addFilter(rule: string, target: string, value: string): Promise<unknown> {
+    return this.requireSdkResult(await this.sdk.addFilter({ rule, target, value }), 'add filter');
+  }
+
+  async listFilters(usePost = false): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.listFilters(usePost ? { method: 'POST' } : null),
+      'list filters'
+    );
+  }
+
+  async deleteFilter(rule: string, target: string, value: string): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.deleteFilter({ rule, target, value }),
+      'delete filter'
+    );
+  }
+
+  async validateS3File(fields: Record<string, unknown>): Promise<BulkFileSendResponse> {
+    const result = this.requireSdkResult(await this.sdk.validateS3file(fields), 'validate S3 file');
+    return result as BulkFileSendResponse;
+  }
+
+  async scoreS3File(fields: Record<string, unknown>): Promise<BulkFileSendResponse> {
+    const result = this.requireSdkResult(await this.sdk.scoreS3file(fields), 'score S3 file');
+    return result as BulkFileSendResponse;
+  }
+
+  async exportS3File(fileId: string, exportBucket: string): Promise<BulkFileSendResponse> {
+    const result = this.requireSdkResult(
+      await this.sdk.exportS3file({ file_id: fileId, export_bucket: exportBucket }),
+      'export S3 file'
+    );
+    return result as BulkFileSendResponse;
+  }
+
+  /** @deprecated Use sendListEvaluatorFile */
   async evaluateList(
-    _fileContent: string | Blob,
-    _fileName: string,
-    _emailAddressColumn?: number
+    fileContent: string | Blob,
+    fileName: string,
+    emailAddressColumn?: number
   ): Promise<ListEvaluatorResult> {
+    await this.sendListEvaluatorFile(fileContent, fileName, emailAddressColumn ?? 0);
     throw new Error(
-      'List Evaluator is not available via the official ZeroBounce Node SDK.'
+      'List evaluator is asynchronous; use get_list_evaluator_result with the returned file_id.'
     );
   }
 }
