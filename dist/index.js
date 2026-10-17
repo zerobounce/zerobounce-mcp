@@ -280,8 +280,15 @@ var ZeroBounceClient = class {
   /**
    * Validate a single email address
    */
-  async validateEmail(email, ipAddress) {
-    const result = await this.sdk.validateEmail(email, ipAddress ?? null);
+  async validateEmail(email, options) {
+    const hasExtended = options && (options.timeout != null || options.activityData != null || options.verifyPlus != null);
+    const sdkArg = hasExtended ? {
+      ip_address: options?.ipAddress,
+      timeout: options?.timeout,
+      activityData: options?.activityData,
+      verifyPlus: options?.verifyPlus
+    } : options?.ipAddress ?? null;
+    const result = await this.sdk.validateEmail(email, sdkArg);
     return result;
   }
   /**
@@ -289,11 +296,16 @@ var ZeroBounceClient = class {
    * Note: ZeroBounce batch API typically requires file upload, but this implementation
    * uses the real-time batch API on the bulk endpoint
    */
-  async validateBatch(emails, _emailAddressColumn) {
+  async validateBatch(emails, options) {
     const emailBatch = emails.map((email) => ({
       email_address: email
     }));
-    const result = await this.sdk.validateBatch(emailBatch);
+    const batchOptions = options && (options.timeout != null || options.activityData != null || options.verifyPlus != null) ? {
+      timeout: options.timeout,
+      activityData: options.activityData,
+      verifyPlus: options.verifyPlus
+    } : null;
+    const result = await this.sdk.validateBatch(emailBatch, batchOptions);
     return result;
   }
   /**
@@ -505,6 +517,15 @@ function optionalNumber(value) {
   const num = typeof value === "number" ? value : Number(value);
   return isNaN(num) ? void 0 : num;
 }
+function optionalBoolean(value) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  return void 0;
+}
 
 // src/tools/validate-email.ts
 var validateEmailTool = {
@@ -521,6 +542,18 @@ var validateEmailTool = {
         ipAddress: {
           type: "string",
           description: "Optional IP address of the user (helps improve accuracy)"
+        },
+        timeout: {
+          type: "number",
+          description: "Validation timeout in seconds (3\u201360)"
+        },
+        activityData: {
+          type: "boolean",
+          description: "Include activity data on the validation result"
+        },
+        verifyPlus: {
+          type: "boolean",
+          description: "Use Verify+ validation for this request"
         }
       },
       required: ["email"]
@@ -530,7 +563,15 @@ var validateEmailTool = {
     try {
       const email = requireString(args.email, "email");
       const ipAddress = optionalString(args.ipAddress);
-      const result = await client.validateEmail(email, ipAddress);
+      const timeout = optionalNumber(args.timeout);
+      const activityData = optionalBoolean(args.activityData);
+      const verifyPlus = optionalBoolean(args.verifyPlus);
+      const result = await client.validateEmail(email, {
+        ipAddress,
+        timeout,
+        activityData,
+        verifyPlus
+      });
       return createSuccessResponse(result);
     } catch (error) {
       return createErrorResponse(error);
@@ -556,6 +597,18 @@ var validateBatchTool = {
         emailAddressColumn: {
           type: "number",
           description: "Optional column index if emails are in CSV format (default: 0)"
+        },
+        timeout: {
+          type: "number",
+          description: "Batch validation timeout in seconds (10\u2013120)"
+        },
+        activityData: {
+          type: "boolean",
+          description: "Include activity data on each validation result"
+        },
+        verifyPlus: {
+          type: "boolean",
+          description: "Use Verify+ validation for this batch"
         }
       },
       required: ["emails"]
@@ -565,7 +618,15 @@ var validateBatchTool = {
     try {
       const emails = requireArray(args.emails, "emails");
       const emailAddressColumn = optionalNumber(args.emailAddressColumn);
-      const result = await client.validateBatch(emails, emailAddressColumn);
+      const timeout = optionalNumber(args.timeout);
+      const activityData = optionalBoolean(args.activityData);
+      const verifyPlus = optionalBoolean(args.verifyPlus);
+      const result = await client.validateBatch(emails, {
+        emailAddressColumn,
+        timeout,
+        activityData,
+        verifyPlus
+      });
       return createSuccessResponse(result);
     } catch (error) {
       return createErrorResponse(error);

@@ -273,8 +273,27 @@ export class ZeroBounceClient {
   /**
    * Validate a single email address
    */
-  async validateEmail(email: string, ipAddress?: string): Promise<EmailValidationResult> {
-    const result = await this.sdk.validateEmail(email, ipAddress ?? null);
+  async validateEmail(
+    email: string,
+    options?: {
+      ipAddress?: string;
+      timeout?: number;
+      activityData?: boolean;
+      verifyPlus?: boolean;
+    }
+  ): Promise<EmailValidationResult> {
+    const hasExtended =
+      options &&
+      (options.timeout != null || options.activityData != null || options.verifyPlus != null);
+    const sdkArg = hasExtended
+      ? {
+          ip_address: options?.ipAddress,
+          timeout: options?.timeout,
+          activityData: options?.activityData,
+          verifyPlus: options?.verifyPlus,
+        }
+      : (options?.ipAddress ?? null);
+    const result = await this.sdk.validateEmail(email, sdkArg);
     return result as EmailValidationResult;
   }
 
@@ -285,15 +304,27 @@ export class ZeroBounceClient {
    */
   async validateBatch(
     emails: string[],
-    _emailAddressColumn?: number
+    options?: {
+      emailAddressColumn?: number;
+      timeout?: number;
+      activityData?: boolean;
+      verifyPlus?: boolean;
+    }
   ): Promise<BatchValidationResult> {
-    // Build the email_batch payload as an array of objects:
-    // [{ email_address: "valid@example.com" }, ...]
     const emailBatch = emails.map((email) => ({
       email_address: email,
     }));
 
-    const result = await this.sdk.validateBatch(emailBatch);
+    const batchOptions =
+      options && (options.timeout != null || options.activityData != null || options.verifyPlus != null)
+        ? {
+            timeout: options.timeout,
+            activityData: options.activityData,
+            verifyPlus: options.verifyPlus,
+          }
+        : null;
+
+    const result = await this.sdk.validateBatch(emailBatch, batchOptions);
     return result as BatchValidationResult;
   }
 
