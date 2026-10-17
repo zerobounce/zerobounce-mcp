@@ -29,6 +29,13 @@ import { domainSearchTool } from './domain-search.js';
 // Activity Data tools
 import { getActivityDataTool } from './activity-data.js';
 
+// Priority 3 tools
+import { bulkEmailFinderTools } from './bulk-email-finder.js';
+import { bulkDomainSearchTools } from './bulk-domain-search.js';
+import { listEvaluatorSendFileTool, listEvaluatorResultTool } from './list-evaluator.js';
+import { addFilterTool, listFiltersTool, deleteFilterTool } from './filters.js';
+import { validateS3FileTool, scoreS3FileTool, exportS3FileTool } from './s3-bulk.js';
+
 // Re-export all tools
 export {
   validateEmailTool,
@@ -71,6 +78,22 @@ export function getAllTools(): ToolHandler[] {
     domainSearchTool,
     // Activity Data
     getActivityDataTool,
+    bulkEmailFinderTools.sendFile,
+    bulkEmailFinderTools.fileStatus,
+    bulkEmailFinderTools.getFile,
+    bulkEmailFinderTools.deleteFile,
+    bulkDomainSearchTools.sendFile,
+    bulkDomainSearchTools.fileStatus,
+    bulkDomainSearchTools.getFile,
+    bulkDomainSearchTools.deleteFile,
+    listEvaluatorSendFileTool,
+    listEvaluatorResultTool,
+    addFilterTool,
+    listFiltersTool,
+    deleteFilterTool,
+    validateS3FileTool,
+    scoreS3FileTool,
+    exportS3FileTool,
   ];
 }
 
