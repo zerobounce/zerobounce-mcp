@@ -287,17 +287,22 @@ export class ZeroBounceClient {
       timeout?: number;
       activityData?: boolean;
       verifyPlus?: boolean;
+      usePost?: boolean;
     }
   ): Promise<EmailValidationResult> {
     const hasExtended =
       options &&
-      (options.timeout != null || options.activityData != null || options.verifyPlus != null);
+      (options.timeout != null ||
+        options.activityData != null ||
+        options.verifyPlus != null ||
+        options.usePost);
     const sdkArg = hasExtended
       ? {
           ip_address: options?.ipAddress,
           timeout: options?.timeout,
           activityData: options?.activityData,
           verifyPlus: options?.verifyPlus,
+          ...(options?.usePost ? { method: 'POST' as const } : {}),
         }
       : (options?.ipAddress ?? null);
     const result = await this.sdk.validateEmail(email, sdkArg);
@@ -696,6 +701,19 @@ export class ZeroBounceClient {
     return this.requireSdkResult(
       await this.sdk.deleteFilter({ rule, target, value }),
       'delete filter'
+    );
+  }
+
+  async listS3Files(options?: {
+    bucket?: string;
+    search?: string;
+  }): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.listS3files({
+        bucket: options?.bucket ?? null,
+        search: options?.search ?? null,
+      }),
+      'list S3 files'
     );
   }
 

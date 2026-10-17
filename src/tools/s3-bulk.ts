@@ -1,5 +1,36 @@
 import type { ZeroBounceClient } from '../zerobounce-client.js';
-import { ToolHandler, createSuccessResponse, createErrorResponse, requireString } from './types.js';
+import {
+  ToolHandler,
+  createSuccessResponse,
+  createErrorResponse,
+  requireString,
+  optionalString,
+} from './types.js';
+
+export const listS3FilesTool: ToolHandler = {
+  definition: {
+    name: 'list_s3_files',
+    description: 'List S3 bucket files available for validation or scoring (GET /listS3files)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bucket: { type: 'string', description: 'Input bucket (optional if configured in UI)' },
+        search: { type: 'string', description: 'Filter results by file name' },
+      },
+    },
+  },
+  handler: async (client: ZeroBounceClient, args) => {
+    try {
+      const result = await client.listS3Files({
+        bucket: optionalString(args.bucket),
+        search: optionalString(args.search),
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  },
+};
 
 export const validateS3FileTool: ToolHandler = {
   definition: {

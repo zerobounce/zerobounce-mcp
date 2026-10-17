@@ -42,6 +42,10 @@ export const validateEmailTool: ToolHandler = {
           type: 'boolean',
           description: 'Use Verify+ validation for this request',
         },
+        usePost: {
+          type: 'boolean',
+          description: 'When true, uses POST /validate with form-encoded body (same parameters as GET)',
+        },
       },
       required: ['email'],
     },
@@ -53,12 +57,14 @@ export const validateEmailTool: ToolHandler = {
       const timeout = optionalNumber(args.timeout);
       const activityData = optionalBoolean(args.activityData);
       const verifyPlus = optionalBoolean(args.verifyPlus);
+      const usePost = optionalBoolean(args.usePost) ?? false;
 
       const result = await client.validateEmail(email, {
         ipAddress,
         timeout,
         activityData,
         verifyPlus,
+        usePost,
       });
       return createSuccessResponse(result);
     } catch (error) {

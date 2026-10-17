@@ -34,7 +34,12 @@ import { bulkEmailFinderTools } from './bulk-email-finder.js';
 import { bulkDomainSearchTools } from './bulk-domain-search.js';
 import { listEvaluatorSendFileTool, listEvaluatorResultTool } from './list-evaluator.js';
 import { addFilterTool, listFiltersTool, deleteFilterTool } from './filters.js';
-import { validateS3FileTool, scoreS3FileTool, exportS3FileTool } from './s3-bulk.js';
+import {
+  listS3FilesTool,
+  validateS3FileTool,
+  scoreS3FileTool,
+  exportS3FileTool,
+} from './s3-bulk.js';
 
 // Re-export all tools
 export {
@@ -91,6 +96,7 @@ export function getAllTools(): ToolHandler[] {
     addFilterTool,
     listFiltersTool,
     deleteFilterTool,
+    listS3FilesTool,
     validateS3FileTool,
     scoreS3FileTool,
     exportS3FileTool,
