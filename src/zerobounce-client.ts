@@ -139,6 +139,13 @@ export interface BulkFileDeleteResponse {
   message?: string;
 }
 
+// Real-time AI scoring (GET/POST /v2/scoring)
+export interface RealtimeScoreEmailResult {
+  email: string;
+  score: number;
+  error?: string;
+}
+
 // AI Scoring interfaces
 export interface ScoreEmailResult {
   email: string;
@@ -532,6 +539,29 @@ export class ZeroBounceClient {
   async getActivityData(email: string): Promise<ActivityDataResult> {
     const result = await this.sdk.getEmailActivity(email);
     return result as ActivityDataResult;
+  }
+
+  /**
+   * Real-time AI scoring for a single email (GET or POST /v2/scoring).
+   */
+  async scoreEmail(
+    email: string,
+    options?: { usePost?: boolean }
+  ): Promise<RealtimeScoreEmailResult> {
+    const sdk = this.sdk as {
+      scoreEmail?: (
+        email: string,
+        opts?: { method?: 'POST' } | null
+      ) => Promise<RealtimeScoreEmailResult | undefined>;
+    };
+    if (typeof sdk.scoreEmail !== 'function') {
+      throw new Error(
+        'scoreEmail requires @zerobounce/zero-bounce-sdk with /v2/scoring support (upgrade SDK).'
+      );
+    }
+    const method = options?.usePost ? { method: 'POST' as const } : undefined;
+    const result = await sdk.scoreEmail(email, method);
+    return result as RealtimeScoreEmailResult;
   }
 
   // ========== List Evaluator Operations ==========

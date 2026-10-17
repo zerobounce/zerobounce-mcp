@@ -18,6 +18,7 @@ import { bulkValidateTools } from './bulk-validate.js';
 
 // AI Scoring tools
 import { bulkAIScoringTools } from './bulk-ai-scoring.js';
+import { scoreEmailTool } from './score-email.js';
 
 // Email Finder tools
 import { findEmailTool } from './find-email.js';
@@ -36,6 +37,7 @@ export {
   getApiUsageTool,
   bulkValidateTools,
   bulkAIScoringTools,
+  scoreEmailTool,
   findEmailTool,
   domainSearchTool,
   getActivityDataTool,
@@ -62,6 +64,7 @@ export function getAllTools(): ToolHandler[] {
     bulkAIScoringTools.fileStatus,
     bulkAIScoringTools.getFile,
     bulkAIScoringTools.deleteFile,
+    scoreEmailTool,
     // Email Finder
     findEmailTool,
     // Domain Search
