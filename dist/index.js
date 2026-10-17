@@ -241,6 +241,8 @@ var require_zeroBounceSDK = __commonJS({
 // src/index.ts
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { createServer } from "node:http";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -636,7 +638,7 @@ function createBulkFileTools(config) {
     },
     returnUrl: {
       type: "string",
-      description: "Optional callback URL to be notified when processing is complete"
+      description: "Optional HTTPS callback URL when processing completes. Only use trusted URLs you control; an attacker-controlled URL can receive bulk results."
     }
   };
   if (config.supportsEmailAddressColumn) {
@@ -776,6 +778,7 @@ function createBulkFileTools(config) {
     definition: {
       name: `${config.name}_delete_file`,
       description: `Delete a bulk ${config.description} file from your account.`,
+      annotations: { destructiveHint: true, readOnlyHint: false },
       inputSchema: {
         type: "object",
         properties: {
@@ -985,6 +988,7 @@ function getToolRegistry() {
 }
 
 // src/index.ts
+var API_KEY_HEADER = "x-zerobounce-api-key";
 var ZeroBounceMCPServer = class {
   server;
   client;
@@ -1063,16 +1067,90 @@ var ZeroBounceMCPServer = class {
       throw new Error(`Unknown resource: ${uri}`);
     });
   }
-  async run() {
-    const transport = new StdioServerTransport();
+  async connect(transport) {
     await this.server.connect(transport);
-    console.error("ZeroBounce MCP server running on stdio");
+  }
+  async close() {
+    await this.server.close();
   }
 };
+async function runStdio(apiKey) {
+  const server = new ZeroBounceMCPServer({ apiKey });
+  await server.connect(new StdioServerTransport());
+  console.error("ZeroBounce MCP server running on stdio");
+}
+function getRequestApiKey(req) {
+  const header = req.headers[API_KEY_HEADER];
+  const value = Array.isArray(header) ? header[0] : header;
+  if (value?.trim()) {
+    return value.trim();
+  }
+  const match = req.headers.authorization?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1].trim() ?? "";
+}
+function sendJsonRpcError(res, status, message) {
+  res.writeHead(status, { "Content-Type": "application/json" }).end(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      error: { code: -32e3, message },
+      id: null
+    })
+  );
+}
+async function handleMcpRequest(req, res) {
+  if (req.method !== "POST") {
+    res.setHeader("Allow", "POST");
+    sendJsonRpcError(res, 405, "Method not allowed.");
+    return;
+  }
+  const apiKey = getRequestApiKey(req);
+  if (!apiKey) {
+    sendJsonRpcError(
+      res,
+      401,
+      `ZeroBounce API key is required. Send it in the X-ZeroBounce-Api-Key header or as Authorization: Bearer <key>.`
+    );
+    return;
+  }
+  const server = new ZeroBounceMCPServer({ apiKey });
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: void 0 });
+  res.on("close", () => {
+    void transport.close();
+    void server.close();
+  });
+  await server.connect(transport);
+  await transport.handleRequest(req, res);
+}
+async function runHttp(port) {
+  const httpServer = createServer((req, res) => {
+    const { pathname } = new URL(req.url ?? "/", "http://localhost");
+    if (pathname === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" }).end('{"status":"ok"}');
+      return;
+    }
+    if (pathname !== "/mcp") {
+      res.writeHead(404).end();
+      return;
+    }
+    handleMcpRequest(req, res).catch((error) => {
+      console.error("Error handling MCP request:", error);
+      if (!res.headersSent) {
+        sendJsonRpcError(res, 500, "Internal server error.");
+      }
+    });
+  });
+  await new Promise((resolve, reject) => {
+    httpServer.once("error", reject);
+    httpServer.listen(port, resolve);
+  });
+  console.error(`ZeroBounce MCP server listening on http://0.0.0.0:${port}/mcp`);
+}
 function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
-    apiKey: ""
+    apiKey: "",
+    transport: process.env.MCP_TRANSPORT?.trim() === "http" ? "http" : "stdio",
+    port: Number(process.env.PORT) || 3e3
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -1086,7 +1164,24 @@ function parseArgs() {
       }
     } else if (arg.startsWith("--api-key=")) {
       config.apiKey = arg.slice("--api-key=".length);
+    } else if (arg === "--http") {
+      config.transport = "http";
+    } else if (arg === "--port") {
+      if (nextArg) {
+        config.port = Number(nextArg);
+        i++;
+      } else {
+        throw new Error("--port requires a value");
+      }
+    } else if (arg.startsWith("--port=")) {
+      config.port = Number(arg.slice("--port=".length));
     }
+  }
+  if (!Number.isInteger(config.port) || config.port <= 0) {
+    throw new Error("--port must be a positive integer");
+  }
+  if (config.transport === "http") {
+    return config;
   }
   if (!config.apiKey) {
     config.apiKey = process.env.ZEROBOUNCE_API_KEY?.trim() ?? "";
@@ -1101,8 +1196,11 @@ function parseArgs() {
 async function main() {
   try {
     const config = parseArgs();
-    const server = new ZeroBounceMCPServer(config);
-    await server.run();
+    if (config.transport === "http") {
+      await runHttp(config.port);
+    } else {
+      await runStdio(config.apiKey);
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error(`Error: ${errorMessage}`);
