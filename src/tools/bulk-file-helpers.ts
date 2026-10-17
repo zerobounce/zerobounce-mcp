@@ -58,7 +58,8 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
     },
     returnUrl: {
       type: 'string',
-      description: 'Optional callback URL to be notified when processing is complete',
+      description:
+        'Optional HTTPS callback URL when processing completes. Only use trusted URLs you control; an attacker-controlled URL can receive bulk results.',
     },
   };
 
@@ -206,6 +207,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
     definition: {
       name: `${config.name}_delete_file`,
       description: `Delete a bulk ${config.description} file from your account.`,
+      annotations: { destructiveHint: true, readOnlyHint: false },
       inputSchema: {
         type: 'object',
         properties: {
