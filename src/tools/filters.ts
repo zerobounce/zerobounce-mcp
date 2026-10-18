@@ -2,6 +2,7 @@ import type { ZeroBounceClient } from '../zerobounce-client.js';
 import { ToolHandler, createSuccessResponse, createErrorResponse, requireString } from './types.js';
 
 export const addFilterTool: ToolHandler = {
+  sdkMethods: ['addFilter'],
   definition: {
     name: 'add_filter',
     description: 'Add a custom allow/block list filter',
@@ -18,9 +19,9 @@ export const addFilterTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.addFilter(
-        requireString(args, 'rule'),
-        requireString(args, 'target'),
-        requireString(args, 'value')
+        requireString(args.rule, 'rule'),
+        requireString(args.target, 'target'),
+        requireString(args.value, 'value')
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -30,6 +31,7 @@ export const addFilterTool: ToolHandler = {
 };
 
 export const listFiltersTool: ToolHandler = {
+  sdkMethods: ['listFilters'],
   definition: {
     name: 'list_filters',
     description: 'List custom filters (GET by default; set usePost for POST)',
@@ -52,6 +54,7 @@ export const listFiltersTool: ToolHandler = {
 };
 
 export const deleteFilterTool: ToolHandler = {
+  sdkMethods: ['deleteFilter'],
   definition: {
     name: 'delete_filter',
     description: 'Delete a custom filter',
@@ -68,9 +71,9 @@ export const deleteFilterTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.deleteFilter(
-        requireString(args, 'rule'),
-        requireString(args, 'target'),
-        requireString(args, 'value')
+        requireString(args.rule, 'rule'),
+        requireString(args.target, 'target'),
+        requireString(args.value, 'value')
       );
       return createSuccessResponse(result);
     } catch (error) {

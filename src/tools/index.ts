@@ -4,6 +4,7 @@
  */
 
 import { ToolHandler } from './types.js';
+import { isSdkMethodAvailable } from '../zerobounce-client.js';
 
 // Validation tools
 import { validateEmailTool } from './validate-email.js';
@@ -58,7 +59,7 @@ export {
 /**
  * Get all tools as an array
  */
-export function getAllTools(): ToolHandler[] {
+function listTools(): ToolHandler[] {
   return [
     // Validation
     validateEmailTool,
@@ -101,6 +102,13 @@ export function getAllTools(): ToolHandler[] {
     scoreS3FileTool,
     exportS3FileTool,
   ];
+}
+
+/**
+ * Get every tool the installed ZeroBounce SDK can serve
+ */
+export function getAllTools(): ToolHandler[] {
+  return listTools().filter((tool) => (tool.sdkMethods ?? []).every(isSdkMethodAvailable));
 }
 
 /**

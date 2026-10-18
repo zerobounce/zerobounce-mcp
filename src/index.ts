@@ -23,6 +23,7 @@ interface ServerConfig {
 
 interface CliConfig extends ServerConfig {
   transport: 'stdio' | 'http';
+  host: string;
   port: number;
 }
 
@@ -126,21 +127,6 @@ class ZeroBounceMCPServer {
   async close(): Promise<void> {
     await this.server.close();
   }
-
-  /** HTTP mode: reuse one server instance; swap API key per request. */
-  updateApiKey(apiKey: string): void {
-    this.config.apiKey = apiKey;
-    this.client = new ZeroBounceClient({
-      apiKey,
-    });
-  }
-}
-
-let httpModeMcpServer: ZeroBounceMCPServer | undefined;
-
-function getHttpBindHost(): string {
-  const host = process.env.MCP_HOST?.trim();
-  return host || '127.0.0.1';
 }
 
 async function runStdio(apiKey: string): Promise<void> {
@@ -190,12 +176,10 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse): Prom
     return;
   }
 
-  if (!httpModeMcpServer) {
-    httpModeMcpServer = new ZeroBounceMCPServer({ apiKey });
-  } else {
-    httpModeMcpServer.updateApiKey(apiKey);
-  }
-  const server = httpModeMcpServer;
+  // A fresh server per request keeps each caller's API key isolated: an SDK Server
+  // can only be connected to one transport at a time, and sharing one instance
+  // across concurrent requests would mix up which key a tool call runs with.
+  const server = new ZeroBounceMCPServer({ apiKey });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on('close', () => {
     void transport.close();
@@ -206,8 +190,7 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse): Prom
   await transport.handleRequest(req, res);
 }
 
-async function runHttp(port: number): Promise<void> {
-  const bindHost = getHttpBindHost();
+async function runHttp(host: string, port: number): Promise<void> {
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? '/', 'http://localhost');
 
@@ -231,9 +214,9 @@ async function runHttp(port: number): Promise<void> {
 
   await new Promise<void>((resolve, reject) => {
     httpServer.once('error', reject);
-    httpServer.listen(port, bindHost, resolve);
+    httpServer.listen(port, host, resolve);
   });
-  console.error(`ZeroBounce MCP server listening on http://${bindHost}:${port}/mcp`);
+  console.error(`ZeroBounce MCP server listening on http://${host}:${port}/mcp`);
 }
 
 // Parse command line arguments
@@ -242,6 +225,8 @@ function parseArgs(): CliConfig {
   const config: CliConfig = {
     apiKey: '',
     transport: process.env.MCP_TRANSPORT?.trim() === 'http' ? 'http' : 'stdio',
+    // Loopback by default; hosted deployments must opt in to 0.0.0.0 explicitly.
+    host: process.env.MCP_HOST?.trim() || '127.0.0.1',
     port: Number(process.env.PORT) || 3000,
   };
 
@@ -269,6 +254,15 @@ function parseArgs(): CliConfig {
       }
     } else if (arg.startsWith('--port=')) {
       config.port = Number(arg.slice('--port='.length));
+    } else if (arg === '--host') {
+      if (nextArg) {
+        config.host = nextArg;
+        i++;
+      } else {
+        throw new Error('--host requires a value');
+      }
+    } else if (arg.startsWith('--host=')) {
+      config.host = arg.slice('--host='.length);
     }
   }
 
@@ -298,7 +292,7 @@ async function main(): Promise<void> {
   try {
     const config = parseArgs();
     if (config.transport === 'http') {
-      await runHttp(config.port);
+      await runHttp(config.host, config.port);
     } else {
       await runStdio(config.apiKey);
     }

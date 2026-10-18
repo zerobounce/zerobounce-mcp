@@ -9,6 +9,7 @@ import {
 import { assertBulkFileContentWithinLimit } from '../security/bulk-input.js';
 
 export const listEvaluatorSendFileTool: ToolHandler = {
+  sdkMethods: ['sendListEvaluatorFileStream'],
   definition: {
     name: 'list_evaluator_send_file',
     description: 'Upload a CSV for list evaluator (bulkapi listevaluator)',
@@ -27,10 +28,10 @@ export const listEvaluatorSendFileTool: ToolHandler = {
   },
   handler: async (client: ZeroBounceClient, args) => {
     try {
-      const fileContent = requireString(args, 'fileContent');
+      const fileContent = requireString(args.fileContent, 'fileContent');
       assertBulkFileContentWithinLimit(fileContent);
-      const fileName = requireString(args, 'fileName');
-      const emailAddressColumn = optionalNumber(args, 'emailAddressColumn') ?? 0;
+      const fileName = requireString(args.fileName, 'fileName');
+      const emailAddressColumn = optionalNumber(args.emailAddressColumn) ?? 0;
       const result = await client.sendListEvaluatorFile(fileContent, fileName, emailAddressColumn);
       return createSuccessResponse(result);
     } catch (error) {
@@ -40,6 +41,7 @@ export const listEvaluatorSendFileTool: ToolHandler = {
 };
 
 export const listEvaluatorResultTool: ToolHandler = {
+  sdkMethods: ['getListEvaluatorResult'],
   definition: {
     name: 'list_evaluator_result',
     description: 'Get list evaluator job status/result by file_id',
@@ -53,7 +55,7 @@ export const listEvaluatorResultTool: ToolHandler = {
   },
   handler: async (client: ZeroBounceClient, args) => {
     try {
-      const fileId = requireString(args, 'fileId');
+      const fileId = requireString(args.fileId, 'fileId');
       const result = await client.getListEvaluatorResult(fileId);
       return createSuccessResponse(result);
     } catch (error) {

@@ -257,6 +257,9 @@ import {
 
 // src/zerobounce-client.ts
 var import_zero_bounce_sdk = __toESM(require_zeroBounceSDK(), 1);
+function isSdkMethodAvailable(name) {
+  return typeof import_zero_bounce_sdk.default.prototype?.[name] === "function";
+}
 var ZeroBounceClient = class {
   apiKey;
   baseUrl;
@@ -286,12 +289,13 @@ var ZeroBounceClient = class {
    * Validate a single email address
    */
   async validateEmail(email, options) {
-    const hasExtended = options && (options.timeout != null || options.activityData != null || options.verifyPlus != null);
+    const hasExtended = options && (options.timeout != null || options.activityData != null || options.verifyPlus != null || options.usePost);
     const sdkArg = hasExtended ? {
       ip_address: options?.ipAddress,
       timeout: options?.timeout,
       activityData: options?.activityData,
-      verifyPlus: options?.verifyPlus
+      verifyPlus: options?.verifyPlus,
+      ...options?.usePost ? { method: "POST" } : {}
     } : options?.ipAddress ?? null;
     const result = await this.sdk.validateEmail(email, sdkArg);
     return result;
@@ -489,10 +493,10 @@ var ZeroBounceClient = class {
     const result = this.requireSdkResult(
       await this.sdk.sendEmailFinderFileStream(blob, fileName, {
         domain_column: this.toSdkColumnIndex(domainColumn),
-        first_name_column: options?.firstNameColumn ? this.toSdkColumnIndex(options.firstNameColumn) : false,
-        last_name_column: options?.lastNameColumn ? this.toSdkColumnIndex(options.lastNameColumn) : false,
-        middle_name_column: options?.middleNameColumn ? this.toSdkColumnIndex(options.middleNameColumn) : false,
-        full_name_column: options?.fullNameColumn ? this.toSdkColumnIndex(options.fullNameColumn) : false,
+        first_name_column: options?.firstNameColumn != null ? this.toSdkColumnIndex(options.firstNameColumn) : false,
+        last_name_column: options?.lastNameColumn != null ? this.toSdkColumnIndex(options.lastNameColumn) : false,
+        middle_name_column: options?.middleNameColumn != null ? this.toSdkColumnIndex(options.middleNameColumn) : false,
+        full_name_column: options?.fullNameColumn != null ? this.toSdkColumnIndex(options.fullNameColumn) : false,
         has_header_row: options?.hasHeaderRow ?? false
       }),
       "bulk email finder send file"
@@ -569,6 +573,15 @@ var ZeroBounceClient = class {
     return this.requireSdkResult(
       await this.sdk.deleteFilter({ rule, target, value }),
       "delete filter"
+    );
+  }
+  async listS3Files(options) {
+    return this.requireSdkResult(
+      await this.sdk.listS3files({
+        bucket: options?.bucket ?? null,
+        search: options?.search ?? null
+      }),
+      "list S3 files"
     );
   }
   async validateS3File(fields) {
@@ -677,6 +690,10 @@ var validateEmailTool = {
         verifyPlus: {
           type: "boolean",
           description: "Use Verify+ validation for this request"
+        },
+        usePost: {
+          type: "boolean",
+          description: "When true, uses POST /validate with form-encoded body (same parameters as GET)"
         }
       },
       required: ["email"]
@@ -689,11 +706,13 @@ var validateEmailTool = {
       const timeout = optionalNumber(args.timeout);
       const activityData = optionalBoolean(args.activityData);
       const verifyPlus = optionalBoolean(args.verifyPlus);
+      const usePost = optionalBoolean(args.usePost) ?? false;
       const result = await client.validateEmail(email, {
         ipAddress,
         timeout,
         activityData,
-        verifyPlus
+        verifyPlus,
+        usePost
       });
       return createSuccessResponse(result);
     } catch (error) {
@@ -942,6 +961,7 @@ function createBulkFileTools(config) {
     };
   }
   const sendFileTool = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_send_file`,
       description: `Send a CSV file for bulk ${config.description}. Returns a file ID for tracking.`,
@@ -987,6 +1007,7 @@ function createBulkFileTools(config) {
     }
   };
   const fileStatusTool = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_file_status`,
       description: `Get the status of a bulk ${config.description} file upload.`,
@@ -1012,6 +1033,7 @@ function createBulkFileTools(config) {
     }
   };
   const getFileTool = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_get_file`,
       description: `Get the results of a completed bulk ${config.description} file.`,
@@ -1037,6 +1059,7 @@ function createBulkFileTools(config) {
     }
   };
   const deleteFileTool = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_delete_file`,
       description: `Delete a bulk ${config.description} file from your account.`,
@@ -1094,6 +1117,7 @@ var bulkAIScoringTools = createBulkFileTools({
 
 // src/tools/score-email.ts
 var scoreEmailTool = {
+  sdkMethods: ["scoreEmail"],
   definition: {
     name: "score_email",
     description: "Real-time AI scoring for a single email address (ZeroBounce GET or POST /v2/scoring). Returns email and numeric score.",
@@ -1257,6 +1281,12 @@ var bulkEmailFinderTools = createBulkFileTools({
   getStatusMethod: (client, fileId) => client.bulkEmailFinderFileStatus(fileId),
   getFileMethod: (client, fileId) => client.bulkEmailFinderGetFile(fileId),
   deleteFileMethod: (client, fileId) => client.bulkEmailFinderDeleteFile(fileId),
+  sdkMethods: [
+    "sendEmailFinderFileStream",
+    "getEmailFinderFileStatus",
+    "getEmailFinderFile",
+    "deleteEmailFinderFile"
+  ],
   supportsDomainColumn: true,
   supportsFirstNameColumn: true,
   supportsMiddleNameColumn: true,
@@ -1271,11 +1301,18 @@ var bulkDomainSearchTools = createBulkFileTools({
   getStatusMethod: (client, fileId) => client.bulkDomainSearchFileStatus(fileId),
   getFileMethod: (client, fileId) => client.bulkDomainSearchGetFile(fileId),
   deleteFileMethod: (client, fileId) => client.bulkDomainSearchDeleteFile(fileId),
+  sdkMethods: [
+    "sendDomainSearchFileStream",
+    "getDomainSearchFileStatus",
+    "getDomainSearchFile",
+    "deleteDomainSearchFile"
+  ],
   supportsDomainColumn: true
 });
 
 // src/tools/list-evaluator.ts
 var listEvaluatorSendFileTool = {
+  sdkMethods: ["sendListEvaluatorFileStream"],
   definition: {
     name: "list_evaluator_send_file",
     description: "Upload a CSV for list evaluator (bulkapi listevaluator)",
@@ -1294,10 +1331,10 @@ var listEvaluatorSendFileTool = {
   },
   handler: async (client, args) => {
     try {
-      const fileContent = requireString(args, "fileContent");
+      const fileContent = requireString(args.fileContent, "fileContent");
       assertBulkFileContentWithinLimit(fileContent);
-      const fileName = requireString(args, "fileName");
-      const emailAddressColumn = optionalNumber(args, "emailAddressColumn") ?? 0;
+      const fileName = requireString(args.fileName, "fileName");
+      const emailAddressColumn = optionalNumber(args.emailAddressColumn) ?? 0;
       const result = await client.sendListEvaluatorFile(fileContent, fileName, emailAddressColumn);
       return createSuccessResponse(result);
     } catch (error) {
@@ -1306,6 +1343,7 @@ var listEvaluatorSendFileTool = {
   }
 };
 var listEvaluatorResultTool = {
+  sdkMethods: ["getListEvaluatorResult"],
   definition: {
     name: "list_evaluator_result",
     description: "Get list evaluator job status/result by file_id",
@@ -1319,7 +1357,7 @@ var listEvaluatorResultTool = {
   },
   handler: async (client, args) => {
     try {
-      const fileId = requireString(args, "fileId");
+      const fileId = requireString(args.fileId, "fileId");
       const result = await client.getListEvaluatorResult(fileId);
       return createSuccessResponse(result);
     } catch (error) {
@@ -1330,6 +1368,7 @@ var listEvaluatorResultTool = {
 
 // src/tools/filters.ts
 var addFilterTool = {
+  sdkMethods: ["addFilter"],
   definition: {
     name: "add_filter",
     description: "Add a custom allow/block list filter",
@@ -1346,9 +1385,9 @@ var addFilterTool = {
   handler: async (client, args) => {
     try {
       const result = await client.addFilter(
-        requireString(args, "rule"),
-        requireString(args, "target"),
-        requireString(args, "value")
+        requireString(args.rule, "rule"),
+        requireString(args.target, "target"),
+        requireString(args.value, "value")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -1357,6 +1396,7 @@ var addFilterTool = {
   }
 };
 var listFiltersTool = {
+  sdkMethods: ["listFilters"],
   definition: {
     name: "list_filters",
     description: "List custom filters (GET by default; set usePost for POST)",
@@ -1378,6 +1418,7 @@ var listFiltersTool = {
   }
 };
 var deleteFilterTool = {
+  sdkMethods: ["deleteFilter"],
   definition: {
     name: "delete_filter",
     description: "Delete a custom filter",
@@ -1394,9 +1435,9 @@ var deleteFilterTool = {
   handler: async (client, args) => {
     try {
       const result = await client.deleteFilter(
-        requireString(args, "rule"),
-        requireString(args, "target"),
-        requireString(args, "value")
+        requireString(args.rule, "rule"),
+        requireString(args.target, "target"),
+        requireString(args.value, "value")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -1406,7 +1447,33 @@ var deleteFilterTool = {
 };
 
 // src/tools/s3-bulk.ts
+var listS3FilesTool = {
+  sdkMethods: ["listS3files"],
+  definition: {
+    name: "list_s3_files",
+    description: "List S3 bucket files available for validation or scoring (GET /listS3files)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bucket: { type: "string", description: "Input bucket (optional if configured in UI)" },
+        search: { type: "string", description: "Filter results by file name" }
+      }
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.listS3Files({
+        bucket: optionalString(args.bucket),
+        search: optionalString(args.search)
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
 var validateS3FileTool = {
+  sdkMethods: ["validateS3file"],
   definition: {
     name: "validate_s3_file",
     description: "Submit an S3 object for bulk validation (validateS3file)",
@@ -1421,7 +1488,7 @@ var validateS3FileTool = {
   handler: async (client, args) => {
     try {
       const result = await client.validateS3File({
-        file_name: requireString(args, "fileName")
+        file_name: requireString(args.fileName, "fileName")
       });
       return createSuccessResponse(result);
     } catch (error) {
@@ -1430,6 +1497,7 @@ var validateS3FileTool = {
   }
 };
 var scoreS3FileTool = {
+  sdkMethods: ["scoreS3file"],
   definition: {
     name: "score_s3_file",
     description: "Submit an S3 object for bulk AI scoring (scoreS3file)",
@@ -1444,7 +1512,7 @@ var scoreS3FileTool = {
   handler: async (client, args) => {
     try {
       const result = await client.scoreS3File({
-        file_name: requireString(args, "fileName")
+        file_name: requireString(args.fileName, "fileName")
       });
       return createSuccessResponse(result);
     } catch (error) {
@@ -1453,6 +1521,7 @@ var scoreS3FileTool = {
   }
 };
 var exportS3FileTool = {
+  sdkMethods: ["exportS3file"],
   definition: {
     name: "export_s3_file",
     description: "Export a completed bulk job to an S3 bucket (exportS3file)",
@@ -1468,8 +1537,8 @@ var exportS3FileTool = {
   handler: async (client, args) => {
     try {
       const result = await client.exportS3File(
-        requireString(args, "fileId"),
-        requireString(args, "exportBucket")
+        requireString(args.fileId, "fileId"),
+        requireString(args.exportBucket, "exportBucket")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -1479,7 +1548,7 @@ var exportS3FileTool = {
 };
 
 // src/tools/index.ts
-function getAllTools() {
+function listTools() {
   return [
     // Validation
     validateEmailTool,
@@ -1517,10 +1586,14 @@ function getAllTools() {
     addFilterTool,
     listFiltersTool,
     deleteFilterTool,
+    listS3FilesTool,
     validateS3FileTool,
     scoreS3FileTool,
     exportS3FileTool
   ];
+}
+function getAllTools() {
+  return listTools().filter((tool) => (tool.sdkMethods ?? []).every(isSdkMethodAvailable));
 }
 function getToolRegistry() {
   const registry = /* @__PURE__ */ new Map();
@@ -1617,19 +1690,7 @@ var ZeroBounceMCPServer = class {
   async close() {
     await this.server.close();
   }
-  /** HTTP mode: reuse one server instance; swap API key per request. */
-  updateApiKey(apiKey) {
-    this.config.apiKey = apiKey;
-    this.client = new ZeroBounceClient({
-      apiKey
-    });
-  }
 };
-var httpModeMcpServer;
-function getHttpBindHost() {
-  const host = process.env.MCP_HOST?.trim();
-  return host || "127.0.0.1";
-}
 async function runStdio(apiKey) {
   const server = new ZeroBounceMCPServer({ apiKey });
   await server.connect(new StdioServerTransport());
@@ -1668,12 +1729,7 @@ async function handleMcpRequest(req, res) {
     );
     return;
   }
-  if (!httpModeMcpServer) {
-    httpModeMcpServer = new ZeroBounceMCPServer({ apiKey });
-  } else {
-    httpModeMcpServer.updateApiKey(apiKey);
-  }
-  const server = httpModeMcpServer;
+  const server = new ZeroBounceMCPServer({ apiKey });
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: void 0 });
   res.on("close", () => {
     void transport.close();
@@ -1682,8 +1738,7 @@ async function handleMcpRequest(req, res) {
   await server.connect(transport);
   await transport.handleRequest(req, res);
 }
-async function runHttp(port) {
-  const bindHost = getHttpBindHost();
+async function runHttp(host, port) {
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
     if (pathname === "/health") {
@@ -1703,15 +1758,17 @@ async function runHttp(port) {
   });
   await new Promise((resolve, reject) => {
     httpServer.once("error", reject);
-    httpServer.listen(port, bindHost, resolve);
+    httpServer.listen(port, host, resolve);
   });
-  console.error(`ZeroBounce MCP server listening on http://${bindHost}:${port}/mcp`);
+  console.error(`ZeroBounce MCP server listening on http://${host}:${port}/mcp`);
 }
 function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
     apiKey: "",
     transport: process.env.MCP_TRANSPORT?.trim() === "http" ? "http" : "stdio",
+    // Loopback by default; hosted deployments must opt in to 0.0.0.0 explicitly.
+    host: process.env.MCP_HOST?.trim() || "127.0.0.1",
     port: Number(process.env.PORT) || 3e3
   };
   for (let i = 0; i < args.length; i++) {
@@ -1737,6 +1794,15 @@ function parseArgs() {
       }
     } else if (arg.startsWith("--port=")) {
       config.port = Number(arg.slice("--port=".length));
+    } else if (arg === "--host") {
+      if (nextArg) {
+        config.host = nextArg;
+        i++;
+      } else {
+        throw new Error("--host requires a value");
+      }
+    } else if (arg.startsWith("--host=")) {
+      config.host = arg.slice("--host=".length);
     }
   }
   if (!Number.isInteger(config.port) || config.port <= 0) {
@@ -1759,7 +1825,7 @@ async function main() {
   try {
     const config = parseArgs();
     if (config.transport === "http") {
-      await runHttp(config.port);
+      await runHttp(config.host, config.port);
     } else {
       await runStdio(config.apiKey);
     }

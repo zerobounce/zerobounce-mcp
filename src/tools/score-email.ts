@@ -13,6 +13,7 @@ import {
 } from './types.js';
 
 export const scoreEmailTool: ToolHandler = {
+  sdkMethods: ['scoreEmail'],
   definition: {
     name: 'score_email',
     description:

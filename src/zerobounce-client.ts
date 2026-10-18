@@ -243,6 +243,12 @@ export interface ListEvaluatorResult {
   processed_at: string;
 }
 
+/** Whether the installed ZeroBounce SDK implements the given method. */
+export function isSdkMethodAvailable(name: string): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return typeof (ZeroBounceSDK as any).prototype?.[name] === 'function';
+}
+
 export class ZeroBounceClient {
   private apiKey: string;
   private baseUrl: string;
@@ -591,16 +597,16 @@ export class ZeroBounceClient {
     const result = this.requireSdkResult(
       await this.sdk.sendEmailFinderFileStream(blob, fileName, {
         domain_column: this.toSdkColumnIndex(domainColumn),
-        first_name_column: options?.firstNameColumn
+        first_name_column: options?.firstNameColumn != null
           ? this.toSdkColumnIndex(options.firstNameColumn)
           : false,
-        last_name_column: options?.lastNameColumn
+        last_name_column: options?.lastNameColumn != null
           ? this.toSdkColumnIndex(options.lastNameColumn)
           : false,
-        middle_name_column: options?.middleNameColumn
+        middle_name_column: options?.middleNameColumn != null
           ? this.toSdkColumnIndex(options.middleNameColumn)
           : false,
-        full_name_column: options?.fullNameColumn
+        full_name_column: options?.fullNameColumn != null
           ? this.toSdkColumnIndex(options.fullNameColumn)
           : false,
         has_header_row: options?.hasHeaderRow ?? false,

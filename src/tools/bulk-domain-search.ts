@@ -8,5 +8,11 @@ export const bulkDomainSearchTools = createBulkFileTools({
   getStatusMethod: (client, fileId) => client.bulkDomainSearchFileStatus(fileId),
   getFileMethod: (client, fileId) => client.bulkDomainSearchGetFile(fileId),
   deleteFileMethod: (client, fileId) => client.bulkDomainSearchDeleteFile(fileId),
+  sdkMethods: [
+    'sendDomainSearchFileStream',
+    'getDomainSearchFileStatus',
+    'getDomainSearchFile',
+    'deleteDomainSearchFile',
+  ],
   supportsDomainColumn: true,
 });

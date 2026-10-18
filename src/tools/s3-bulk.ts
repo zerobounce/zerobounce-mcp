@@ -8,6 +8,7 @@ import {
 } from './types.js';
 
 export const listS3FilesTool: ToolHandler = {
+  sdkMethods: ['listS3files'],
   definition: {
     name: 'list_s3_files',
     description: 'List S3 bucket files available for validation or scoring (GET /listS3files)',
@@ -33,6 +34,7 @@ export const listS3FilesTool: ToolHandler = {
 };
 
 export const validateS3FileTool: ToolHandler = {
+  sdkMethods: ['validateS3file'],
   definition: {
     name: 'validate_s3_file',
     description: 'Submit an S3 object for bulk validation (validateS3file)',
@@ -47,7 +49,7 @@ export const validateS3FileTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.validateS3File({
-        file_name: requireString(args, 'fileName'),
+        file_name: requireString(args.fileName, 'fileName'),
       });
       return createSuccessResponse(result);
     } catch (error) {
@@ -57,6 +59,7 @@ export const validateS3FileTool: ToolHandler = {
 };
 
 export const scoreS3FileTool: ToolHandler = {
+  sdkMethods: ['scoreS3file'],
   definition: {
     name: 'score_s3_file',
     description: 'Submit an S3 object for bulk AI scoring (scoreS3file)',
@@ -71,7 +74,7 @@ export const scoreS3FileTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.scoreS3File({
-        file_name: requireString(args, 'fileName'),
+        file_name: requireString(args.fileName, 'fileName'),
       });
       return createSuccessResponse(result);
     } catch (error) {
@@ -81,6 +84,7 @@ export const scoreS3FileTool: ToolHandler = {
 };
 
 export const exportS3FileTool: ToolHandler = {
+  sdkMethods: ['exportS3file'],
   definition: {
     name: 'export_s3_file',
     description: 'Export a completed bulk job to an S3 bucket (exportS3file)',
@@ -96,8 +100,8 @@ export const exportS3FileTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.exportS3File(
-        requireString(args, 'fileId'),
-        requireString(args, 'exportBucket')
+        requireString(args.fileId, 'fileId'),
+        requireString(args.exportBucket, 'exportBucket')
       );
       return createSuccessResponse(result);
     } catch (error) {

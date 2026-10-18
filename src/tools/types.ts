@@ -7,6 +7,11 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 
 export interface ToolHandler {
   definition: Tool;
+  /**
+   * ZeroBounce SDK methods this tool calls that older SDK releases lack. The tool is
+   * only advertised when the installed SDK provides all of them.
+   */
+  sdkMethods?: string[];
   handler: (
     client: ZeroBounceClient,
     args: Record<string, unknown>
