@@ -34,7 +34,7 @@ async function readFields(body) {
 
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === 'string' ? input : input.url);
-  if (!url.hostname.endsWith('zerobounce.net')) {
+  if (url.hostname !== 'zerobounce.net' && !url.hostname.endsWith('.zerobounce.net')) {
     return realFetch(input, init);
   }
 
