@@ -257,6 +257,57 @@ import {
 
 // src/zerobounce-client.ts
 var import_zero_bounce_sdk = __toESM(require_zeroBounceSDK(), 1);
+
+// src/errors.ts
+var MAX_ERROR_MESSAGE_LENGTH = 1e3;
+function looksLikeHtml(text) {
+  return /<(?:!doctype\s+html|html|head|body)\b/i.test(text.slice(0, 2e3));
+}
+function formatErrorMessage(error) {
+  let message = (error instanceof Error ? error.message : String(error)).trim();
+  message = message.replace(/^(?:(?:Error|\[Error\]):\s*)+/i, "");
+  if (looksLikeHtml(message)) {
+    const title = message.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+    return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ""} instead of an API response. Check the API key and request parameters.`;
+  }
+  if (message.length > MAX_ERROR_MESSAGE_LENGTH) {
+    return `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}\u2026 (truncated)`;
+  }
+  return message || "Unknown error";
+}
+
+// src/zerobounce-client.ts
+function readCsvColumn(row, column, rowIndex) {
+  const fields = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (quoted) {
+      if (ch === '"' && row[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (ch === '"') {
+        quoted = false;
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ",") {
+      fields.push(field);
+      field = "";
+    } else {
+      field += ch;
+    }
+  }
+  fields.push(field);
+  const value = fields[column]?.trim();
+  if (!value) {
+    throw new Error(`emails[${rowIndex}] has no value in column ${column}`);
+  }
+  return value;
+}
 function isSdkMethodAvailable(name) {
   return typeof import_zero_bounce_sdk.default.prototype?.[name] === "function";
 }
@@ -306,15 +357,23 @@ var ZeroBounceClient = class {
    * uses the real-time batch API on the bulk endpoint
    */
   async validateBatch(emails, options) {
-    const emailBatch = emails.map((email) => ({
-      email_address: email
+    const column = options?.emailAddressColumn;
+    const emailBatch = emails.map((entry, row) => ({
+      email_address: column == null ? entry : readCsvColumn(entry, column, row)
     }));
     const batchOptions = options && (options.timeout != null || options.activityData != null || options.verifyPlus != null) ? {
       timeout: options.timeout,
       activityData: options.activityData,
       verifyPlus: options.verifyPlus
     } : null;
-    const result = await this.sdk.validateBatch(emailBatch, batchOptions);
+    const result = this.requireSdkResult(
+      await this.sdk.validateBatch(emailBatch, batchOptions),
+      "batch validation"
+    );
+    const accountError = result.errors?.find((e) => e.email_address === "all");
+    if (accountError) {
+      throw new Error(accountError.error);
+    }
     return result;
   }
   /**
@@ -401,6 +460,9 @@ var ZeroBounceClient = class {
       throw new Error("ZeroBounce SDK returned no result");
     }
     if (typeof result === "string") {
+      if (looksLikeHtml(result)) {
+        throw new Error(result);
+      }
       return { success: true, csv: result };
     }
     if (result instanceof Blob) {
@@ -620,7 +682,7 @@ function createSuccessResponse(data) {
   };
 }
 function createErrorResponse(error) {
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage = formatErrorMessage(error);
   return {
     content: [
       {
@@ -738,7 +800,7 @@ var validateBatchTool = {
         },
         emailAddressColumn: {
           type: "number",
-          description: "Optional column index if emails are in CSV format (default: 0)"
+          description: "Optional 0-based column index when each entry is a CSV row; the email is read from that column. Omit when entries are plain email addresses."
         },
         timeout: {
           type: "number",

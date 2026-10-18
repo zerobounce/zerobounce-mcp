@@ -36,6 +36,14 @@ hosted deployments that relied on the old all-interfaces default (see **Changed*
 ### Fixed
 
 - The server reports its real package version in `serverInfo` instead of `0.1.0`.
+- Bulk `*_get_file` tools no longer return a full HTML error page (about 1.4 MB from the live API)
+  as the error message, and an HTML page returned with status 200 is reported as an error instead of CSV.
+- `validate_batch` reports account-level failures, such as an invalid API key or no credits, as
+  errors instead of successful results. Per-address errors still come back in a successful result.
+- `validate_batch` honours `emailAddressColumn`: each entry is read as a CSV row and the email is
+  taken from that 0-based column. It was previously ignored.
+- Error messages carry a single `Error:` prefix instead of `Error: Error: [Error]: …`, and long
+  error bodies are truncated.
 
 ### Security
 

@@ -30,7 +30,8 @@ export const validateBatchTool: ToolHandler = {
         },
         emailAddressColumn: {
           type: 'number',
-          description: 'Optional column index if emails are in CSV format (default: 0)',
+          description:
+            'Optional 0-based column index when each entry is a CSV row; the email is read from that column. Omit when entries are plain email addresses.',
         },
         timeout: {
           type: 'number',

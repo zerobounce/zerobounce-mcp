@@ -4,6 +4,13 @@
  * the API key, path and fields it carried, and answered after a random delay so
  * concurrent requests interleave.
  *
+ * API keys starting with these prefixes select an error mode, mirroring responses seen
+ * from the live API:
+ *   html-403-       403 with a large HTML "Access denied" page
+ *   html-200-       200 with an HTML page instead of JSON or CSV
+ *   batch-account-  /validatebatch reports an account-level error for "all" addresses
+ *   batch-partial-  /validatebatch reports an error for one address only
+ *
  * Usage: node --import ./test/fake-zerobounce-api.mjs dist/index.js --http
  */
 
@@ -51,6 +58,30 @@ globalThis.fetch = async (input, init = {}) => {
   }
 
   await new Promise((resolve) => setTimeout(resolve, Math.random() * 40));
+
+  const key = entry.apiKey ?? '';
+  if (key.startsWith('html-403-') || key.startsWith('html-200-')) {
+    const page =
+      '<!DOCTYPE html><html lang="en-US"><head><title>Access denied | zerobounce.net</title></head><body>' +
+      '<p>blocked</p>'.repeat(20000) +
+      '</body></html>';
+    return new Response(page, {
+      status: key.startsWith('html-403-') ? 403 : 200,
+      headers: { 'Content-Type': 'text/html; charset=UTF-8' },
+    });
+  }
+  if (entry.path === '/validatebatch' && key.startsWith('batch-account-')) {
+    return Response.json({
+      errors: [{ email_address: 'all', error: 'Invalid API Key or your account ran out of credits' }],
+      email_batch: [],
+    });
+  }
+  if (entry.path === '/validatebatch' && key.startsWith('batch-partial-')) {
+    return Response.json({
+      errors: [{ email_address: 'bad@', error: 'Invalid email address' }],
+      email_batch: [{ address: 'good@example.com', status: 'valid' }],
+    });
+  }
 
   // Echo the key back in every shape the client might read, so tool output can be
   // matched to the request that produced it.

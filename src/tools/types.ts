@@ -4,6 +4,7 @@
 
 import type { ZeroBounceClient } from '../zerobounce-client.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { formatErrorMessage } from '../errors.js';
 
 export interface ToolHandler {
   definition: Tool;
@@ -38,7 +39,7 @@ export function createErrorResponse(error: unknown): {
   content: Array<{ type: 'text'; text: string }>;
   isError: boolean;
 } {
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage = formatErrorMessage(error);
   return {
     content: [
       {

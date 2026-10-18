@@ -344,6 +344,82 @@ async function testArgumentHandling(origin, names) {
   }
 }
 
+async function testErrorReporting(origin) {
+  console.log('\nError reporting');
+  const isError = (result) => result.message?.result?.isError === true;
+
+  const html403 = await callTool(origin, 'html-403-getfile', 'bulk_validate_get_file', { fileId: 'f1' });
+  const html403Text = toolText(html403);
+  check(
+    isError(html403) && html403Text.length < 500 && !/<html|<body|<p>/i.test(html403Text),
+    'bulk get-file HTML error page is reduced to a short message',
+    `${html403Text.length} chars: ${html403Text.slice(0, 160)}`
+  );
+  check(/Access denied \| zerobounce\.net/.test(html403Text), 'HTML error message keeps the page title');
+
+  const html200 = await callTool(origin, 'html-200-getfile', 'bulk_ai_scoring_get_file', { fileId: 'f1' });
+  check(
+    isError(html200) && toolText(html200).length < 500,
+    'bulk get-file HTML page with status 200 is an error, not CSV',
+    toolText(html200).slice(0, 160)
+  );
+
+  const denied = await callTool(origin, 'html-403-credits', 'get_credits', {});
+  check(
+    toolText(denied) === 'Error: api_key is invalid',
+    'error text carries a single "Error:" prefix',
+    toolText(denied)
+  );
+
+  const account = await callTool(origin, 'batch-account-1', 'validate_batch', TOOL_ARGS.validate_batch);
+  check(
+    isError(account) && /ran out of credits/.test(toolText(account)),
+    'validate_batch reports an account-level error as an error',
+    toolText(account).slice(0, 160)
+  );
+
+  const partial = await callTool(origin, 'batch-partial-1', 'validate_batch', TOOL_ARGS.validate_batch);
+  check(
+    !isError(partial) && /Invalid email address/.test(toolText(partial)),
+    'validate_batch keeps per-address errors in a successful result',
+    toolText(partial).slice(0, 160)
+  );
+}
+
+async function testBatchEmailColumn(origin) {
+  console.log('\nvalidate_batch emailAddressColumn');
+  await callTool(origin, 'batch-column', 'validate_batch', {
+    emails: ['Alice,alice@example.com', '"Smith, Bob",bob@example.com,extra', '"Q ""Quote""", q@example.com '],
+    emailAddressColumn: 1,
+  });
+  const [req] = loggedRequests('batch-column');
+  const sent = (req?.fields.email_batch ?? []).map((e) => e.email_address);
+  check(
+    JSON.stringify(sent) === JSON.stringify(['alice@example.com', 'bob@example.com', 'q@example.com']),
+    'emailAddressColumn reads that column from each CSV row (quoted fields too)',
+    JSON.stringify(sent)
+  );
+
+  await callTool(origin, 'batch-plain', 'validate_batch', { emails: ['a@example.com', 'b@example.com'] });
+  const plain = (loggedRequests('batch-plain')[0]?.fields.email_batch ?? []).map((e) => e.email_address);
+  check(
+    JSON.stringify(plain) === JSON.stringify(['a@example.com', 'b@example.com']),
+    'without emailAddressColumn, entries are sent unchanged',
+    JSON.stringify(plain)
+  );
+
+  const missing = await callTool(origin, 'batch-column-missing', 'validate_batch', {
+    emails: ['Alice,alice@example.com', 'Bob'],
+    emailAddressColumn: 1,
+  });
+  check(
+    /emails\[1\] has no value in column 1/.test(toolText(missing)) &&
+      loggedRequests('batch-column-missing').length === 0,
+    'a row without that column is rejected before calling the API',
+    toolText(missing)
+  );
+}
+
 async function testKeyIsolation(origin, server) {
   console.log('\nPer-request API key isolation');
   const count = 60;
@@ -407,6 +483,8 @@ async function main() {
     await testRoutingAndAuth(server.origin);
     const { names } = await testTools(server.origin);
     await testArgumentHandling(server.origin, names);
+    await testErrorReporting(server.origin);
+    await testBatchEmailColumn(server.origin);
     await testKeyIsolation(server.origin, server);
   } finally {
     await stopServer(server);

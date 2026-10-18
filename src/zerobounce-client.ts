@@ -4,6 +4,7 @@
  */
 
 import ZeroBounceSDK from '@zerobounce/zero-bounce-sdk';
+import { looksLikeHtml } from './errors.js';
 
 export interface ZeroBounceConfig {
   apiKey: string;
@@ -243,6 +244,40 @@ export interface ListEvaluatorResult {
   processed_at: string;
 }
 
+/** Reads a 0-based column from one CSV row, honouring double-quoted fields. */
+function readCsvColumn(row: string, column: number, rowIndex: number): string {
+  const fields: string[] = [];
+  let field = '';
+  let quoted = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (quoted) {
+      if (ch === '"' && row[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (ch === '"') {
+        quoted = false;
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ',') {
+      fields.push(field);
+      field = '';
+    } else {
+      field += ch;
+    }
+  }
+  fields.push(field);
+
+  const value = fields[column]?.trim();
+  if (!value) {
+    throw new Error(`emails[${rowIndex}] has no value in column ${column}`);
+  }
+  return value;
+}
+
 /** Whether the installed ZeroBounce SDK implements the given method. */
 export function isSdkMethodAvailable(name: string): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -329,8 +364,9 @@ export class ZeroBounceClient {
       verifyPlus?: boolean;
     }
   ): Promise<BatchValidationResult> {
-    const emailBatch = emails.map((email) => ({
-      email_address: email,
+    const column = options?.emailAddressColumn;
+    const emailBatch = emails.map((entry, row) => ({
+      email_address: column == null ? entry : readCsvColumn(entry, column, row),
     }));
 
     const batchOptions =
@@ -342,8 +378,18 @@ export class ZeroBounceClient {
           }
         : null;
 
-    const result = await this.sdk.validateBatch(emailBatch, batchOptions);
-    return result as BatchValidationResult;
+    const result = this.requireSdkResult(
+      (await this.sdk.validateBatch(emailBatch, batchOptions)) as BatchValidationResult | undefined,
+      'batch validation'
+    );
+
+    // Account-level failures (invalid key, no credits) come back with HTTP 200 as a
+    // single error for "all" addresses rather than as a thrown error.
+    const accountError = result.errors?.find((e) => e.email_address === 'all');
+    if (accountError) {
+      throw new Error(accountError.error);
+    }
+    return result;
   }
 
   /**
@@ -456,6 +502,10 @@ export class ZeroBounceClient {
     }
 
     if (typeof result === 'string') {
+      // A blocked or failed download can come back as an HTML page with status 200.
+      if (looksLikeHtml(result)) {
+        throw new Error(result);
+      }
       return { success: true, csv: result };
     }
 
