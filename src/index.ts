@@ -29,6 +29,10 @@ interface CliConfig extends ServerConfig {
 
 const API_KEY_HEADER = 'x-zerobounce-api-key';
 
+// Injected from package.json by the esbuild --define in `npm run build`.
+declare const __PACKAGE_VERSION__: string | undefined;
+const SERVER_VERSION = typeof __PACKAGE_VERSION__ === 'string' ? __PACKAGE_VERSION__ : '0.0.0-dev';
+
 class ZeroBounceMCPServer {
   private server: Server;
   private client: ZeroBounceClient;
@@ -43,7 +47,7 @@ class ZeroBounceMCPServer {
     this.server = new Server(
       {
         name: 'zerobounce-mcp',
-        version: '0.1.0',
+        version: SERVER_VERSION,
       },
       {
         capabilities: {

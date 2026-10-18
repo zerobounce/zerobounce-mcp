@@ -42,6 +42,8 @@ npm test            # stdio test (live API, TEST_KEY by default), then the offli
 - **Never share API keys or server state across HTTP requests.** `handleMcpRequest` creates a
   fresh server and client per request, and HTTP mode deliberately ignores `ZEROBOUNCE_API_KEY`.
 - **HTTP binds to `127.0.0.1` by default.** Hosted deployments opt in with `--host 0.0.0.0`.
+- **Don't hard-code the server version.** `npm run build` injects `package.json`'s version as
+  `__PACKAGE_VERSION__`, which the server reports in `serverInfo`.
 - Bulk tool column indexes are 0-based for MCP callers; `ZeroBounceClient` converts them to the
   SDK's 1-based indexes. Treat column `0` as a real value (`!= null`, not truthiness).
 - Add new tools to `TOOL_ARGS` (and `SDK_GATED` if gated) in `test-http.js`, which fails if a

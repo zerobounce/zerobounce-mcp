@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-19
+
+This is a minor release because HTTP mode now binds to `127.0.0.1` by default, which breaks
+hosted deployments that relied on the old all-interfaces default (see **Changed**).
+
 ### Added
 
 - `score_email` tool for real-time AI scoring of a single address (`/v2/scoring`).
@@ -27,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   they need. `score_email` and the bulk finder, bulk domain search, list evaluator, filter, and S3
   tools require an SDK release newer than 2.1.11 and are hidden until one is installed.
 - Bump `@zerobounce/zero-bounce-sdk` to `^2.1.11`.
+
+### Fixed
+
+- The server reports its real package version in `serverInfo` instead of `0.1.0`.
 
 ### Security
 
@@ -141,7 +150,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release: stdio MCP server with email validation, batch validation, credits and API
   usage, bulk validation and AI scoring files, email finder, domain search, and activity data tools.
 
-[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.1.12...HEAD
+[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.1.12...v0.2.0
 [0.1.12]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.1.9...v0.1.10

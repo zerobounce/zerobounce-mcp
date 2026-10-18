@@ -1606,6 +1606,7 @@ function getToolRegistry() {
 
 // src/index.ts
 var API_KEY_HEADER = "x-zerobounce-api-key";
+var SERVER_VERSION = true ? "0.2.0" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
   client;
@@ -1618,7 +1619,7 @@ var ZeroBounceMCPServer = class {
     this.server = new Server(
       {
         name: "zerobounce-mcp",
-        version: "0.1.0"
+        version: SERVER_VERSION
       },
       {
         capabilities: {

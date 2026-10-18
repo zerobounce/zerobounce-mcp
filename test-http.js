@@ -220,6 +220,11 @@ async function testRoutingAndAuth(origin) {
     { 'X-ZeroBounce-Api-Key': 'init-key' }
   );
   check(init.status === 200 && init.message?.result?.serverInfo?.name === 'zerobounce-mcp', 'initialize succeeds');
+  if (!process.env.ZB_MCP_SERVER) {
+    const { version } = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8'));
+    const reported = init.message?.result?.serverInfo?.version;
+    check(reported === version, `serverInfo reports package version ${version}`, `reported ${reported}`);
+  }
 
   const bearer = await rpc(origin, 'tools/call', { name: 'get_credits', arguments: {} }, {
     Authorization: 'Bearer bearer-key',
