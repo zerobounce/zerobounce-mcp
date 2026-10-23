@@ -10,6 +10,7 @@ import {
   createErrorResponse,
   requireArray,
   optionalNumber,
+  optionalBoolean,
 } from './types.js';
 
 export const validateBatchTool: ToolHandler = {
@@ -29,7 +30,20 @@ export const validateBatchTool: ToolHandler = {
         },
         emailAddressColumn: {
           type: 'number',
-          description: 'Optional column index if emails are in CSV format (default: 0)',
+          description:
+            'Optional 0-based column index when each entry is a CSV row; the email is read from that column. Omit when entries are plain email addresses.',
+        },
+        timeout: {
+          type: 'number',
+          description: 'Batch validation timeout in seconds (10–120)',
+        },
+        activityData: {
+          type: 'boolean',
+          description: 'Include activity data on each validation result',
+        },
+        verifyPlus: {
+          type: 'boolean',
+          description: 'Use Verify+ validation for this batch',
         },
       },
       required: ['emails'],
@@ -39,8 +53,16 @@ export const validateBatchTool: ToolHandler = {
     try {
       const emails = requireArray<string>(args.emails, 'emails');
       const emailAddressColumn = optionalNumber(args.emailAddressColumn);
+      const timeout = optionalNumber(args.timeout);
+      const activityData = optionalBoolean(args.activityData);
+      const verifyPlus = optionalBoolean(args.verifyPlus);
 
-      const result = await client.validateBatch(emails, emailAddressColumn);
+      const result = await client.validateBatch(emails, {
+        emailAddressColumn,
+        timeout,
+        activityData,
+        verifyPlus,
+      });
       return createSuccessResponse(result);
     } catch (error) {
       return createErrorResponse(error);

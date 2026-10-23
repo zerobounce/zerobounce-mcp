@@ -159,6 +159,8 @@ PORT=3000 node dist/index.js --http
 - MCP endpoint: `POST /mcp`. A browser `GET` returns `405 Method Not Allowed`, which is expected.
 - Health check: `GET /health`
 - Enable it with `--http` or `MCP_TRANSPORT=http`. The port comes from `--port` or `PORT` (default `3000`).
+- The server binds to `127.0.0.1` by default, so it is only reachable from the same machine. In a
+  container or on a hosting platform, bind all interfaces with `--host 0.0.0.0` or `MCP_HOST=0.0.0.0`.
 
 In HTTP mode **each caller supplies their own ZeroBounce API key** on every request, either as
 `X-ZeroBounce-Api-Key: <key>` or `Authorization: Bearer <key>`. `ZEROBOUNCE_API_KEY` and
@@ -186,7 +188,7 @@ Most hosted MCP platforms that build from a GitHub repository need these setting
 | Runtime / Preset | Node.js (MCP TypeScript SDK) |
 | Repository Root Directory | *(empty)* |
 | Build Command | `npm ci && npm run build` |
-| Start Command | `node dist/index.js --http` |
+| Start Command | `node dist/index.js --http --host 0.0.0.0` |
 | Port | `3000` |
 | Environment Variables | none required (set `PORT` only if you change the port) |
 
@@ -473,6 +475,15 @@ For local development on this MCP server:
     }
   }
   ```
+
+- **Run the tests:**
+  ```bash
+  npm run typecheck && npm run build && npm test
+  ```
+
+  `npm test` runs the stdio test, which calls the live ZeroBounce API (pass `--api-key=KEY` to
+  `node test-mcp.js` for full coverage), and then `test-http.js`. The HTTP test runs offline
+  against a fake API and checks routing, auth, every tool, and per-request API key isolation.
 
 ## Error Handling
 
