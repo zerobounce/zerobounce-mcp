@@ -35,7 +35,9 @@ npm test            # stdio test (live API, TEST_KEY by default), then the offli
 ## Conventions
 
 - **Only endpoints documented at https://www.zerobounce.net/docs/.** Do not add a tool for an
-  endpoint that the public docs do not describe, even if the SDK or the server has it.
+  endpoint that the public docs do not describe, even if the SDK or the server has it. Integration
+  pages count: the S3 bulk API is documented at
+  https://www.zerobounce.net/docs/api-integrations/amazon-s3-bulk-api.
 - **Rebuild and commit `dist/index.js`** with every source change. The repository ships the bundle.
 - **Tool argument helpers take a value, not the args object.** Write `requireString(args.email, 'email')`,
   never `requireString(args, 'email')`. The wrong form compiles but rejects every call.

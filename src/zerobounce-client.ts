@@ -760,6 +760,37 @@ export class ZeroBounceClient {
     );
   }
 
+  async listS3Files(options?: {
+    bucket?: string;
+    search?: string;
+  }): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.listS3files({
+        bucket: options?.bucket ?? null,
+        search: options?.search ?? null,
+      }),
+      'list S3 files'
+    );
+  }
+
+  async validateS3File(fields: Record<string, unknown>): Promise<BulkFileSendResponse> {
+    const result = this.requireSdkResult(await this.sdk.validateS3file(fields), 'validate S3 file');
+    return result as BulkFileSendResponse;
+  }
+
+  async scoreS3File(fields: Record<string, unknown>): Promise<BulkFileSendResponse> {
+    const result = this.requireSdkResult(await this.sdk.scoreS3file(fields), 'score S3 file');
+    return result as BulkFileSendResponse;
+  }
+
+  async exportS3File(fileId: string, exportBucket: string): Promise<BulkFileSendResponse> {
+    const result = this.requireSdkResult(
+      await this.sdk.exportS3file({ file_id: fileId, export_bucket: exportBucket }),
+      'export S3 file'
+    );
+    return result as BulkFileSendResponse;
+  }
+
   /** @deprecated Use sendListEvaluatorFile */
   async evaluateList(
     fileContent: string | Blob,

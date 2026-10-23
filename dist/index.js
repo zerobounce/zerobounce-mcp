@@ -637,6 +637,30 @@ var ZeroBounceClient = class {
       "delete filter"
     );
   }
+  async listS3Files(options) {
+    return this.requireSdkResult(
+      await this.sdk.listS3files({
+        bucket: options?.bucket ?? null,
+        search: options?.search ?? null
+      }),
+      "list S3 files"
+    );
+  }
+  async validateS3File(fields) {
+    const result = this.requireSdkResult(await this.sdk.validateS3file(fields), "validate S3 file");
+    return result;
+  }
+  async scoreS3File(fields) {
+    const result = this.requireSdkResult(await this.sdk.scoreS3file(fields), "score S3 file");
+    return result;
+  }
+  async exportS3File(fileId, exportBucket) {
+    const result = this.requireSdkResult(
+      await this.sdk.exportS3file({ file_id: fileId, export_bucket: exportBucket }),
+      "export S3 file"
+    );
+    return result;
+  }
   /** @deprecated Use sendListEvaluatorFile */
   async evaluateList(fileContent, fileName, emailAddressColumn) {
     await this.sendListEvaluatorFile(fileContent, fileName, emailAddressColumn ?? 0);
@@ -1484,6 +1508,107 @@ var deleteFilterTool = {
   }
 };
 
+// src/tools/s3-bulk.ts
+var listS3FilesTool = {
+  sdkMethods: ["listS3files"],
+  definition: {
+    name: "list_s3_files",
+    description: "List S3 bucket files available for validation or scoring (GET /listS3files)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bucket: { type: "string", description: "Input bucket (optional if configured in UI)" },
+        search: { type: "string", description: "Filter results by file name" }
+      }
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.listS3Files({
+        bucket: optionalString(args.bucket),
+        search: optionalString(args.search)
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var validateS3FileTool = {
+  sdkMethods: ["validateS3file"],
+  definition: {
+    name: "validate_s3_file",
+    description: "Submit an S3 object for bulk validation (validateS3file)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileName: { type: "string", description: "S3 object key/path" }
+      },
+      required: ["fileName"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.validateS3File({
+        file_name: requireString(args.fileName, "fileName")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var scoreS3FileTool = {
+  sdkMethods: ["scoreS3file"],
+  definition: {
+    name: "score_s3_file",
+    description: "Submit an S3 object for bulk AI scoring (scoreS3file)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileName: { type: "string" }
+      },
+      required: ["fileName"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.scoreS3File({
+        file_name: requireString(args.fileName, "fileName")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var exportS3FileTool = {
+  sdkMethods: ["exportS3file"],
+  definition: {
+    name: "export_s3_file",
+    description: "Export a completed bulk job to an S3 bucket (exportS3file)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string" },
+        exportBucket: { type: "string" }
+      },
+      required: ["fileId", "exportBucket"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.exportS3File(
+        requireString(args.fileId, "fileId"),
+        requireString(args.exportBucket, "exportBucket")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
 // src/tools/index.ts
 function listTools() {
   return [
@@ -1522,7 +1647,11 @@ function listTools() {
     listEvaluatorResultTool,
     addFilterTool,
     listFiltersTool,
-    deleteFilterTool
+    deleteFilterTool,
+    listS3FilesTool,
+    validateS3FileTool,
+    scoreS3FileTool,
+    exportS3FileTool
   ];
 }
 function getAllTools() {

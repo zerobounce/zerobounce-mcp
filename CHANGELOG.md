@@ -20,6 +20,7 @@ hosted deployments that relied on the old all-interfaces default (see **Changed*
 - Bulk email finder and bulk domain search file tools (`*_send_file`, `*_file_status`, `*_get_file`, `*_delete_file`).
 - List evaluator tools: `list_evaluator_send_file` and `list_evaluator_result`.
 - Custom filter tools: `add_filter`, `list_filters`, and `delete_filter`.
+- S3 bulk tools: `list_s3_files`, `validate_s3_file`, `score_s3_file`, and `export_s3_file`.
 - `--host` flag for HTTP mode, alongside the `MCP_HOST` environment variable.
 - Offline HTTP-mode test suite (`test-http.js`), run by `npm test`.
 
@@ -28,7 +29,7 @@ hosted deployments that relied on the old all-interfaces default (see **Changed*
 - HTTP mode binds to `127.0.0.1` by default. Hosted deployments must pass `--host 0.0.0.0`
   (or set `MCP_HOST=0.0.0.0`) to accept outside connections.
 - Tools are only listed when the installed `@zerobounce/zero-bounce-sdk` implements the methods
-  they need. `score_email` and the bulk finder, bulk domain search, list evaluator, and filter
+  they need. `score_email` and the bulk finder, bulk domain search, list evaluator, filter, and S3
   tools require an SDK release newer than 2.1.11 and are hidden until one is installed.
 - Bump `@zerobounce/zero-bounce-sdk` to `^2.1.11`.
 

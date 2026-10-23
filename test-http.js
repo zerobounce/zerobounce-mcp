@@ -162,6 +162,10 @@ const TOOL_ARGS = {
   add_filter: { rule: 'allow', target: 'email', value: 'alice@example.com' },
   list_filters: {},
   delete_filter: { rule: 'allow', target: 'email', value: 'alice@example.com' },
+  list_s3_files: {},
+  validate_s3_file: { fileName: 'input/list.csv' },
+  score_s3_file: { fileName: 'input/list.csv' },
+  export_s3_file: { fileId: 'f1', exportBucket: 'results-bucket' },
 };
 
 // Tools that only exist with a newer ZeroBounce SDK.
@@ -180,6 +184,10 @@ const SDK_GATED = new Set([
   'add_filter',
   'list_filters',
   'delete_filter',
+  'list_s3_files',
+  'validate_s3_file',
+  'score_s3_file',
+  'export_s3_file',
 ]);
 
 async function testRoutingAndAuth(origin) {
@@ -290,6 +298,22 @@ async function testArgumentHandling(origin, names) {
     );
     const noRule = await callTool(origin, 'filter-missing', 'add_filter', { target: 'email', value: 'x' });
     check(/rule is required/.test(toolText(noRule)), 'add_filter without rule is rejected');
+  }
+
+  if (has('export_s3_file')) {
+    await callTool(origin, 's3-export', 'export_s3_file', TOOL_ARGS.export_s3_file);
+    const [req] = loggedRequests('s3-export');
+    check(
+      req?.fields.file_id === 'f1' && req?.fields.export_bucket === 'results-bucket',
+      'export_s3_file sends file_id and export_bucket',
+      JSON.stringify(req?.fields)
+    );
+  }
+
+  if (has('validate_s3_file')) {
+    await callTool(origin, 's3-validate', 'validate_s3_file', TOOL_ARGS.validate_s3_file);
+    const [req] = loggedRequests('s3-validate');
+    check(req?.fields.file_name === 'input/list.csv', 'validate_s3_file sends file_name', JSON.stringify(req?.fields));
   }
 
   if (has('list_evaluator_send_file')) {
