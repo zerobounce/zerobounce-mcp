@@ -12,7 +12,7 @@
  */
 
 /* eslint-env node */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -233,6 +233,19 @@ async function testRoutingAndAuth(origin) {
     bearer.status === 200 && loggedRequests('bearer-key').length === 1,
     'Authorization: Bearer key is forwarded to the API'
   );
+
+  const padded = await rpc(origin, 'tools/call', { name: 'get_credits', arguments: {} }, {
+    Authorization: `bEaReR ${' '.repeat(2000)}padded-key`,
+  });
+  check(
+    padded.status === 200 && loggedRequests('padded-key').length === 1,
+    'Authorization bearer token is read after long whitespace'
+  );
+
+  const basic = await rpc(origin, 'tools/call', { name: 'get_credits', arguments: {} }, {
+    Authorization: 'Basic not-a-bearer-key',
+  });
+  check(basic.status === 401, 'non-bearer Authorization is rejected');
 }
 
 async function testTools(origin) {
@@ -287,6 +300,39 @@ async function testArgumentHandling(origin, names) {
     returnUrl: 'http://127.0.0.1/hook',
   });
   check(/returnUrl must use HTTPS/.test(toolText(badUrl)), 'non-HTTPS / private returnUrl is rejected');
+
+  const privateIpv6 = [
+    ['https://[::1]/hook', 'loopback'],
+    ['https://[::]/hook', 'unspecified'],
+    ['https://[fe80::1]/hook', 'link-local'],
+    ['https://[febf::1]/hook', 'link-local-high'],
+    ['https://[fd00::1]/hook', 'unique-local'],
+    ['https://[::ffff:127.0.0.1]/hook', 'mapped-loopback'],
+    ['https://[::ffff:10.1.2.3]/hook', 'mapped-private'],
+  ];
+  for (const [returnUrl, label] of privateIpv6) {
+    const result = await callTool(origin, `ipv6-${label}`, 'bulk_validate_send_file', {
+      fileContent: CSV,
+      fileName: 'list.csv',
+      returnUrl,
+    });
+    check(
+      /private, link-local, or loopback/.test(toolText(result)) && loggedRequests(`ipv6-${label}`).length === 0,
+      `IPv6 ${label} returnUrl is rejected`,
+      toolText(result).slice(0, 180)
+    );
+  }
+
+  const publicV6 = await callTool(origin, 'ipv6-public', 'bulk_validate_send_file', {
+    fileContent: CSV,
+    fileName: 'list.csv',
+    returnUrl: 'https://[2606:4700::1111]/hook',
+  });
+  check(
+    loggedRequests('ipv6-public').some((entry) => String(entry.fields?.return_url ?? '').includes('2606:4700::1111')),
+    'public IPv6 returnUrl is forwarded',
+    toolText(publicV6).slice(0, 180)
+  );
 
   if (has('add_filter')) {
     await callTool(origin, 'filter-fields', 'add_filter', TOOL_ARGS.add_filter);
@@ -460,20 +506,26 @@ async function testKeyIsolation(origin, server) {
 
 async function testBindHost() {
   console.log('\nBind host');
+  const refused = spawnSync(process.execPath, [SERVER_PATH, '--http', '--host', '0.0.0.0'], {
+    encoding: 'utf8',
+    env: { ...process.env, MCP_TLS_TERMINATED: '' },
+  });
+  check(refused.status === 1 && /MCP_TLS_TERMINATED=true/.test(refused.stderr),
+    'non-loopback bind requires explicit TLS termination');
   const port = await freePort();
   const local = await startServer(['--port', String(port)], { MCP_HOST: '' });
   check(local.origin === `http://127.0.0.1:${port}`, 'binds to 127.0.0.1 by default', local.origin);
   await stopServer(local);
 
   const flagPort = await freePort();
-  const flag = await startServer(['--port', String(flagPort), '--host', '0.0.0.0']);
+  const flag = await startServer(['--port', String(flagPort), '--host', '0.0.0.0'], { MCP_TLS_TERMINATED: 'true' });
   check(flag.origin === `http://0.0.0.0:${flagPort}`, '--host 0.0.0.0 binds all interfaces', flag.origin);
   const viaAll = await fetch(`http://127.0.0.1:${flagPort}/health`);
   check(viaAll.status === 200, 'server bound to 0.0.0.0 answers on loopback');
   await stopServer(flag);
 
   const envPort = await freePort();
-  const env = await startServer([`--port=${envPort}`], { MCP_HOST: '0.0.0.0' });
+  const env = await startServer([`--port=${envPort}`], { MCP_HOST: '0.0.0.0', MCP_TLS_TERMINATED: 'true' });
   check(env.origin === `http://0.0.0.0:${envPort}`, 'MCP_HOST=0.0.0.0 binds all interfaces', env.origin);
   await stopServer(env);
 }

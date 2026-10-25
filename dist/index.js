@@ -1512,44 +1512,85 @@ var getApiUsageTool = {
 // src/security/bulk-input.ts
 import { isIP } from "node:net";
 var MAX_BULK_FILE_CONTENT_BYTES = 32 * 1024 * 1024;
+function normalizeHost(hostname) {
+  const host = hostname.trim().toLowerCase();
+  if (host.startsWith("[") && host.endsWith("]") && host.length >= 2) {
+    return host.slice(1, -1);
+  }
+  return host;
+}
+function isPrivateIpv4(host) {
+  const parts = host.split(".").map((p) => Number(p));
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) {
+    return true;
+  }
+  const [a, b] = parts;
+  if (a === 10 || a === 127 || a === 0) {
+    return true;
+  }
+  if (a === 169 && b === 254) {
+    return true;
+  }
+  if (a === 172 && b >= 16 && b <= 31) {
+    return true;
+  }
+  if (a === 192 && b === 168) {
+    return true;
+  }
+  return false;
+}
+function ipv4FromMapped(host) {
+  const dotted = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(host);
+  if (dotted?.[1]) {
+    return dotted[1];
+  }
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(host);
+  if (!hex?.[1] || !hex[2]) {
+    return void 0;
+  }
+  const hi = Number.parseInt(hex[1], 16);
+  const lo = Number.parseInt(hex[2], 16);
+  return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+}
+function isPrivateIpv6(host) {
+  const bare = (host.split("%")[0] ?? host).toLowerCase();
+  if (bare === "::" || bare === "::0" || bare === "0:0:0:0:0:0:0:0") {
+    return true;
+  }
+  if (bare === "::1" || bare === "0:0:0:0:0:0:0:1") {
+    return true;
+  }
+  const mapped = ipv4FromMapped(bare);
+  if (mapped) {
+    return isPrivateIpv4(mapped);
+  }
+  const first = bare.split(":")[0] ?? "";
+  if (!first) {
+    return false;
+  }
+  const value = Number.parseInt(first, 16);
+  if (!Number.isFinite(value)) {
+    return false;
+  }
+  if (value >= 65152 && value <= 65215) {
+    return true;
+  }
+  if (value >= 64512 && value <= 65023) {
+    return true;
+  }
+  return false;
+}
 function isPrivateOrLocalHost(hostname) {
-  const host = hostname.toLowerCase();
+  const host = normalizeHost(hostname);
   if (host === "localhost" || host.endsWith(".localhost")) {
     return true;
   }
   const ipVersion = isIP(host);
   if (ipVersion === 4) {
-    const parts = host.split(".").map((p) => Number(p));
-    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) {
-      return true;
-    }
-    const [a, b] = parts;
-    if (a === 10 || a === 127 || a === 0) {
-      return true;
-    }
-    if (a === 169 && b === 254) {
-      return true;
-    }
-    if (a === 172 && b >= 16 && b <= 31) {
-      return true;
-    }
-    if (a === 192 && b === 168) {
-      return true;
-    }
-    return false;
+    return isPrivateIpv4(host);
   }
   if (ipVersion === 6) {
-    if (host === "::1") {
-      return true;
-    }
-    if (host.startsWith("fe80:") || host.startsWith("fe80%")) {
-      return true;
-    }
-    const first = host.split(":")[0];
-    if (first.length >= 2 && (first.startsWith("fc") || first.startsWith("fd"))) {
-      return true;
-    }
-    return false;
+    return isPrivateIpv6(host);
   }
   return false;
 }
@@ -1563,7 +1604,7 @@ function validateBulkReturnUrl(returnUrl) {
   if (parsed.protocol !== "https:") {
     throw new Error("returnUrl must use HTTPS");
   }
-  const hostname = parsed.hostname;
+  const hostname = normalizeHost(parsed.hostname);
   if (!hostname) {
     throw new Error("returnUrl must include a hostname");
   }
@@ -2378,14 +2419,30 @@ async function runStdio(apiKey) {
   await server.connect(new StdioServerTransport());
   console.error("ZeroBounce MCP server running on stdio");
 }
+function isHttpWhitespace(char) {
+  const code = char.charCodeAt(0);
+  return code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 32 || code === 160 || code === 5760 || code === 8232 || code === 8233 || code === 8239 || code === 8287 || code === 12288 || code === 65279 || code >= 8192 && code <= 8202;
+}
+function bearerToken(authorization) {
+  const scheme = "bearer";
+  if (authorization.length <= scheme.length) return "";
+  if (authorization.slice(0, scheme.length).toLowerCase() !== scheme) return "";
+  let index = scheme.length;
+  if (!isHttpWhitespace(authorization[index])) return "";
+  while (index < authorization.length && isHttpWhitespace(authorization[index])) {
+    index += 1;
+  }
+  if (index >= authorization.length) return "";
+  return authorization.slice(index).trim();
+}
 function getRequestApiKey(req) {
   const header = req.headers[API_KEY_HEADER];
   const value = Array.isArray(header) ? header[0] : header;
   if (value?.trim()) {
     return value.trim();
   }
-  const match = req.headers.authorization?.match(/^Bearer\s+(.+)$/i);
-  return match?.[1].trim() ?? "";
+  const authorization = req.headers.authorization;
+  return typeof authorization === "string" ? bearerToken(authorization) : "";
 }
 function sendJsonRpcError(res, status, message) {
   res.writeHead(status, { "Content-Type": "application/json" }).end(
@@ -2491,6 +2548,10 @@ function parseArgs() {
     throw new Error("--port must be a positive integer");
   }
   if (config.transport === "http") {
+    const loopback = config.host === "127.0.0.1" || config.host === "::1" || config.host === "localhost";
+    if (!loopback && process.env.MCP_TLS_TERMINATED !== "true") {
+      throw new Error("Non-loopback HTTP binding requires MCP_TLS_TERMINATED=true and a trusted TLS-terminating proxy.");
+    }
     return config;
   }
   if (!config.apiKey) {

@@ -139,6 +139,42 @@ async function runStdio(apiKey: string): Promise<void> {
   console.error('ZeroBounce MCP server running on stdio');
 }
 
+// Same set as a JavaScript `\s` match, checked one character at a time so a long
+// Authorization header cannot force the regex engine into polynomial backtracking.
+function isHttpWhitespace(char: string): boolean {
+  const code = char.charCodeAt(0);
+  return (
+    code === 0x09 ||
+    code === 0x0a ||
+    code === 0x0b ||
+    code === 0x0c ||
+    code === 0x0d ||
+    code === 0x20 ||
+    code === 0xa0 ||
+    code === 0x1680 ||
+    code === 0x2028 ||
+    code === 0x2029 ||
+    code === 0x202f ||
+    code === 0x205f ||
+    code === 0x3000 ||
+    code === 0xfeff ||
+    (code >= 0x2000 && code <= 0x200a)
+  );
+}
+
+function bearerToken(authorization: string): string {
+  const scheme = 'bearer';
+  if (authorization.length <= scheme.length) return '';
+  if (authorization.slice(0, scheme.length).toLowerCase() !== scheme) return '';
+  let index = scheme.length;
+  if (!isHttpWhitespace(authorization[index])) return '';
+  while (index < authorization.length && isHttpWhitespace(authorization[index])) {
+    index += 1;
+  }
+  if (index >= authorization.length) return '';
+  return authorization.slice(index).trim();
+}
+
 // Each HTTP caller supplies their own ZeroBounce key, so there is deliberately
 // no fallback to ZEROBOUNCE_API_KEY in this mode.
 function getRequestApiKey(req: IncomingMessage): string {
@@ -148,8 +184,8 @@ function getRequestApiKey(req: IncomingMessage): string {
     return value.trim();
   }
 
-  const match = req.headers.authorization?.match(/^Bearer\s+(.+)$/i);
-  return match?.[1].trim() ?? '';
+  const authorization = req.headers.authorization;
+  return typeof authorization === 'string' ? bearerToken(authorization) : '';
 }
 
 function sendJsonRpcError(res: ServerResponse, status: number, message: string): void {
@@ -275,6 +311,10 @@ function parseArgs(): CliConfig {
   }
 
   if (config.transport === 'http') {
+    const loopback = config.host === '127.0.0.1' || config.host === '::1' || config.host === 'localhost';
+    if (!loopback && process.env.MCP_TLS_TERMINATED !== 'true') {
+      throw new Error('Non-loopback HTTP binding requires MCP_TLS_TERMINATED=true and a trusted TLS-terminating proxy.');
+    }
     return config;
   }
 

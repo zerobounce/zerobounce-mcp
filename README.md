@@ -160,7 +160,9 @@ PORT=3000 node dist/index.js --http
 - Health check: `GET /health`
 - Enable it with `--http` or `MCP_TRANSPORT=http`. The port comes from `--port` or `PORT` (default `3000`).
 - The server binds to `127.0.0.1` by default, so it is only reachable from the same machine. In a
-  container or on a hosting platform, bind all interfaces with `--host 0.0.0.0` or `MCP_HOST=0.0.0.0`.
+  container or on a hosting platform, terminate HTTPS at a trusted proxy, set
+  `MCP_TLS_TERMINATED=true`, and bind all interfaces with `--host 0.0.0.0` or `MCP_HOST=0.0.0.0`.
+  Keep the connection between the proxy and this HTTP listener on a trusted private network.
 
 In HTTP mode **each caller supplies their own ZeroBounce API key** on every request, either as
 `X-ZeroBounce-Api-Key: <key>` or `Authorization: Bearer <key>`. `ZEROBOUNCE_API_KEY` and

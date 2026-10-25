@@ -109,8 +109,12 @@ function formatResult(result) {
 async function testMCPServer() {
   log('Starting comprehensive MCP server test...');
   log(`Server path: ${SERVER_PATH}`);
-  log(`API Key: ${TEST_API_KEY.substring(0, 8)}...`);
   const isTestKey = TEST_API_KEY === 'TEST_KEY';
+  if (isTestKey) {
+    log('API key: placeholder');
+  } else {
+    log('API key: provided');
+  }
 
   return new Promise((resolve, reject) => {
     const server = spawn('node', [SERVER_PATH, `--api-key=${TEST_API_KEY}`], {
@@ -356,11 +360,16 @@ async function testMCPServer() {
           }, 'read config');
           
           if (readResponse.result && readResponse.result.contents) {
-            logSuccess('Read Config Resource: Success');
             const config = JSON.parse(readResponse.result.contents[0].text);
-            log(`  API Key Configured: ${config.apiKeyConfigured}`);
             log(`  Base URL: ${config.baseUrl}`);
-            results.passed++;
+            if (typeof config.apiKeyConfigured !== 'boolean') {
+              logFailure('Read Config Resource: credentials flag missing');
+              results.failed++;
+              results.errors.push('Read Config Resource: credentials flag missing');
+            } else {
+              logSuccess('Read Config Resource: Success');
+              results.passed++;
+            }
           } else {
             logFailure('Read Config Resource: Failed');
             results.failed++;

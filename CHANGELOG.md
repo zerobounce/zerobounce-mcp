@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- HTTP mode requires `MCP_TLS_TERMINATED=true` before binding outside loopback, making the trusted TLS proxy requirement explicit.
+- Authorization bearer tokens are parsed without a backtracking regular expression, so a long header cannot stall the server.
+- `returnUrl` now rejects bracketed IPv6 loopback, link-local (`fe80::/10`), unique-local, unspecified, and IPv4-mapped private addresses. Public IPv6 literals are allowed.
+
 ## [0.2.0] - 2026-10-19
 
 This is a minor release because HTTP mode now binds to `127.0.0.1` by default, which breaks
