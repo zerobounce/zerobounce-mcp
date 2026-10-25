@@ -2329,6 +2329,30 @@ function getToolRegistry() {
 
 // src/index.ts
 var API_KEY_HEADER = "x-zerobounce-api-key";
+var DEFAULT_API_BASE_URL = "https://api.zerobounce.net/v2";
+var REGIONAL_API_BASE_URLS = {
+  default: DEFAULT_API_BASE_URL,
+  us: "https://api-us.zerobounce.net/v2",
+  eu: "https://api-eu.zerobounce.net/v2"
+};
+function resolveApiBaseUrl(value) {
+  const raw = value?.trim();
+  if (!raw) return DEFAULT_API_BASE_URL;
+  const region = REGIONAL_API_BASE_URLS[raw.toLowerCase()];
+  if (region) return region;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      `Invalid API URL: ${raw}. Use us, eu, or an https:// URL.`
+    );
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`The API URL must use https, got: ${raw}`);
+  }
+  return raw.replace(/\/+$/, "");
+}
 var SERVER_VERSION = true ? "0.2.0" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
@@ -2337,7 +2361,8 @@ var ZeroBounceMCPServer = class {
   constructor(config) {
     this.config = config;
     this.client = new ZeroBounceClient({
-      apiKey: config.apiKey
+      apiKey: config.apiKey,
+      baseUrl: config.baseUrl
     });
     this.server = new Server(
       {
@@ -2395,7 +2420,7 @@ var ZeroBounceMCPServer = class {
               mimeType: "application/json",
               text: JSON.stringify(
                 {
-                  baseUrl: "https://api.zerobounce.net/v2",
+                  baseUrl: this.config.baseUrl,
                   apiKeyConfigured: !!this.config.apiKey
                 },
                 null,
@@ -2415,8 +2440,8 @@ var ZeroBounceMCPServer = class {
     await this.server.close();
   }
 };
-async function runStdio(apiKey) {
-  const server = new ZeroBounceMCPServer({ apiKey });
+async function runStdio(apiKey, baseUrl) {
+  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
   await server.connect(new StdioServerTransport());
   console.error("ZeroBounce MCP server running on stdio");
 }
@@ -2454,7 +2479,7 @@ function sendJsonRpcError(res, status, message) {
     })
   );
 }
-async function handleMcpRequest(req, res) {
+async function handleMcpRequest(req, res, baseUrl) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     sendJsonRpcError(res, 405, "Method not allowed.");
@@ -2469,7 +2494,7 @@ async function handleMcpRequest(req, res) {
     );
     return;
   }
-  const server = new ZeroBounceMCPServer({ apiKey });
+  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: void 0,
     maxRequestBodySize: HTTP_MAX_REQUEST_BODY_BYTES
@@ -2481,7 +2506,7 @@ async function handleMcpRequest(req, res) {
   await server.connect(transport);
   await transport.handleRequest(req, res);
 }
-async function runHttp(host, port) {
+async function runHttp(host, port, baseUrl) {
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
     if (pathname === "/health") {
@@ -2492,7 +2517,7 @@ async function runHttp(host, port) {
       res.writeHead(404).end();
       return;
     }
-    handleMcpRequest(req, res).catch((error) => {
+    handleMcpRequest(req, res, baseUrl).catch((error) => {
       console.error("Error handling MCP request:", error);
       if (!res.headersSent) {
         sendJsonRpcError(res, 500, "Internal server error.");
@@ -2512,7 +2537,8 @@ function parseArgs() {
     transport: process.env.MCP_TRANSPORT?.trim() === "http" ? "http" : "stdio",
     // Loopback by default; hosted deployments must opt in to 0.0.0.0 explicitly.
     host: process.env.MCP_HOST?.trim() || "127.0.0.1",
-    port: Number(process.env.PORT) || 3e3
+    port: Number(process.env.PORT) || 3e3,
+    baseUrl: resolveApiBaseUrl(process.env.ZEROBOUNCE_API_URL)
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -2546,6 +2572,15 @@ function parseArgs() {
       }
     } else if (arg.startsWith("--host=")) {
       config.host = arg.slice("--host=".length);
+    } else if (arg === "--url") {
+      if (nextArg) {
+        config.baseUrl = resolveApiBaseUrl(nextArg);
+        i++;
+      } else {
+        throw new Error("--url requires a value");
+      }
+    } else if (arg.startsWith("--url=")) {
+      config.baseUrl = resolveApiBaseUrl(arg.slice("--url=".length));
     }
   }
   if (!Number.isInteger(config.port) || config.port <= 0) {
@@ -2572,9 +2607,9 @@ async function main() {
   try {
     const config = parseArgs();
     if (config.transport === "http") {
-      await runHttp(config.host, config.port);
+      await runHttp(config.host, config.port, config.baseUrl);
     } else {
-      await runStdio(config.apiKey);
+      await runStdio(config.apiKey, config.baseUrl);
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

@@ -552,6 +552,54 @@ async function testBindHost() {
   const env = await startServer([`--port=${envPort}`], { MCP_HOST: '0.0.0.0', MCP_TLS_TERMINATED: 'true' });
   check(env.origin === `http://0.0.0.0:${envPort}`, 'MCP_HOST=0.0.0.0 binds all interfaces', env.origin);
   await stopServer(env);
+
+  console.log('\nRegional API base URL');
+  // ZeroBounce serves the main API from three hosts. The SDK has always
+  // supported them; until now this server gave no way to pick one.
+  const readBaseUrl = async (origin) => {
+    const r = await rpc(origin, 'resources/read', { uri: 'zerobounce://config' }, {
+      'X-ZeroBounce-Api-Key': 'region-key',
+    });
+    return JSON.parse(r.message.result.contents[0].text).baseUrl;
+  };
+
+  const defPort = await freePort();
+  const def = await startServer([`--port=${defPort}`], { ZEROBOUNCE_API_URL: '' });
+  check(await readBaseUrl(def.origin) === 'https://api.zerobounce.net/v2',
+    'defaults to the main API host');
+  await stopServer(def);
+
+  const usPort = await freePort();
+  const us = await startServer([`--port=${usPort}`, '--url=us']);
+  check(await readBaseUrl(us.origin) === 'https://api-us.zerobounce.net/v2',
+    '--url=us selects the US host');
+  await stopServer(us);
+
+  const euPort = await freePort();
+  const eu = await startServer([`--port=${euPort}`], { ZEROBOUNCE_API_URL: 'eu' });
+  check(await readBaseUrl(eu.origin) === 'https://api-eu.zerobounce.net/v2',
+    'ZEROBOUNCE_API_URL=eu selects the EU host');
+  await stopServer(eu);
+
+  const customPort = await freePort();
+  const custom = await startServer([`--port=${customPort}`, '--url=https://stub.example.com/v2']);
+  check(await readBaseUrl(custom.origin) === 'https://stub.example.com/v2',
+    'an explicit https URL is kept as given');
+  await stopServer(custom);
+
+  // Never silently fall back to production: a caller who asked for one host and
+  // got another would send their key somewhere they did not choose.
+  const insecure = spawnSync(process.execPath, [SERVER_PATH, '--http', '--url=http://api.zerobounce.net/v2'], {
+    encoding: 'utf8',
+  });
+  check(insecure.status === 1 && /must use https/i.test(insecure.stderr),
+    'a non-https API URL is refused, not silently replaced', insecure.stderr.slice(0, 120));
+
+  const bogus = spawnSync(process.execPath, [SERVER_PATH, '--http', '--url=not-a-url'], {
+    encoding: 'utf8',
+  });
+  check(bogus.status === 1 && /Invalid API URL/i.test(bogus.stderr),
+    'a malformed API URL is refused', bogus.stderr.slice(0, 120));
 }
 
 async function main() {

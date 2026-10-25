@@ -20,6 +20,7 @@ import { getAllTools, getToolRegistry } from './tools/index.js';
 
 interface ServerConfig {
   apiKey: string;
+  baseUrl: string;
 }
 
 interface CliConfig extends ServerConfig {
@@ -29,6 +30,43 @@ interface CliConfig extends ServerConfig {
 }
 
 const API_KEY_HEADER = 'x-zerobounce-api-key';
+
+const DEFAULT_API_BASE_URL = 'https://api.zerobounce.net/v2';
+
+/**
+ * ZeroBounce serves the main API from three hosts. Only these three exist:
+ * there is no regional bulk or warmup host, so the bulk endpoints stay where
+ * they are regardless of this setting.
+ */
+const REGIONAL_API_BASE_URLS: Record<string, string> = {
+  default: DEFAULT_API_BASE_URL,
+  us: 'https://api-us.zerobounce.net/v2',
+  eu: 'https://api-eu.zerobounce.net/v2',
+};
+
+/** Accepts `us`, `eu`, `default`, or an explicit https URL (for a test host). */
+function resolveApiBaseUrl(value: string | undefined): string {
+  const raw = value?.trim();
+  if (!raw) return DEFAULT_API_BASE_URL;
+
+  const region = REGIONAL_API_BASE_URLS[raw.toLowerCase()];
+  if (region) return region;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      `Invalid API URL: ${raw}. Use us, eu, or an https:// URL.`
+    );
+  }
+  if (parsed.protocol !== 'https:') {
+    // Never silently fall back to production here: a caller who asked for one
+    // host and got another would send their key somewhere they did not choose.
+    throw new Error(`The API URL must use https, got: ${raw}`);
+  }
+  return raw.replace(/\/+$/, '');
+}
 
 // Injected from package.json by the esbuild --define in `npm run build`.
 declare const __PACKAGE_VERSION__: string | undefined;
@@ -43,6 +81,7 @@ class ZeroBounceMCPServer {
     this.config = config;
     this.client = new ZeroBounceClient({
       apiKey: config.apiKey,
+      baseUrl: config.baseUrl,
     });
 
     this.server = new Server(
@@ -110,7 +149,7 @@ class ZeroBounceMCPServer {
               mimeType: 'application/json',
               text: JSON.stringify(
                 {
-                  baseUrl: 'https://api.zerobounce.net/v2',
+                  baseUrl: this.config.baseUrl,
                   apiKeyConfigured: !!this.config.apiKey,
                 },
                 null,
@@ -134,8 +173,8 @@ class ZeroBounceMCPServer {
   }
 }
 
-async function runStdio(apiKey: string): Promise<void> {
-  const server = new ZeroBounceMCPServer({ apiKey });
+async function runStdio(apiKey: string, baseUrl: string): Promise<void> {
+  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
   await server.connect(new StdioServerTransport());
   console.error('ZeroBounce MCP server running on stdio');
 }
@@ -199,7 +238,11 @@ function sendJsonRpcError(res: ServerResponse, status: number, message: string):
   );
 }
 
-async function handleMcpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handleMcpRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  baseUrl: string
+): Promise<void> {
   // Stateless mode: no sessions, so GET (SSE stream) and DELETE (session end) do not apply.
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -220,7 +263,7 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse): Prom
   // A fresh server per request keeps each caller's API key isolated: an SDK Server
   // can only be connected to one transport at a time, and sharing one instance
   // across concurrent requests would mix up which key a tool call runs with.
-  const server = new ZeroBounceMCPServer({ apiKey });
+  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     maxRequestBodySize: HTTP_MAX_REQUEST_BODY_BYTES,
@@ -234,7 +277,7 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse): Prom
   await transport.handleRequest(req, res);
 }
 
-async function runHttp(host: string, port: number): Promise<void> {
+async function runHttp(host: string, port: number, baseUrl: string): Promise<void> {
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? '/', 'http://localhost');
 
@@ -248,7 +291,7 @@ async function runHttp(host: string, port: number): Promise<void> {
       return;
     }
 
-    handleMcpRequest(req, res).catch((error) => {
+    handleMcpRequest(req, res, baseUrl).catch((error) => {
       console.error('Error handling MCP request:', error);
       if (!res.headersSent) {
         sendJsonRpcError(res, 500, 'Internal server error.');
@@ -272,6 +315,7 @@ function parseArgs(): CliConfig {
     // Loopback by default; hosted deployments must opt in to 0.0.0.0 explicitly.
     host: process.env.MCP_HOST?.trim() || '127.0.0.1',
     port: Number(process.env.PORT) || 3000,
+    baseUrl: resolveApiBaseUrl(process.env.ZEROBOUNCE_API_URL),
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -307,6 +351,15 @@ function parseArgs(): CliConfig {
       }
     } else if (arg.startsWith('--host=')) {
       config.host = arg.slice('--host='.length);
+    } else if (arg === '--url') {
+      if (nextArg) {
+        config.baseUrl = resolveApiBaseUrl(nextArg);
+        i++;
+      } else {
+        throw new Error('--url requires a value');
+      }
+    } else if (arg.startsWith('--url=')) {
+      config.baseUrl = resolveApiBaseUrl(arg.slice('--url='.length));
     }
   }
 
@@ -340,9 +393,9 @@ async function main(): Promise<void> {
   try {
     const config = parseArgs();
     if (config.transport === 'http') {
-      await runHttp(config.host, config.port);
+      await runHttp(config.host, config.port, config.baseUrl);
     } else {
-      await runStdio(config.apiKey);
+      await runStdio(config.apiKey, config.baseUrl);
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
