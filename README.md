@@ -11,6 +11,7 @@ A comprehensive Model Context Protocol (MCP) server that provides full-featured 
 - **Email Finder**: Find email addresses based on name and company/domain
 - **Domain Search**: Search for all email addresses in a domain
 - **Activity Data**: Check if an email address has been recently active
+- **Inbox Placement Testing**: See whether a campaign lands in the inbox or in spam at each mailbox provider
 - **Credit Management**: Monitor remaining credits in your ZeroBounce account
 - **Usage Analytics**: Get detailed API usage reports for any date range
 
@@ -302,6 +303,52 @@ Search for email addresses in a domain.
 
 Get activity data for an email address to see if it has been active recently.
 
+### Inbox Placement Tester Tools
+
+The Inbox Placement Tester (`bulkapi.zerobounce.net/api/ipt`) reports where a campaign
+actually lands at each mailbox provider: inbox, spam, or missing. You create a test,
+send your campaign to the seed addresses it returns, then read the results back.
+
+This API authenticates with an `Authorization: Bearer` header rather than an `api_key`
+parameter, so the key never appears in a request URL. It uses the same ZeroBounce API
+key as the rest of the server; no extra configuration is needed.
+
+#### `get_inbox_placement_providers`
+
+List the seed providers and their seed addresses available for new tests.
+
+#### `get_inbox_placement_test_types`
+
+List the supported test types and which one is the default.
+
+#### `create_inbox_placement_test`
+
+Start a test. Takes `name` (unique, at most 64 characters) and optionally `testType`
+(1 = Email, which also requires `senderEmail`; 2 = Unique ID; 3 = Auto Alias), the seeds
+to use (`providerIds`, `seedIds`, or `providers` as `[{ id, maxSeeds }]` to cap seeds
+per provider), and a `webhookUrl` the finished result is posted to.
+
+#### `get_inbox_placement_test`
+
+Get one test and its placement results by `testId`.
+
+#### `list_inbox_placement_tests`
+
+List tests, newest first. Filters: `status` (`running` or `finished`), `createdAfter`
+and `createdBefore` (ISO 8601), `page`, and `pageSize` (1 to 100).
+
+#### `delete_inbox_placement_test`
+
+Delete a finished test. A running test cannot be deleted.
+
+#### `get_inbox_placement_webhook`
+
+Get the webhook URL finished results are posted to for this API key.
+
+#### `set_inbox_placement_webhook`
+
+Save that webhook URL. It must be an HTTPS URL on a public host, the same rule the bulk
+`returnUrl` follows.
 ### List Evaluator Tools
 
 #### `list_evaluator_send_file`

@@ -55,6 +55,9 @@ import {
   exportSftpFileTool,
 } from './sftp-bulk.js';
 
+// Inbox Placement Tester tools
+import { inboxPlacementTools } from './inbox-placement.js';
+
 // Re-export all tools
 export {
   validateEmailTool,
@@ -67,6 +70,7 @@ export {
   findEmailTool,
   domainSearchTool,
   getActivityDataTool,
+  inboxPlacementTools,
 };
 
 /**
@@ -117,6 +121,15 @@ function listTools(): ToolHandler[] {
     emailFinderS3FileTool,
     domainSearchS3FileTool,
     exportS3FileTool,
+    // Inbox Placement Tester
+    inboxPlacementTools.providers,
+    inboxPlacementTools.testTypes,
+    inboxPlacementTools.createTest,
+    inboxPlacementTools.getTest,
+    inboxPlacementTools.listTests,
+    inboxPlacementTools.deleteTest,
+    inboxPlacementTools.getWebhook,
+    inboxPlacementTools.setWebhook,
     // SFTP/FTP bulk
     validateSftpFileTool,
     scoreSftpFileTool,

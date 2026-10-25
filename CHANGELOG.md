@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Inbox Placement Tester tools, covering all eight documented operations: `get_inbox_placement_providers`, `get_inbox_placement_test_types`, `create_inbox_placement_test`, `get_inbox_placement_test`, `list_inbox_placement_tests`, `delete_inbox_placement_test`, `get_inbox_placement_webhook`, and `set_inbox_placement_webhook`. This API tells you where a campaign actually landed -- inbox, spam, or nowhere -- per mailbox provider, and the server previously exposed none of it.
+- `set_inbox_placement_webhook` and the `webhookUrl` argument of `create_inbox_placement_test` hold a callback URL to the same bar as a bulk `returnUrl`: HTTPS only, and never a private, link-local, or loopback address.
 - `send_evaluated_file` submits a finished List Evaluator run for bulk validation. It takes the evaluator's `fileId`, not a file upload: the public docs describe an upload, which the API rejects with "file_id: This field is required".
 - `email_finder_s3_file` and `domain_search_s3_file` run the bulk email finder and bulk domain search over a file already in your S3 bucket.
 - SFTP/FTP bulk tools: `validate_sftp_file`, `score_sftp_file`, `email_finder_sftp_file`, `domain_search_sftp_file`, and `export_sftp_file`. The server, path and protocol come from your ZeroBounce account settings. `export_sftp_file` takes an optional `exportPath` -- a path, not a bucket.

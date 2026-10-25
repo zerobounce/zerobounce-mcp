@@ -190,6 +190,18 @@ const TOOL_ARGS = {
   email_finder_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
   domain_search_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
   export_s3_file: { fileId: 'f1', exportBucket: 'results-bucket' },
+  get_inbox_placement_providers: {},
+  get_inbox_placement_test_types: {},
+  create_inbox_placement_test: {
+    name: 'October launch',
+    testType: 1,
+    senderEmail: 'sender@example.com',
+  },
+  get_inbox_placement_test: { testId: '42' },
+  list_inbox_placement_tests: {},
+  delete_inbox_placement_test: { testId: '42' },
+  get_inbox_placement_webhook: {},
+  set_inbox_placement_webhook: { webhookUrl: 'https://hooks.example.com/ipt' },
   validate_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
   score_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
   email_finder_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
@@ -220,6 +232,14 @@ const SDK_GATED = new Set([
   'email_finder_s3_file',
   'domain_search_s3_file',
   'export_s3_file',
+  'get_inbox_placement_providers',
+  'get_inbox_placement_test_types',
+  'create_inbox_placement_test',
+  'get_inbox_placement_test',
+  'list_inbox_placement_tests',
+  'delete_inbox_placement_test',
+  'get_inbox_placement_webhook',
+  'set_inbox_placement_webhook',
   'validate_sftp_file',
   'score_sftp_file',
   'email_finder_sftp_file',
@@ -754,6 +774,269 @@ async function testBatchEmailColumn(origin) {
   );
 }
 
+/**
+ * The Inbox Placement Tester is a different service behind the bulk host: its key
+ * travels in an Authorization header, and GET /tests mixes naming conventions. The
+ * live API silently ignores a parameter spelled the other way -- `pageSize` returns
+ * the whole list and `created_after` does not filter -- so a renamed parameter looks
+ * like a working call that quietly skips the filter. These checks pin the wire format.
+ */
+async function testInboxPlacement(origin, names) {
+  console.log('\nInbox Placement Tester');
+  if (!names.includes('get_inbox_placement_providers')) {
+    console.log('  (installed SDK has no inbox placement methods; skipped)');
+    return;
+  }
+
+  const isError = (result) => result.message?.result?.isError === true;
+  const BASE = 'https://bulkapi.zerobounce.net/api/ipt';
+
+  const operations = [
+    ['get_inbox_placement_providers', {}, 'GET', `${BASE}/providers`],
+    ['get_inbox_placement_test_types', {}, 'GET', `${BASE}/test-types`],
+    [
+      'create_inbox_placement_test',
+      TOOL_ARGS.create_inbox_placement_test,
+      'POST',
+      `${BASE}/test`,
+    ],
+    ['get_inbox_placement_test', { testId: '42' }, 'GET', `${BASE}/test/42`],
+    ['list_inbox_placement_tests', {}, 'GET', `${BASE}/tests`],
+    ['delete_inbox_placement_test', { testId: '42' }, 'DELETE', `${BASE}/test/42`],
+    ['get_inbox_placement_webhook', {}, 'GET', `${BASE}/webhook`],
+    [
+      'set_inbox_placement_webhook',
+      { webhookUrl: 'https://hooks.example.com/ipt' },
+      'PUT',
+      `${BASE}/webhook`,
+    ],
+  ];
+
+  for (const [name, args, method, expectedUrl] of operations) {
+    const key = `ipt-wire-${name}`;
+    const result = await callTool(origin, key, name, args);
+    const [req] = loggedRequests(key);
+    check(
+      req?.method === method && req?.url === expectedUrl,
+      `${name} sends ${method} ${expectedUrl.slice(BASE.length)}`,
+      `got ${req?.method} ${req?.url}`
+    );
+    check(
+      req?.auth === 'bearer' &&
+        req?.apiKey === key &&
+        !String(req?.url).includes(key) &&
+        !('api_key' in (req?.query ?? {})),
+      `${name} sends the key as Authorization: Bearer and never in the URL`,
+      `auth ${req?.auth}, url ${req?.url}`
+    );
+    check(!isError(result), `${name} parses a successful response`, toolText(result).slice(0, 160));
+  }
+
+  // GET /tests: page_size is snake_case, createdAfter/createdBefore are camelCase.
+  const listKey = 'ipt-list-params';
+  await callTool(origin, listKey, 'list_inbox_placement_tests', {
+    status: 'finished',
+    createdAfter: '2030-01-01',
+    createdBefore: '2031-12-31',
+    page: 2,
+    pageSize: 25,
+  });
+  const query = loggedRequests(listKey)[0]?.query ?? {};
+  check(
+    query.page_size === '25' && !('pageSize' in query),
+    'list_inbox_placement_tests sends page_size, not pageSize (the API ignores pageSize)',
+    JSON.stringify(query)
+  );
+  check(
+    query.createdAfter === '2030-01-01' &&
+      query.createdBefore === '2031-12-31' &&
+      !('created_after' in query) &&
+      !('created_before' in query),
+    'list_inbox_placement_tests sends createdAfter/createdBefore (the API ignores created_after)',
+    JSON.stringify(query)
+  );
+  check(
+    query.status === 'finished' && query.page === '2',
+    'list_inbox_placement_tests sends status and page',
+    JSON.stringify(query)
+  );
+
+  const badStatus = await callTool(origin, 'ipt-bad-status', 'list_inbox_placement_tests', {
+    status: 'pending',
+  });
+  check(
+    /status must be one of running, finished/.test(toolText(badStatus)) &&
+      loggedRequests('ipt-bad-status').length === 0,
+    'an unsupported status is rejected before calling the API',
+    toolText(badStatus).slice(0, 160)
+  );
+
+  const bigPage = await callTool(origin, 'ipt-big-page', 'list_inbox_placement_tests', {
+    pageSize: 101,
+  });
+  check(
+    /pageSize must be an integer between 1 and 100/.test(toolText(bigPage)) &&
+      loggedRequests('ipt-big-page').length === 0,
+    'pageSize above 100 is rejected before calling the API',
+    toolText(bigPage).slice(0, 160)
+  );
+
+  // POST /test body.
+  const createKey = 'ipt-create-body';
+  await callTool(origin, createKey, 'create_inbox_placement_test', {
+    name: 'October launch',
+    testType: 1,
+    senderEmail: 'sender@example.com',
+    providerIds: [1, 2],
+    seedIds: [7],
+    providers: [{ id: 3, maxSeeds: 5 }],
+    webhookUrl: 'https://hooks.example.com/ipt',
+  });
+  const createBody = loggedRequests(createKey)[0]?.body ?? {};
+  check(
+    createBody.name === 'October launch' &&
+      createBody.testType === 1 &&
+      createBody.senderEmail === 'sender@example.com' &&
+      JSON.stringify(createBody.providerIds) === '[1,2]' &&
+      JSON.stringify(createBody.seedIds) === '[7]' &&
+      JSON.stringify(createBody.providers) === '[{"id":3,"maxSeeds":5}]' &&
+      createBody.webhookUrl === 'https://hooks.example.com/ipt',
+    'create_inbox_placement_test sends the whole test definition as JSON',
+    JSON.stringify(createBody)
+  );
+
+  const longName = await callTool(origin, 'ipt-long-name', 'create_inbox_placement_test', {
+    name: 'n'.repeat(65),
+  });
+  check(
+    /name must be at most 64 characters/.test(toolText(longName)) &&
+      loggedRequests('ipt-long-name').length === 0,
+    'a name longer than 64 characters is rejected before calling the API',
+    toolText(longName).slice(0, 160)
+  );
+
+  const badType = await callTool(origin, 'ipt-bad-type', 'create_inbox_placement_test', {
+    name: 'x',
+    testType: 4,
+  });
+  check(
+    /testType must be one of 1, 2, 3/.test(toolText(badType)) &&
+      loggedRequests('ipt-bad-type').length === 0,
+    'an unsupported testType is rejected before calling the API',
+    toolText(badType).slice(0, 160)
+  );
+
+  const noSender = await callTool(origin, 'ipt-no-sender', 'create_inbox_placement_test', {
+    name: 'x',
+    testType: 1,
+  });
+  check(
+    /senderEmail is required when testType is 1/.test(toolText(noSender)) &&
+      loggedRequests('ipt-no-sender').length === 0,
+    'testType 1 without senderEmail is rejected before calling the API',
+    toolText(noSender).slice(0, 160)
+  );
+
+  const badSeeds = await callTool(origin, 'ipt-bad-seeds', 'create_inbox_placement_test', {
+    name: 'x',
+    providers: [{ id: 3, maxSeeds: 0 }],
+  });
+  check(
+    /providers\[0\]\.maxSeeds must be an integer of at least 1/.test(toolText(badSeeds)) &&
+      loggedRequests('ipt-bad-seeds').length === 0,
+    'a provider maxSeeds below 1 is rejected before calling the API',
+    toolText(badSeeds).slice(0, 160)
+  );
+
+  // Webhook URLs are callbacks ZeroBounce posts to, so they get the returnUrl checks.
+  const privateHook = await callTool(origin, 'ipt-private-hook', 'set_inbox_placement_webhook', {
+    webhookUrl: 'https://127.0.0.1/hook',
+  });
+  check(
+    /webhookUrl must not target private, link-local, or loopback addresses/.test(
+      toolText(privateHook)
+    ) && loggedRequests('ipt-private-hook').length === 0,
+    'a loopback webhookUrl is rejected before calling the API',
+    toolText(privateHook).slice(0, 160)
+  );
+
+  const insecureHook = await callTool(origin, 'ipt-http-hook', 'set_inbox_placement_webhook', {
+    webhookUrl: 'http://hooks.example.com/ipt',
+  });
+  check(
+    /webhookUrl must use HTTPS/.test(toolText(insecureHook)) &&
+      loggedRequests('ipt-http-hook').length === 0,
+    'a non-HTTPS webhookUrl is rejected before calling the API',
+    toolText(insecureHook).slice(0, 160)
+  );
+
+  const hookKey = 'ipt-webhook-body';
+  await callTool(origin, hookKey, 'set_inbox_placement_webhook', {
+    webhookUrl: 'https://hooks.example.com/ipt',
+  });
+  check(
+    loggedRequests(hookKey)[0]?.body?.webhookUrl === 'https://hooks.example.com/ipt',
+    'set_inbox_placement_webhook sends webhookUrl as a JSON body',
+    JSON.stringify(loggedRequests(hookKey)[0]?.body)
+  );
+
+  // Test ids reach the path as one encoded segment, numbers included.
+  await callTool(origin, 'ipt-id-encoded', 'get_inbox_placement_test', { testId: 'a/b c' });
+  check(
+    loggedRequests('ipt-id-encoded')[0]?.url === `${BASE}/test/a%2Fb%20c`,
+    'a testId is percent-encoded into one path segment',
+    loggedRequests('ipt-id-encoded')[0]?.url
+  );
+
+  await callTool(origin, 'ipt-id-number', 'get_inbox_placement_test', { testId: 42 });
+  check(
+    loggedRequests('ipt-id-number')[0]?.url === `${BASE}/test/42`,
+    'a numeric testId is accepted',
+    loggedRequests('ipt-id-number')[0]?.url
+  );
+
+  const noId = await callTool(origin, 'ipt-no-id', 'get_inbox_placement_test', {});
+  check(
+    /testId is required/.test(toolText(noId)) && loggedRequests('ipt-no-id').length === 0,
+    'get_inbox_placement_test without testId is rejected'
+  );
+
+  // DELETE answers 204 with no body; every other endpoint returns JSON, so an empty
+  // body must not read as the usual "empty response" failure.
+  const deleted = await callTool(origin, 'ipt-delete-empty', 'delete_inbox_placement_test', {
+    testId: '42',
+  });
+  const deletedText = toolText(deleted);
+  check(
+    !isError(deleted) && /"success": true/.test(deletedText) && !/Empty response/.test(deletedText),
+    'delete_inbox_placement_test reads an empty 204 body as success',
+    deletedText.slice(0, 160)
+  );
+
+  // Django REST framework errors: {"detail": "..."} and a bare list of messages.
+  const detail = await callTool(origin, 'ipt-detail-1', 'get_inbox_placement_test', {
+    testId: '42',
+  });
+  const detailText = toolText(detail);
+  check(
+    isError(detail) &&
+      /Inbox placement test not found\./.test(detailText) &&
+      detailText.length < 200,
+    'a Django "detail" error body is reduced to its message',
+    detailText.slice(0, 160)
+  );
+
+  const conflict = await callTool(origin, 'ipt-conflict-1', 'delete_inbox_placement_test', {
+    testId: '42',
+  });
+  const conflictText = toolText(conflict);
+  check(
+    isError(conflict) && /In-progress tests cannot be deleted\./.test(conflictText),
+    'a failed delete stays an error, rather than passing as an empty-body success',
+    conflictText.slice(0, 160)
+  );
+}
+
 async function testKeyIsolation(origin, server) {
   console.log('\nPer-request API key isolation');
   const count = 60;
@@ -923,6 +1206,7 @@ async function main() {
     await testArgumentHandling(server.origin, names);
     await testErrorReporting(server.origin, names);
     await testBatchEmailColumn(server.origin);
+    await testInboxPlacement(server.origin, names);
     await testKeyIsolation(server.origin, server);
   } finally {
     await stopServer(server);
