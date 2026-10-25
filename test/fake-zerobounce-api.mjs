@@ -4,12 +4,21 @@
  * the API key, path and fields it carried, and answered after a random delay so
  * concurrent requests interleave.
  *
+ * The Inbox Placement Tester (bulkapi.zerobounce.net/api/ipt) is served too. It
+ * authenticates with `Authorization: Bearer` rather than an api_key parameter, so the
+ * bearer token is logged as the request's apiKey and every entry records the full URL
+ * and its query separately -- that is what lets a test assert the key never reaches
+ * the query string.
+ *
  * API keys starting with these prefixes select an error mode, mirroring responses seen
  * from the live API:
  *   html-403-       403 with a large HTML "Access denied" page
  *   html-200-       200 with an HTML page instead of JSON or CSV
  *   batch-account-  /validatebatch reports an account-level error for "all" addresses
  *   batch-partial-  /validatebatch reports an error for one address only
+ *   ipt-detail-     the Inbox Placement Tester answers 404 with a Django `detail` error
+ *   ipt-conflict-   the Inbox Placement Tester answers 400 with a JSON list of messages
+ *   returnurl-400- 400 with the live API's "Provided return URL is not permitted: None"
  *
  * The Warmup API (warmup-api.zerobounce.net) is served too. It carries its key in an
  * `API-Key` header rather than an `api_key` parameter, so warmup entries log that header
@@ -48,16 +57,27 @@ async function readFields(body) {
 
 const WARMUP_BASE_PATH = '/api/v1/warmup';
 
-/** Case-insensitive lookup over whatever shape the caller passed as headers. */
+/** One header value, whatever shape the caller passed its headers in, case-insensitively. */
 function readHeader(headers, name) {
   if (!headers) return null;
-  const wanted = name.toLowerCase();
+  const wanted = String(name).toLowerCase();
+  if (typeof headers.get === 'function') return headers.get(name);
   const entries =
-    typeof headers.entries === 'function' ? headers.entries() : Object.entries(headers);
+    typeof headers.entries === 'function'
+      ? headers.entries()
+      : Array.isArray(headers)
+        ? headers
+        : Object.entries(headers);
   for (const [key, value] of entries) {
     if (String(key).toLowerCase() === wanted) return value;
   }
   return null;
+}
+
+function bearerToken(headers) {
+  const header = readHeader(headers, 'authorization');
+  const match = /^Bearer\s+(.+)$/i.exec(String(header ?? '').trim());
+  return match ? match[1].trim() : null;
 }
 
 /** CSV downloads, keyed by the warmup sub-path that serves them. */
@@ -129,17 +149,29 @@ globalThis.fetch = async (input, init = {}) => {
     return realFetch(input, init);
   }
 
-  const fields = { ...Object.fromEntries(url.searchParams), ...(await readFields(init.body)) };
+  const query = Object.fromEntries(url.searchParams);
+  // Read the body once: a request body is a stream and cannot be consumed twice.
+  const bodyFields = await readFields(init.body);
+  const fields = { ...query, ...bodyFields };
+  const bearer = bearerToken(init.headers);
 
   if (url.pathname.startsWith(WARMUP_BASE_PATH)) {
     return handleWarmup(url, init, fields);
   }
-
   const entry = {
     method: init.method ?? 'GET',
     host: url.hostname,
+    // The full URL as sent, so tests can pin host, path and query together.
+    url: url.href,
     path: url.pathname.replace(/^\/v2/, ''),
-    apiKey: fields.api_key ?? null,
+    // The Inbox Placement Tester carries its key in the Authorization header;
+    // every other endpoint carries it as an api_key parameter.
+    apiKey: fields.api_key ?? bearer ?? null,
+    auth: bearer ? 'bearer' : fields.api_key != null ? 'parameter' : 'none',
+    // Kept apart so tests can assert where the key and each field travelled.
+    query,
+    body: bodyFields,
+    bodyFields,
     fields,
   };
   if (LOG_FILE) {
@@ -159,9 +191,21 @@ globalThis.fetch = async (input, init = {}) => {
       headers: { 'Content-Type': 'text/html; charset=UTF-8' },
     });
   }
+  if (key.startsWith('returnurl-400-')) {
+    // Verbatim from the live API when an S3/SFTP job goes out without return_url.
+    return new Response(
+      JSON.stringify({ error_message: 'Provided return URL is not permitted: None' }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
   if (entry.path === '/validatebatch' && key.startsWith('batch-account-')) {
     return Response.json({
-      errors: [{ email_address: 'all', error: 'Invalid API Key or your account ran out of credits' }],
+      errors: [
+        { email_address: 'all', error: 'Invalid API Key or your account ran out of credits' },
+      ],
       email_batch: [],
     });
   }
@@ -169,6 +213,31 @@ globalThis.fetch = async (input, init = {}) => {
     return Response.json({
       errors: [{ email_address: 'bad@', error: 'Invalid email address' }],
       email_batch: [{ address: 'good@example.com', status: 'valid' }],
+    });
+  }
+
+  // Inbox Placement Tester: its own host path, its own error shapes, and a delete
+  // that answers 204 with no body at all.
+  if (url.hostname === 'bulkapi.zerobounce.net' && entry.path.startsWith('/api/ipt')) {
+    if (key.startsWith('ipt-detail-')) {
+      // Django REST framework reports errors as {"detail": "..."}.
+      return Response.json({ detail: 'Inbox placement test not found.' }, { status: 404 });
+    }
+    if (key.startsWith('ipt-conflict-')) {
+      return new Response(JSON.stringify(['In-progress tests cannot be deleted.']), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (entry.method === 'DELETE') {
+      return new Response(null, { status: 204 });
+    }
+    return Response.json({
+      echo_api_key: entry.apiKey,
+      echo_path: entry.path,
+      echo_method: entry.method,
+      echo_query: entry.query,
+      echo_body: entry.body,
     });
   }
 

@@ -960,25 +960,25 @@ function isPrivateOrLocalHost(hostname) {
   }
   return false;
 }
-function validateBulkReturnUrl(returnUrl) {
+function validateBulkReturnUrl(returnUrl, fieldName = "returnUrl") {
   let parsed;
   try {
     parsed = new URL(returnUrl);
   } catch {
-    throw new Error("returnUrl must be a valid URL");
+    throw new Error(`${fieldName} must be a valid URL`);
   }
   if (parsed.protocol !== "https:") {
-    throw new Error("returnUrl must use HTTPS");
+    throw new Error(`${fieldName} must use HTTPS`);
   }
   const hostname = normalizeHost(parsed.hostname);
   if (!hostname) {
-    throw new Error("returnUrl must include a hostname");
+    throw new Error(`${fieldName} must include a hostname`);
   }
   if (isPrivateOrLocalHost(hostname)) {
-    throw new Error("returnUrl must not target private, link-local, or loopback addresses");
+    throw new Error(`${fieldName} must not target private, link-local, or loopback addresses`);
   }
   if (isIP(hostname) === 0 && !hostname.includes(".")) {
-    throw new Error("returnUrl hostname must be a fully qualified domain name");
+    throw new Error(`${fieldName} hostname must be a fully qualified domain name`);
   }
 }
 function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent") {
@@ -1033,6 +1033,14 @@ function createWarmupClient(apiKey, baseUrl) {
 }
 
 // src/zerobounce-client.ts
+function isEmptySuccessBody(error) {
+  const status = error?.statusCode;
+  if (typeof status !== "number" || status < 200 || status >= 300) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /^Empty response from ZeroBounce/.test(message.trim());
+}
 function readCsvColumn(row, column, rowIndex) {
   const fields = [];
   let field = "";
@@ -1390,10 +1398,16 @@ var ZeroBounceClient = class {
     const result = await this.sdk.getListEvaluatorResult(fileId);
     return result;
   }
-  async sendEvaluatedFile(fileContent, fileName) {
-    const blob = this.toCsvBlob(fileContent);
+  /**
+   * Submit a finished list evaluation for validation (POST /v2/send-evaluated-file/).
+   *
+   * This takes the List Evaluator's `file_id` as a form field. It is not a file
+   * upload, whatever the public docs say: an upload comes back as
+   * "file_id: This field is required".
+   */
+  async sendEvaluatedFile(fileId) {
     const result = this.requireSdkResult(
-      await this.sdk.sendEvaluatedFileStream(blob, fileName),
+      await this.sdk.sendEvaluatedFile(fileId),
       "send evaluated file"
     );
     return result;
@@ -1422,20 +1436,163 @@ var ZeroBounceClient = class {
       "list S3 files"
     );
   }
-  async validateS3File(fields) {
-    const result = this.requireSdkResult(await this.sdk.validateS3file(fields), "validate S3 file");
+  /**
+   * One of the eight S3 / SFTP file jobs on the bulkapi root.
+   *
+   * `return_url` is sent on every call: the live API refuses a job without one
+   * ("Provided return URL is not permitted: None"), although the docs mark it
+   * optional. `file_name` is likewise required for all eight, SFTP included.
+   */
+  async bulkRootFileJob(sdkMethod, context, request, path) {
+    const fields = {
+      file_name: request.fileName,
+      has_header_row: request.hasHeaderRow,
+      return_url: request.returnUrl
+    };
+    if (request.removeDuplicates != null) {
+      fields.remove_duplicates = request.removeDuplicates;
+    }
+    const result = this.requireSdkResult(
+      path ? await this.sdk[sdkMethod](path, fields) : await this.sdk[sdkMethod](fields),
+      context
+    );
     return result;
   }
-  async scoreS3File(fields) {
-    const result = this.requireSdkResult(await this.sdk.scoreS3file(fields), "score S3 file");
-    return result;
+  async validateS3File(request) {
+    return this.bulkRootFileJob("validateS3file", "validate S3 file", request);
   }
+  /**
+   * scoreS3file is the one job the SDK's public method cannot send correctly.
+   * In @zerobounce/zero-bounce-sdk 3.0.0 it kept an older signature that has no
+   * `return_url` parameter at all, so the field is dropped and the API answers
+   * "Provided return URL is not permitted: None". The other seven jobs already
+   * go through the SDK's own `_bulkRootFileJob`, which sends all four
+   * documented fields, so this calls that helper directly for this one path.
+   *
+   * `_bulkRootFileJob` is listed in the tool's `sdkMethods`, so the tool hides
+   * itself rather than breaking if a future SDK drops it. Once the SDK routes
+   * scoreS3file through the shared helper, this can go back to the public
+   * method like its siblings.
+   */
+  async scoreS3File(request) {
+    return this.bulkRootFileJob("_bulkRootFileJob", "score S3 file", request, "/scoreS3file");
+  }
+  async emailFinderS3File(request) {
+    return this.bulkRootFileJob("emailFinderS3file", "email finder S3 file", request);
+  }
+  async domainSearchS3File(request) {
+    return this.bulkRootFileJob("domainSearchS3file", "domain search S3 file", request);
+  }
+  async validateSftpFile(request) {
+    return this.bulkRootFileJob("validateSFTPfile", "validate SFTP file", request);
+  }
+  async scoreSftpFile(request) {
+    return this.bulkRootFileJob("scoreSFTPfile", "score SFTP file", request);
+  }
+  async emailFinderSftpFile(request) {
+    return this.bulkRootFileJob("emailFinderSFTPfile", "email finder SFTP file", request);
+  }
+  async domainSearchSftpFile(request) {
+    return this.bulkRootFileJob("domainSearchSFTPfile", "domain search SFTP file", request);
+  }
+  /**
+   * Without an export bucket the API uses the one configured on the account.
+   *
+   * The SDK's public `exportS3file` refuses to send the request at all without
+   * an `export_bucket` ("export_bucket parameter is missing"), a requirement the
+   * API itself does not impose, so this posts the documented fields through the
+   * SDK's own form-post helper instead. That keeps the SDK's base URL, HTTPS
+   * enforcement, key redaction and error handling; only the surplus check is
+   * skipped. `_sendBulkRootFormPost` is gated in the tool's `sdkMethods`.
+   */
   async exportS3File(fileId, exportBucket) {
     const result = this.requireSdkResult(
-      await this.sdk.exportS3file({ file_id: fileId, export_bucket: exportBucket }),
+      await this.sdk._sendBulkRootFormPost("/exportS3file", {
+        file_id: fileId,
+        ...exportBucket != null ? { export_bucket: exportBucket } : {}
+      }),
       "export S3 file"
     );
     return result;
+  }
+  /** Without an export path the API uses the one configured on the account. */
+  async exportSftpFile(fileId, exportPath) {
+    const result = this.requireSdkResult(
+      await this.sdk.exportSFTPfile({
+        file_id: fileId,
+        ...exportPath != null ? { export_path: exportPath } : {}
+      }),
+      "export SFTP file"
+    );
+    return result;
+  }
+  // ========== Inbox Placement Tester Operations ==========
+  //
+  // This API authenticates with `Authorization: Bearer`; the key never goes on the
+  // query string. The SDK builds the requests, so the key stays out of URLs here too.
+  /** Seed providers available for new tests. GET /api/ipt/providers */
+  async getInboxPlacementProviders() {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementProviders(),
+      "inbox placement providers"
+    );
+  }
+  /** Supported test types and the default one. GET /api/ipt/test-types */
+  async getInboxPlacementTestTypes() {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementTestTypes(),
+      "inbox placement test types"
+    );
+  }
+  /** Create an inbox placement test. POST /api/ipt/test */
+  async createInboxPlacementTest(options) {
+    return this.requireSdkResult(
+      await this.sdk.createInboxPlacementTest(options),
+      "create inbox placement test"
+    );
+  }
+  /** A test and its placement results. GET /api/ipt/test/{id} */
+  async getInboxPlacementTest(testId) {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementTest(testId),
+      "inbox placement test"
+    );
+  }
+  /** List tests, newest first. GET /api/ipt/tests */
+  async listInboxPlacementTests(options) {
+    return this.requireSdkResult(
+      await this.sdk.listInboxPlacementTests(options),
+      "list inbox placement tests"
+    );
+  }
+  /** Delete a finished test. DELETE /api/ipt/test/{id}, which answers with no body. */
+  async deleteInboxPlacementTest(testId) {
+    try {
+      const result = await this.sdk.deleteInboxPlacementTest(testId);
+      if (result == null) {
+        return { success: true, message: `Inbox placement test ${testId} deleted` };
+      }
+      return result;
+    } catch (error) {
+      if (isEmptySuccessBody(error)) {
+        return { success: true, message: `Inbox placement test ${testId} deleted` };
+      }
+      throw error;
+    }
+  }
+  /** The webhook URL saved on this API key. GET /api/ipt/webhook */
+  async getInboxPlacementWebhook() {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementWebhook(),
+      "inbox placement webhook"
+    );
+  }
+  /** Save the URL finished results are posted to. PUT /api/ipt/webhook */
+  async setInboxPlacementWebhook(webhookUrl) {
+    return this.requireSdkResult(
+      await this.sdk.setInboxPlacementWebhook(webhookUrl),
+      "set inbox placement webhook"
+    );
   }
   /** @deprecated Use sendListEvaluatorFile */
   async evaluateList(fileContent, fileName, emailAddressColumn) {
@@ -2164,6 +2321,31 @@ var listEvaluatorResultTool = {
     }
   }
 };
+var sendEvaluatedFileTool = {
+  sdkMethods: ["sendEvaluatedFile"],
+  definition: {
+    name: "send_evaluated_file",
+    description: "Submit a finished list evaluation for bulk validation (POST /send-evaluated-file/). Takes the List Evaluator file_id, not a file upload. Returns the new validation job.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: {
+          type: "string",
+          description: "file_id returned by list_evaluator_send_file"
+        }
+      },
+      required: ["fileId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.sendEvaluatedFile(requireString(args.fileId, "fileId"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
 
 // src/tools/filters.ts
 var addFilterTool = {
@@ -2245,6 +2427,53 @@ var deleteFilterTool = {
   }
 };
 
+// src/tools/bulk-root-job-helpers.ts
+function createBulkRootJobTool(config) {
+  const location = config.source === "S3" ? "Path/key of the object in your configured S3 bucket" : "Path of the file on your configured SFTP/FTP server";
+  return {
+    sdkMethods: config.sdkMethods,
+    definition: {
+      name: config.name,
+      description: `Submit a file from your ${config.source} storage for ${config.description} (POST /${config.endpoint}). The server and bucket come from your ZeroBounce settings.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          fileName: { type: "string", description: location },
+          returnUrl: {
+            type: "string",
+            description: "HTTPS callback URL notified when the job completes. Required: the API refuses a job without one. Only use trusted URLs you control; an attacker-controlled URL can receive bulk results."
+          },
+          hasHeaderRow: {
+            type: "boolean",
+            description: "Whether the first row is a header row. Defaults to false."
+          },
+          removeDuplicates: {
+            type: "boolean",
+            description: "Whether to drop duplicate rows before processing."
+          }
+        },
+        required: ["fileName", "returnUrl"]
+      }
+    },
+    handler: async (client, args) => {
+      try {
+        const fileName = requireString(args.fileName, "fileName");
+        const returnUrl = requireString(args.returnUrl, "returnUrl");
+        validateBulkReturnUrl(returnUrl);
+        const result = await config.jobMethod(client, {
+          fileName,
+          returnUrl,
+          hasHeaderRow: optionalBoolean(args.hasHeaderRow) ?? false,
+          removeDuplicates: optionalBoolean(args.removeDuplicates)
+        });
+        return createSuccessResponse(result);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  };
+}
+
 // src/tools/s3-bulk.ts
 var listS3FilesTool = {
   sdkMethods: ["listS3files"],
@@ -2271,79 +2500,482 @@ var listS3FilesTool = {
     }
   }
 };
-var validateS3FileTool = {
+var validateS3FileTool = createBulkRootJobTool({
+  name: "validate_s3_file",
+  endpoint: "validateS3file",
+  description: "bulk validation",
+  source: "S3",
   sdkMethods: ["validateS3file"],
-  definition: {
-    name: "validate_s3_file",
-    description: "Submit an S3 object for bulk validation (validateS3file)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fileName: { type: "string", description: "S3 object key/path" }
-      },
-      required: ["fileName"]
-    }
-  },
-  handler: async (client, args) => {
-    try {
-      const result = await client.validateS3File({
-        file_name: requireString(args.fileName, "fileName")
-      });
-      return createSuccessResponse(result);
-    } catch (error) {
-      return createErrorResponse(error);
-    }
-  }
-};
-var scoreS3FileTool = {
-  sdkMethods: ["scoreS3file"],
-  definition: {
-    name: "score_s3_file",
-    description: "Submit an S3 object for bulk AI scoring (scoreS3file)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fileName: { type: "string" }
-      },
-      required: ["fileName"]
-    }
-  },
-  handler: async (client, args) => {
-    try {
-      const result = await client.scoreS3File({
-        file_name: requireString(args.fileName, "fileName")
-      });
-      return createSuccessResponse(result);
-    } catch (error) {
-      return createErrorResponse(error);
-    }
-  }
-};
+  jobMethod: (client, request) => client.validateS3File(request)
+});
+var scoreS3FileTool = createBulkRootJobTool({
+  name: "score_s3_file",
+  endpoint: "scoreS3file",
+  description: "bulk AI scoring",
+  source: "S3",
+  sdkMethods: ["scoreS3file", "_bulkRootFileJob"],
+  jobMethod: (client, request) => client.scoreS3File(request)
+});
+var emailFinderS3FileTool = createBulkRootJobTool({
+  name: "email_finder_s3_file",
+  endpoint: "emailFinderS3file",
+  description: "bulk email finder",
+  source: "S3",
+  sdkMethods: ["emailFinderS3file"],
+  jobMethod: (client, request) => client.emailFinderS3File(request)
+});
+var domainSearchS3FileTool = createBulkRootJobTool({
+  name: "domain_search_s3_file",
+  endpoint: "domainSearchS3file",
+  description: "bulk domain search",
+  source: "S3",
+  sdkMethods: ["domainSearchS3file"],
+  jobMethod: (client, request) => client.domainSearchS3File(request)
+});
 var exportS3FileTool = {
-  sdkMethods: ["exportS3file"],
+  sdkMethods: ["exportS3file", "_sendBulkRootFormPost"],
   definition: {
     name: "export_s3_file",
-    description: "Export a completed bulk job to an S3 bucket (exportS3file)",
+    description: "Export a completed bulk job to an S3 bucket (POST /exportS3file)",
     inputSchema: {
       type: "object",
       properties: {
-        fileId: { type: "string" },
-        exportBucket: { type: "string" }
+        fileId: { type: "string", description: "File ID of the completed bulk job" },
+        exportBucket: {
+          type: "string",
+          description: "Destination bucket. Optional: without it the output bucket configured on your ZeroBounce account is used."
+        }
       },
-      required: ["fileId", "exportBucket"]
+      required: ["fileId"]
     }
   },
   handler: async (client, args) => {
     try {
       const result = await client.exportS3File(
         requireString(args.fileId, "fileId"),
-        requireString(args.exportBucket, "exportBucket")
+        optionalString(args.exportBucket)
       );
       return createSuccessResponse(result);
     } catch (error) {
       return createErrorResponse(error);
     }
   }
+};
+
+// src/tools/sftp-bulk.ts
+var validateSftpFileTool = createBulkRootJobTool({
+  name: "validate_sftp_file",
+  endpoint: "validateSFTPfile",
+  description: "bulk validation",
+  source: "SFTP/FTP",
+  sdkMethods: ["validateSFTPfile"],
+  jobMethod: (client, request) => client.validateSftpFile(request)
+});
+var scoreSftpFileTool = createBulkRootJobTool({
+  name: "score_sftp_file",
+  endpoint: "scoreSFTPfile",
+  description: "bulk AI scoring",
+  source: "SFTP/FTP",
+  sdkMethods: ["scoreSFTPfile"],
+  jobMethod: (client, request) => client.scoreSftpFile(request)
+});
+var emailFinderSftpFileTool = createBulkRootJobTool({
+  name: "email_finder_sftp_file",
+  endpoint: "emailFinderSFTPfile",
+  description: "bulk email finder",
+  source: "SFTP/FTP",
+  sdkMethods: ["emailFinderSFTPfile"],
+  jobMethod: (client, request) => client.emailFinderSftpFile(request)
+});
+var domainSearchSftpFileTool = createBulkRootJobTool({
+  name: "domain_search_sftp_file",
+  endpoint: "domainSearchSFTPfile",
+  description: "bulk domain search",
+  source: "SFTP/FTP",
+  sdkMethods: ["domainSearchSFTPfile"],
+  jobMethod: (client, request) => client.domainSearchSftpFile(request)
+});
+var exportSftpFileTool = {
+  sdkMethods: ["exportSFTPfile"],
+  definition: {
+    name: "export_sftp_file",
+    description: "Export a completed bulk job back to your SFTP/FTP server (POST /exportSFTPfile)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "File ID of the completed bulk job" },
+        exportPath: {
+          type: "string",
+          description: "Destination path on the server. Optional: without it the export path configured on your ZeroBounce account is used."
+        }
+      },
+      required: ["fileId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.exportSftpFile(
+        requireString(args.fileId, "fileId"),
+        optionalString(args.exportPath)
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/inbox-placement.ts
+var MAX_TEST_NAME_LENGTH = 64;
+var TEST_TYPES = [1, 2, 3];
+var TEST_STATUSES = ["running", "finished"];
+var MIN_PAGE_SIZE = 1;
+var MAX_PAGE_SIZE = 100;
+function requireTestId(value, fieldName = "testId") {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return requireString(value, fieldName).trim();
+}
+function optionalIdArray(value, fieldName) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array of ids`);
+  }
+  return value.map((item, index) => {
+    const id = optionalNumber(item);
+    if (id === void 0 || !Number.isInteger(id)) {
+      throw new Error(`${fieldName}[${index}] must be an integer id`);
+    }
+    return id;
+  });
+}
+function optionalProviderSelections(value) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("providers must be an array of { id, maxSeeds } objects");
+  }
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`providers[${index}] must be an object with an id`);
+    }
+    const entry = item;
+    const id = optionalNumber(entry.id);
+    if (id === void 0 || !Number.isInteger(id)) {
+      throw new Error(`providers[${index}].id must be an integer id`);
+    }
+    const maxSeeds = optionalNumber(entry.maxSeeds);
+    if (maxSeeds !== void 0 && (!Number.isInteger(maxSeeds) || maxSeeds < 1)) {
+      throw new Error(`providers[${index}].maxSeeds must be an integer of at least 1`);
+    }
+    return maxSeeds === void 0 ? { id } : { id, maxSeeds };
+  });
+}
+function requireWebhookUrl(value, fieldName = "webhookUrl") {
+  const webhookUrl = requireString(value, fieldName);
+  validateBulkReturnUrl(webhookUrl, fieldName);
+  return webhookUrl;
+}
+var getInboxPlacementProvidersTool = {
+  sdkMethods: ["getInboxPlacementProviders"],
+  definition: {
+    name: "get_inbox_placement_providers",
+    description: "List the seed providers (mailbox providers and their seed addresses) available for inbox placement tests (GET /api/ipt/providers)",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      const result = await client.getInboxPlacementProviders();
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var getInboxPlacementTestTypesTool = {
+  sdkMethods: ["getInboxPlacementTestTypes"],
+  definition: {
+    name: "get_inbox_placement_test_types",
+    description: "List the supported inbox placement test types and which one is the default (GET /api/ipt/test-types)",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      const result = await client.getInboxPlacementTestTypes();
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var createInboxPlacementTestTool = {
+  sdkMethods: ["createInboxPlacementTest"],
+  definition: {
+    name: "create_inbox_placement_test",
+    description: "Start an inbox placement test: ZeroBounce returns seed addresses to send your campaign to, then reports where each copy landed (POST /api/ipt/test)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: `Unique test name, at most ${MAX_TEST_NAME_LENGTH} characters`
+        },
+        testType: {
+          type: "number",
+          enum: [1, 2, 3],
+          description: "1 = Email (requires senderEmail), 2 = Unique ID, 3 = Auto Alias"
+        },
+        senderEmail: {
+          type: "string",
+          description: "The From address to match. Required when testType is 1."
+        },
+        providerIds: {
+          type: "array",
+          items: { type: "number" },
+          description: "Use every active seed of these providers (ids from get_inbox_placement_providers)"
+        },
+        seedIds: {
+          type: "array",
+          items: { type: "number" },
+          description: "Use these specific seed mailboxes"
+        },
+        providers: {
+          type: "array",
+          description: "Per-provider seed caps",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "number", description: "Provider id" },
+              maxSeeds: { type: "number", description: "Seed cap for this provider, at least 1" }
+            },
+            required: ["id"]
+          }
+        },
+        webhookUrl: {
+          type: "string",
+          description: "HTTPS URL the finished result is posted to"
+        }
+      },
+      required: ["name"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const name = requireString(args.name, "name");
+      if (name.length > MAX_TEST_NAME_LENGTH) {
+        throw new Error(`name must be at most ${MAX_TEST_NAME_LENGTH} characters`);
+      }
+      const testType = optionalNumber(args.testType);
+      if (testType !== void 0 && !TEST_TYPES.includes(testType)) {
+        throw new Error(`testType must be one of ${TEST_TYPES.join(", ")}`);
+      }
+      const senderEmail = optionalString(args.senderEmail);
+      if (testType === 1 && !senderEmail) {
+        throw new Error("senderEmail is required when testType is 1");
+      }
+      const options = { name };
+      if (testType !== void 0) {
+        options.testType = testType;
+      }
+      if (senderEmail) {
+        options.senderEmail = senderEmail;
+      }
+      const providerIds = optionalIdArray(args.providerIds, "providerIds");
+      if (providerIds) {
+        options.providerIds = providerIds;
+      }
+      const seedIds = optionalIdArray(args.seedIds, "seedIds");
+      if (seedIds) {
+        options.seedIds = seedIds;
+      }
+      const providers = optionalProviderSelections(args.providers);
+      if (providers) {
+        options.providers = providers;
+      }
+      if (args.webhookUrl !== null && args.webhookUrl !== void 0) {
+        options.webhookUrl = requireWebhookUrl(args.webhookUrl);
+      }
+      const result = await client.createInboxPlacementTest(options);
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var getInboxPlacementTestTool = {
+  sdkMethods: ["getInboxPlacementTest"],
+  definition: {
+    name: "get_inbox_placement_test",
+    description: "Get one inbox placement test and its results: inbox, spam, and missing counts per provider (GET /api/ipt/test/{id})",
+    inputSchema: {
+      type: "object",
+      properties: {
+        testId: { type: "string", description: "Test id from create_inbox_placement_test" }
+      },
+      required: ["testId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.getInboxPlacementTest(requireTestId(args.testId, "testId"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var listInboxPlacementTestsTool = {
+  sdkMethods: ["listInboxPlacementTests"],
+  definition: {
+    name: "list_inbox_placement_tests",
+    description: "List inbox placement tests, newest first (GET /api/ipt/tests)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["running", "finished"],
+          description: "Only tests in this state"
+        },
+        createdAfter: {
+          type: "string",
+          description: "ISO 8601 date or datetime; only tests created at or after it"
+        },
+        createdBefore: {
+          type: "string",
+          description: "ISO 8601 date or datetime; only tests created at or before it"
+        },
+        page: { type: "number", description: "Page number, from 1" },
+        pageSize: {
+          type: "number",
+          description: `Tests per page, ${MIN_PAGE_SIZE} to ${MAX_PAGE_SIZE} (sent as page_size)`
+        }
+      }
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const options = {};
+      const status = optionalString(args.status);
+      if (status !== void 0) {
+        if (!TEST_STATUSES.includes(status)) {
+          throw new Error(`status must be one of ${TEST_STATUSES.join(", ")}`);
+        }
+        options.status = status;
+      }
+      const createdAfter = optionalString(args.createdAfter);
+      if (createdAfter !== void 0) {
+        options.createdAfter = createdAfter;
+      }
+      const createdBefore = optionalString(args.createdBefore);
+      if (createdBefore !== void 0) {
+        options.createdBefore = createdBefore;
+      }
+      const page = optionalNumber(args.page);
+      if (page !== void 0) {
+        if (!Number.isInteger(page) || page < 1) {
+          throw new Error("page must be an integer of at least 1");
+        }
+        options.page = page;
+      }
+      const pageSize = optionalNumber(args.pageSize);
+      if (pageSize !== void 0) {
+        if (!Number.isInteger(pageSize) || pageSize < MIN_PAGE_SIZE || pageSize > MAX_PAGE_SIZE) {
+          throw new Error(
+            `pageSize must be an integer between ${MIN_PAGE_SIZE} and ${MAX_PAGE_SIZE}`
+          );
+        }
+        options.pageSize = pageSize;
+      }
+      const result = await client.listInboxPlacementTests(options);
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var deleteInboxPlacementTestTool = {
+  sdkMethods: ["deleteInboxPlacementTest"],
+  definition: {
+    name: "delete_inbox_placement_test",
+    description: "Delete a finished inbox placement test. A running test cannot be deleted. (DELETE /api/ipt/test/{id})",
+    inputSchema: {
+      type: "object",
+      properties: {
+        testId: { type: "string", description: "Test id to delete" }
+      },
+      required: ["testId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.deleteInboxPlacementTest(requireTestId(args.testId, "testId"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var getInboxPlacementWebhookTool = {
+  sdkMethods: ["getInboxPlacementWebhook"],
+  definition: {
+    name: "get_inbox_placement_webhook",
+    description: "Get the webhook URL finished inbox placement results are posted to for this API key (GET /api/ipt/webhook)",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      const result = await client.getInboxPlacementWebhook();
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var setInboxPlacementWebhookTool = {
+  sdkMethods: ["setInboxPlacementWebhook"],
+  definition: {
+    name: "set_inbox_placement_webhook",
+    description: "Save the webhook URL finished inbox placement results are posted to for this API key (PUT /api/ipt/webhook)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        webhookUrl: { type: "string", description: "HTTPS URL to post finished results to" }
+      },
+      required: ["webhookUrl"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.setInboxPlacementWebhook(requireWebhookUrl(args.webhookUrl));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var inboxPlacementTools = {
+  providers: getInboxPlacementProvidersTool,
+  testTypes: getInboxPlacementTestTypesTool,
+  createTest: createInboxPlacementTestTool,
+  getTest: getInboxPlacementTestTool,
+  listTests: listInboxPlacementTestsTool,
+  deleteTest: deleteInboxPlacementTestTool,
+  getWebhook: getInboxPlacementWebhookTool,
+  setWebhook: setInboxPlacementWebhookTool
 };
 
 // src/tools/warmup/sending-accounts.ts
@@ -3087,14 +3719,32 @@ function listTools() {
     bulkDomainSearchTools.deleteFile,
     listEvaluatorSendFileTool,
     listEvaluatorResultTool,
+    sendEvaluatedFileTool,
     addFilterTool,
     listFiltersTool,
     deleteFilterTool,
     listS3FilesTool,
     validateS3FileTool,
     scoreS3FileTool,
+    emailFinderS3FileTool,
+    domainSearchS3FileTool,
     exportS3FileTool,
-    ...warmupTools
+    ...warmupTools,
+    // Inbox Placement Tester
+    inboxPlacementTools.providers,
+    inboxPlacementTools.testTypes,
+    inboxPlacementTools.createTest,
+    inboxPlacementTools.getTest,
+    inboxPlacementTools.listTests,
+    inboxPlacementTools.deleteTest,
+    inboxPlacementTools.getWebhook,
+    inboxPlacementTools.setWebhook,
+    // SFTP/FTP bulk
+    validateSftpFileTool,
+    scoreSftpFileTool,
+    emailFinderSftpFileTool,
+    domainSearchSftpFileTool,
+    exportSftpFileTool
   ];
 }
 function getAllTools(availability = {}) {

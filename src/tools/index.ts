@@ -34,14 +34,30 @@ import { getActivityDataTool } from './activity-data.js';
 // Priority 3 tools
 import { bulkEmailFinderTools } from './bulk-email-finder.js';
 import { bulkDomainSearchTools } from './bulk-domain-search.js';
-import { listEvaluatorSendFileTool, listEvaluatorResultTool } from './list-evaluator.js';
+import {
+  listEvaluatorSendFileTool,
+  listEvaluatorResultTool,
+  sendEvaluatedFileTool,
+} from './list-evaluator.js';
 import { addFilterTool, listFiltersTool, deleteFilterTool } from './filters.js';
 import {
   listS3FilesTool,
   validateS3FileTool,
   scoreS3FileTool,
+  emailFinderS3FileTool,
+  domainSearchS3FileTool,
   exportS3FileTool,
 } from './s3-bulk.js';
+import {
+  validateSftpFileTool,
+  scoreSftpFileTool,
+  emailFinderSftpFileTool,
+  domainSearchSftpFileTool,
+  exportSftpFileTool,
+} from './sftp-bulk.js';
+
+// Inbox Placement Tester tools
+import { inboxPlacementTools } from './inbox-placement.js';
 
 // Warmup tools (separate API, separate key)
 import { warmupTools } from './warmup/index.js';
@@ -59,6 +75,7 @@ export {
   domainSearchTool,
   getActivityDataTool,
   warmupTools,
+  inboxPlacementTools,
 };
 
 /** What `getAllTools` needs to know about the running server to gate tools. */
@@ -105,14 +122,32 @@ function listTools(): ToolHandler[] {
     bulkDomainSearchTools.deleteFile,
     listEvaluatorSendFileTool,
     listEvaluatorResultTool,
+    sendEvaluatedFileTool,
     addFilterTool,
     listFiltersTool,
     deleteFilterTool,
     listS3FilesTool,
     validateS3FileTool,
     scoreS3FileTool,
+    emailFinderS3FileTool,
+    domainSearchS3FileTool,
     exportS3FileTool,
     ...warmupTools,
+    // Inbox Placement Tester
+    inboxPlacementTools.providers,
+    inboxPlacementTools.testTypes,
+    inboxPlacementTools.createTest,
+    inboxPlacementTools.getTest,
+    inboxPlacementTools.listTests,
+    inboxPlacementTools.deleteTest,
+    inboxPlacementTools.getWebhook,
+    inboxPlacementTools.setWebhook,
+    // SFTP/FTP bulk
+    validateSftpFileTool,
+    scoreSftpFileTool,
+    emailFinderSftpFileTool,
+    domainSearchSftpFileTool,
+    exportSftpFileTool,
   ];
 }
 

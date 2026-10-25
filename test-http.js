@@ -52,11 +52,10 @@ function freePort() {
 
 function startServer(args, env = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      ['--import', FAKE_API, SERVER_PATH, '--http', ...args],
-      { env: { ...process.env, FAKE_ZB_LOG: LOG_FILE, ...env }, stdio: ['ignore', 'ignore', 'pipe'] }
-    );
+    const child = spawn(process.execPath, ['--import', FAKE_API, SERVER_PATH, '--http', ...args], {
+      env: { ...process.env, FAKE_ZB_LOG: LOG_FILE, ...env },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
     let stderr = '';
     const timer = setTimeout(() => reject(new Error(`server did not start:\n${stderr}`)), 10000);
     child.stderr.on('data', (chunk) => {
@@ -153,7 +152,29 @@ function loggedRequests(apiKey) {
     .filter((entry) => entry.apiKey === apiKey);
 }
 
+/** Sorted field names, for asserting that exactly the documented fields go out. */
+function keysOf(fields) {
+  return Object.keys(fields ?? {})
+    .sort()
+    .join(',');
+}
+
 const CSV = 'email,first,last,domain\nalice@example.com,Alice,Smith,example.com\n';
+const HOOK = 'https://hooks.example.com/zerobounce';
+const BULK_ROOT = 'https://bulkapi.zerobounce.net';
+
+// The eight S3 / SFTP file jobs (ops 31-34, 36-39): one shared set of fields,
+// one endpoint each.
+const BULK_ROOT_JOBS = [
+  ['validate_s3_file', '/validateS3file'],
+  ['score_s3_file', '/scoreS3file'],
+  ['email_finder_s3_file', '/emailFinderS3file'],
+  ['domain_search_s3_file', '/domainSearchS3file'],
+  ['validate_sftp_file', '/validateSFTPfile'],
+  ['score_sftp_file', '/scoreSFTPfile'],
+  ['email_finder_sftp_file', '/emailFinderSFTPfile'],
+  ['domain_search_sftp_file', '/domainSearchSFTPfile'],
+];
 
 const WARMUP_FROM = 'sender@example.com';
 // Not a credential: the fixture never connects to anything and nothing is stored.
@@ -190,9 +211,12 @@ const TOOL_ARGS = {
   add_filter: { rule: 'allow', target: 'email', value: 'alice@example.com' },
   list_filters: {},
   delete_filter: { rule: 'allow', target: 'email', value: 'alice@example.com' },
+  send_evaluated_file: { fileId: 'f1' },
   list_s3_files: {},
-  validate_s3_file: { fileName: 'input/list.csv' },
-  score_s3_file: { fileName: 'input/list.csv' },
+  validate_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
+  score_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
+  email_finder_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
+  domain_search_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
   export_s3_file: { fileId: 'f1', exportBucket: 'results-bucket' },
 
   // Warmup API (operations 49-74). Separate host, separate key.
@@ -254,6 +278,23 @@ const TOOL_ARGS = {
     server: 'smtp.example.com',
     port: 587,
   },
+  get_inbox_placement_providers: {},
+  get_inbox_placement_test_types: {},
+  create_inbox_placement_test: {
+    name: 'October launch',
+    testType: 1,
+    senderEmail: 'sender@example.com',
+  },
+  get_inbox_placement_test: { testId: '42' },
+  list_inbox_placement_tests: {},
+  delete_inbox_placement_test: { testId: '42' },
+  get_inbox_placement_webhook: {},
+  set_inbox_placement_webhook: { webhookUrl: 'https://hooks.example.com/ipt' },
+  validate_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
+  score_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
+  email_finder_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
+  domain_search_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
+  export_sftp_file: { fileId: 'f1', exportPath: '/out' },
 };
 
 const WARMUP_TOOLS = Object.keys(TOOL_ARGS).filter((n) => n.startsWith('warmup_'));
@@ -274,10 +315,26 @@ const SDK_GATED = new Set([
   'add_filter',
   'list_filters',
   'delete_filter',
+  'send_evaluated_file',
   'list_s3_files',
   'validate_s3_file',
   'score_s3_file',
+  'email_finder_s3_file',
+  'domain_search_s3_file',
   'export_s3_file',
+  'get_inbox_placement_providers',
+  'get_inbox_placement_test_types',
+  'create_inbox_placement_test',
+  'get_inbox_placement_test',
+  'list_inbox_placement_tests',
+  'delete_inbox_placement_test',
+  'get_inbox_placement_webhook',
+  'set_inbox_placement_webhook',
+  'validate_sftp_file',
+  'score_sftp_file',
+  'email_finder_sftp_file',
+  'domain_search_sftp_file',
+  'export_sftp_file',
 ]);
 
 async function testRoutingAndAuth(origin) {
@@ -286,7 +343,10 @@ async function testRoutingAndAuth(origin) {
   check(health.status === 200, 'GET /health returns 200');
 
   const get = await fetch(`${origin}/mcp`);
-  check(get.status === 405 && get.headers.get('allow') === 'POST', 'GET /mcp returns 405 with Allow: POST');
+  check(
+    get.status === 405 && get.headers.get('allow') === 'POST',
+    'GET /mcp returns 405 with Allow: POST'
+  );
 
   const del = await fetch(`${origin}/mcp`, { method: 'DELETE' });
   check(del.status === 405, 'DELETE /mcp returns 405');
@@ -309,32 +369,54 @@ async function testRoutingAndAuth(origin) {
     { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } },
     { 'X-ZeroBounce-Api-Key': 'init-key' }
   );
-  check(init.status === 200 && init.message?.result?.serverInfo?.name === 'zerobounce-mcp', 'initialize succeeds');
+  check(
+    init.status === 200 && init.message?.result?.serverInfo?.name === 'zerobounce-mcp',
+    'initialize succeeds'
+  );
   if (!process.env.ZB_MCP_SERVER) {
     const { version } = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8'));
     const reported = init.message?.result?.serverInfo?.version;
-    check(reported === version, `serverInfo reports package version ${version}`, `reported ${reported}`);
+    check(
+      reported === version,
+      `serverInfo reports package version ${version}`,
+      `reported ${reported}`
+    );
   }
 
-  const bearer = await rpc(origin, 'tools/call', { name: 'get_credits', arguments: {} }, {
-    Authorization: 'Bearer bearer-key',
-  });
+  const bearer = await rpc(
+    origin,
+    'tools/call',
+    { name: 'get_credits', arguments: {} },
+    {
+      Authorization: 'Bearer bearer-key',
+    }
+  );
   check(
     bearer.status === 200 && loggedRequests('bearer-key').length === 1,
     'Authorization: Bearer key is forwarded to the API'
   );
 
-  const padded = await rpc(origin, 'tools/call', { name: 'get_credits', arguments: {} }, {
-    Authorization: `bEaReR ${' '.repeat(2000)}padded-key`,
-  });
+  const padded = await rpc(
+    origin,
+    'tools/call',
+    { name: 'get_credits', arguments: {} },
+    {
+      Authorization: `bEaReR ${' '.repeat(2000)}padded-key`,
+    }
+  );
   check(
     padded.status === 200 && loggedRequests('padded-key').length === 1,
     'Authorization bearer token is read after long whitespace'
   );
 
-  const basic = await rpc(origin, 'tools/call', { name: 'get_credits', arguments: {} }, {
-    Authorization: 'Basic not-a-bearer-key',
-  });
+  const basic = await rpc(
+    origin,
+    'tools/call',
+    { name: 'get_credits', arguments: {} },
+    {
+      Authorization: 'Basic not-a-bearer-key',
+    }
+  );
   check(basic.status === 401, 'non-bearer Authorization is rejected');
 }
 
@@ -351,6 +433,9 @@ async function testTools(origin) {
   const warmupListed = names.filter((n) => n.startsWith('warmup_'));
   const fullWarmup = warmupListed.length === WARMUP_TOOLS.length;
   console.log(`  (${names.length} tools listed; ${fullSdk ? 'SDK has all newer methods' : 'older SDK, gated tools hidden'}; ${fullWarmup ? 'SDK has the Warmup client' : 'no Warmup client in this SDK'})`);
+  console.log(
+    `  (${names.length} tools listed; ${fullSdk ? 'SDK has all newer methods' : 'older SDK, gated tools hidden'})`
+  );
 
   check(
     gatedListed.length === 0 || fullSdk,
@@ -407,7 +492,10 @@ async function testArgumentHandling(origin, names) {
     fileName: 'list.csv',
     returnUrl: 'http://127.0.0.1/hook',
   });
-  check(/returnUrl must use HTTPS/.test(toolText(badUrl)), 'non-HTTPS / private returnUrl is rejected');
+  check(
+    /returnUrl must use HTTPS/.test(toolText(badUrl)),
+    'non-HTTPS / private returnUrl is rejected'
+  );
 
   const privateIpv6 = [
     ['https://[::1]/hook', 'loopback'],
@@ -425,7 +513,8 @@ async function testArgumentHandling(origin, names) {
       returnUrl,
     });
     check(
-      /private, link-local, or loopback/.test(toolText(result)) && loggedRequests(`ipv6-${label}`).length === 0,
+      /private, link-local, or loopback/.test(toolText(result)) &&
+        loggedRequests(`ipv6-${label}`).length === 0,
       `IPv6 ${label} returnUrl is rejected`,
       toolText(result).slice(0, 180)
     );
@@ -437,7 +526,9 @@ async function testArgumentHandling(origin, names) {
     returnUrl: 'https://[2606:4700::1111]/hook',
   });
   check(
-    loggedRequests('ipv6-public').some((entry) => String(entry.fields?.return_url ?? '').includes('2606:4700::1111')),
+    loggedRequests('ipv6-public').some((entry) =>
+      String(entry.fields?.return_url ?? '').includes('2606:4700::1111')
+    ),
     'public IPv6 returnUrl is forwarded',
     toolText(publicV6).slice(0, 180)
   );
@@ -461,7 +552,8 @@ async function testArgumentHandling(origin, names) {
     fileName: 'huge.csv',
   });
   check(
-    /exceeds maximum size of \d+ bytes/.test(toolText(hugeFile)) && loggedRequests('huge-file').length === 0,
+    /exceeds maximum size of \d+ bytes/.test(toolText(hugeFile)) &&
+      loggedRequests('huge-file').length === 0,
     'fileContent over 32 MiB is rejected by the file limit',
     toolText(hugeFile).slice(0, 180)
   );
@@ -470,11 +562,16 @@ async function testArgumentHandling(origin, names) {
     await callTool(origin, 'filter-fields', 'add_filter', TOOL_ARGS.add_filter);
     const [req] = loggedRequests('filter-fields');
     check(
-      req?.fields.rule === 'allow' && req?.fields.target === 'email' && req?.fields.value === 'alice@example.com',
+      req?.fields.rule === 'allow' &&
+        req?.fields.target === 'email' &&
+        req?.fields.value === 'alice@example.com',
       'add_filter sends rule, target and value',
       JSON.stringify(req?.fields)
     );
-    const noRule = await callTool(origin, 'filter-missing', 'add_filter', { target: 'email', value: 'x' });
+    const noRule = await callTool(origin, 'filter-missing', 'add_filter', {
+      target: 'email',
+      value: 'x',
+    });
     check(/rule is required/.test(toolText(noRule)), 'add_filter without rule is rejected');
   }
 
@@ -482,16 +579,139 @@ async function testArgumentHandling(origin, names) {
     await callTool(origin, 's3-export', 'export_s3_file', TOOL_ARGS.export_s3_file);
     const [req] = loggedRequests('s3-export');
     check(
-      req?.fields.file_id === 'f1' && req?.fields.export_bucket === 'results-bucket',
-      'export_s3_file sends file_id and export_bucket',
-      JSON.stringify(req?.fields)
+      req?.method === 'POST' &&
+        req?.url === `${BULK_ROOT}/exportS3file` &&
+        keysOf(req?.bodyFields) === 'api_key,export_bucket,file_id' &&
+        req?.bodyFields.file_id === 'f1' &&
+        req?.bodyFields.export_bucket === 'results-bucket' &&
+        req?.bodyFields.api_key === 's3-export' &&
+        keysOf(req?.query) === '',
+      'export_s3_file POSTs file_id, export_bucket and the key in the form body',
+      `${req?.method} ${req?.url} ${JSON.stringify(req?.bodyFields)}`
+    );
+
+    // The spec makes the bucket optional: without it the API falls back to the
+    // bucket configured on the account, so an empty export_bucket must not go out.
+    await callTool(origin, 's3-export-default', 'export_s3_file', { fileId: 'f1' });
+    const [bare] = loggedRequests('s3-export-default');
+    check(
+      keysOf(bare?.bodyFields) === 'api_key,file_id',
+      'export_s3_file omits export_bucket when it is not given',
+      JSON.stringify(bare?.bodyFields)
     );
   }
 
-  if (has('validate_s3_file')) {
-    await callTool(origin, 's3-validate', 'validate_s3_file', TOOL_ARGS.validate_s3_file);
-    const [req] = loggedRequests('s3-validate');
-    check(req?.fields.file_name === 'input/list.csv', 'validate_s3_file sends file_name', JSON.stringify(req?.fields));
+  if (has('export_sftp_file')) {
+    await callTool(origin, 'sftp-export', 'export_sftp_file', TOOL_ARGS.export_sftp_file);
+    const [req] = loggedRequests('sftp-export');
+    check(
+      req?.method === 'POST' &&
+        req?.url === `${BULK_ROOT}/exportSFTPfile` &&
+        keysOf(req?.bodyFields) === 'api_key,export_path,file_id' &&
+        req?.bodyFields.file_id === 'f1' &&
+        req?.bodyFields.export_path === '/out',
+      'export_sftp_file POSTs file_id and export_path (not export_bucket)',
+      `${req?.method} ${req?.url} ${JSON.stringify(req?.bodyFields)}`
+    );
+
+    await callTool(origin, 'sftp-export-default', 'export_sftp_file', { fileId: 'f1' });
+    const [bare] = loggedRequests('sftp-export-default');
+    check(
+      keysOf(bare?.bodyFields) === 'api_key,file_id',
+      'export_sftp_file omits export_path when it is not given',
+      JSON.stringify(bare?.bodyFields)
+    );
+  }
+
+  for (const [name, path] of BULK_ROOT_JOBS) {
+    if (!has(name)) {
+      continue;
+    }
+    const key = `job-${name}`;
+    const result = await callTool(origin, key, name, {
+      ...TOOL_ARGS[name],
+      hasHeaderRow: true,
+      removeDuplicates: true,
+    });
+    const [req] = loggedRequests(key);
+    check(
+      req?.method === 'POST' && req?.url === `${BULK_ROOT}${path}`,
+      `${name} POSTs to ${BULK_ROOT}${path}`,
+      `${req?.method} ${req?.url}`
+    );
+    check(
+      keysOf(req?.bodyFields) === 'api_key,file_name,has_header_row,remove_duplicates,return_url' &&
+        req?.bodyFields.file_name === TOOL_ARGS[name].fileName &&
+        req?.bodyFields.has_header_row === 'true' &&
+        req?.bodyFields.remove_duplicates === 'true' &&
+        req?.bodyFields.return_url === HOOK,
+      `${name} sends file_name, has_header_row, remove_duplicates and return_url, and nothing else`,
+      JSON.stringify(req?.bodyFields)
+    );
+    check(
+      req?.bodyFields.api_key === key && keysOf(req?.query) === '',
+      `${name} carries the API key in the form body, not the query string`,
+      `query ${JSON.stringify(req?.query)}`
+    );
+    check(
+      JSON.parse(toolText(result)).success === true,
+      `${name} parses the job response`,
+      toolText(result).slice(0, 160)
+    );
+
+    // has_header_row has no safe "unset": the API needs a value, so the tool
+    // defaults it rather than dropping the field.
+    await callTool(origin, `${key}-defaults`, name, TOOL_ARGS[name]);
+    const [defaults] = loggedRequests(`${key}-defaults`);
+    check(
+      defaults?.bodyFields.has_header_row === 'false' &&
+        keysOf(defaults?.bodyFields) === 'api_key,file_name,has_header_row,return_url',
+      `${name} defaults has_header_row to false and omits remove_duplicates`,
+      JSON.stringify(defaults?.bodyFields)
+    );
+
+    // return_url is required: the live API rejects a job without one, so the
+    // tool must not create a job that can never report back.
+    const noUrl = await callTool(origin, `${key}-nourl`, name, { fileName: 'in/list.csv' });
+    check(
+      /returnUrl is required/.test(toolText(noUrl)) && loggedRequests(`${key}-nourl`).length === 0,
+      `${name} without returnUrl is rejected before the job is created`,
+      toolText(noUrl).slice(0, 160)
+    );
+
+    const badUrl = await callTool(origin, `${key}-badurl`, name, {
+      fileName: 'in/list.csv',
+      returnUrl: 'https://127.0.0.1/hook',
+    });
+    check(
+      /private, link-local, or loopback/.test(toolText(badUrl)) &&
+        loggedRequests(`${key}-badurl`).length === 0,
+      `${name} runs returnUrl through the callback validator`,
+      toolText(badUrl).slice(0, 160)
+    );
+  }
+
+  if (has('send_evaluated_file')) {
+    // Op 15 takes the List Evaluator's file_id as a form field; the public docs
+    // describe a file upload, which the API rejects.
+    await callTool(origin, 'evaluated-file', 'send_evaluated_file', { fileId: 'eval-1' });
+    const [req] = loggedRequests('evaluated-file');
+    check(
+      req?.method === 'POST' &&
+        req?.url === `${BULK_ROOT}/v2/send-evaluated-file/` &&
+        keysOf(req?.bodyFields) === 'api_key,file_id' &&
+        req?.bodyFields.file_id === 'eval-1' &&
+        req?.bodyFields.api_key === 'evaluated-file',
+      'send_evaluated_file POSTs file_id as a form field, not a file upload',
+      `${req?.method} ${req?.url} ${JSON.stringify(req?.bodyFields)}`
+    );
+
+    const missing = await callTool(origin, 'evaluated-missing', 'send_evaluated_file', {});
+    check(
+      /fileId is required/.test(toolText(missing)) &&
+        loggedRequests('evaluated-missing').length === 0,
+      'send_evaluated_file without fileId is rejected'
+    );
   }
 
   if (has('list_evaluator_send_file')) {
@@ -522,20 +742,27 @@ async function testArgumentHandling(origin, names) {
   }
 }
 
-async function testErrorReporting(origin) {
+async function testErrorReporting(origin, names) {
   console.log('\nError reporting');
   const isError = (result) => result.message?.result?.isError === true;
 
-  const html403 = await callTool(origin, 'html-403-getfile', 'bulk_validate_get_file', { fileId: 'f1' });
+  const html403 = await callTool(origin, 'html-403-getfile', 'bulk_validate_get_file', {
+    fileId: 'f1',
+  });
   const html403Text = toolText(html403);
   check(
     isError(html403) && html403Text.length < 500 && !/<html|<body|<p>/i.test(html403Text),
     'bulk get-file HTML error page is reduced to a short message',
     `${html403Text.length} chars: ${html403Text.slice(0, 160)}`
   );
-  check(/Access denied \| zerobounce\.net/.test(html403Text), 'HTML error message keeps the page title');
+  check(
+    /Access denied \| zerobounce\.net/.test(html403Text),
+    'HTML error message keeps the page title'
+  );
 
-  const html200 = await callTool(origin, 'html-200-getfile', 'bulk_ai_scoring_get_file', { fileId: 'f1' });
+  const html200 = await callTool(origin, 'html-200-getfile', 'bulk_ai_scoring_get_file', {
+    fileId: 'f1',
+  });
   check(
     isError(html200) && toolText(html200).length < 500,
     'bulk get-file HTML page with status 200 is an error, not CSV',
@@ -557,14 +784,55 @@ async function testErrorReporting(origin) {
     deniedText
   );
 
-  const account = await callTool(origin, 'batch-account-1', 'validate_batch', TOOL_ARGS.validate_batch);
+  const hasJobs = names.includes('validate_s3_file') && names.includes('validate_sftp_file');
+  if (hasJobs) {
+    // The body the live API returns for an S3/SFTP job whose return_url never
+    // reached the wire. It must surface as the API's own words, not a generic failure.
+    const returnUrl400 = await callTool(
+      origin,
+      'returnurl-400-s3',
+      'validate_s3_file',
+      TOOL_ARGS.validate_s3_file
+    );
+    check(
+      isError(returnUrl400) &&
+        /Provided return URL is not permitted: None/.test(toolText(returnUrl400)) &&
+        !/<html/i.test(toolText(returnUrl400)),
+      'a 400 error_message body is reported verbatim',
+      toolText(returnUrl400).slice(0, 200)
+    );
+
+    const returnUrl400Sftp = await callTool(
+      origin,
+      'returnurl-400-sftp',
+      'validate_sftp_file',
+      TOOL_ARGS.validate_sftp_file
+    );
+    check(
+      isError(returnUrl400Sftp) &&
+        /Provided return URL is not permitted: None/.test(toolText(returnUrl400Sftp)),
+      'the same 400 body is reported for the SFTP job'
+    );
+  }
+
+  const account = await callTool(
+    origin,
+    'batch-account-1',
+    'validate_batch',
+    TOOL_ARGS.validate_batch
+  );
   check(
     isError(account) && /ran out of credits/.test(toolText(account)),
     'validate_batch reports an account-level error as an error',
     toolText(account).slice(0, 160)
   );
 
-  const partial = await callTool(origin, 'batch-partial-1', 'validate_batch', TOOL_ARGS.validate_batch);
+  const partial = await callTool(
+    origin,
+    'batch-partial-1',
+    'validate_batch',
+    TOOL_ARGS.validate_batch
+  );
   check(
     !isError(partial) && /Invalid email address/.test(toolText(partial)),
     'validate_batch keeps per-address errors in a successful result',
@@ -575,19 +843,28 @@ async function testErrorReporting(origin) {
 async function testBatchEmailColumn(origin) {
   console.log('\nvalidate_batch emailAddressColumn');
   await callTool(origin, 'batch-column', 'validate_batch', {
-    emails: ['Alice,alice@example.com', '"Smith, Bob",bob@example.com,extra', '"Q ""Quote""", q@example.com '],
+    emails: [
+      'Alice,alice@example.com',
+      '"Smith, Bob",bob@example.com,extra',
+      '"Q ""Quote""", q@example.com ',
+    ],
     emailAddressColumn: 1,
   });
   const [req] = loggedRequests('batch-column');
   const sent = (req?.fields.email_batch ?? []).map((e) => e.email_address);
   check(
-    JSON.stringify(sent) === JSON.stringify(['alice@example.com', 'bob@example.com', 'q@example.com']),
+    JSON.stringify(sent) ===
+      JSON.stringify(['alice@example.com', 'bob@example.com', 'q@example.com']),
     'emailAddressColumn reads that column from each CSV row (quoted fields too)',
     JSON.stringify(sent)
   );
 
-  await callTool(origin, 'batch-plain', 'validate_batch', { emails: ['a@example.com', 'b@example.com'] });
-  const plain = (loggedRequests('batch-plain')[0]?.fields.email_batch ?? []).map((e) => e.email_address);
+  await callTool(origin, 'batch-plain', 'validate_batch', {
+    emails: ['a@example.com', 'b@example.com'],
+  });
+  const plain = (loggedRequests('batch-plain')[0]?.fields.email_batch ?? []).map(
+    (e) => e.email_address
+  );
   check(
     JSON.stringify(plain) === JSON.stringify(['a@example.com', 'b@example.com']),
     'without emailAddressColumn, entries are sent unchanged',
@@ -886,6 +1163,268 @@ async function testWarmup(origin) {
   check(offHost.length === 0, 'every Warmup request went to the Warmup base path',
     offHost.map((e) => e.url).join(', ').slice(0, 200));
 }
+/**
+ * The Inbox Placement Tester is a different service behind the bulk host: its key
+ * travels in an Authorization header, and GET /tests mixes naming conventions. The
+ * live API silently ignores a parameter spelled the other way -- `pageSize` returns
+ * the whole list and `created_after` does not filter -- so a renamed parameter looks
+ * like a working call that quietly skips the filter. These checks pin the wire format.
+ */
+async function testInboxPlacement(origin, names) {
+  console.log('\nInbox Placement Tester');
+  if (!names.includes('get_inbox_placement_providers')) {
+    console.log('  (installed SDK has no inbox placement methods; skipped)');
+    return;
+  }
+
+  const isError = (result) => result.message?.result?.isError === true;
+  const BASE = 'https://bulkapi.zerobounce.net/api/ipt';
+
+  const operations = [
+    ['get_inbox_placement_providers', {}, 'GET', `${BASE}/providers`],
+    ['get_inbox_placement_test_types', {}, 'GET', `${BASE}/test-types`],
+    [
+      'create_inbox_placement_test',
+      TOOL_ARGS.create_inbox_placement_test,
+      'POST',
+      `${BASE}/test`,
+    ],
+    ['get_inbox_placement_test', { testId: '42' }, 'GET', `${BASE}/test/42`],
+    ['list_inbox_placement_tests', {}, 'GET', `${BASE}/tests`],
+    ['delete_inbox_placement_test', { testId: '42' }, 'DELETE', `${BASE}/test/42`],
+    ['get_inbox_placement_webhook', {}, 'GET', `${BASE}/webhook`],
+    [
+      'set_inbox_placement_webhook',
+      { webhookUrl: 'https://hooks.example.com/ipt' },
+      'PUT',
+      `${BASE}/webhook`,
+    ],
+  ];
+
+  for (const [name, args, method, expectedUrl] of operations) {
+    const key = `ipt-wire-${name}`;
+    const result = await callTool(origin, key, name, args);
+    const [req] = loggedRequests(key);
+    check(
+      req?.method === method && req?.url === expectedUrl,
+      `${name} sends ${method} ${expectedUrl.slice(BASE.length)}`,
+      `got ${req?.method} ${req?.url}`
+    );
+    check(
+      req?.auth === 'bearer' &&
+        req?.apiKey === key &&
+        !String(req?.url).includes(key) &&
+        !('api_key' in (req?.query ?? {})),
+      `${name} sends the key as Authorization: Bearer and never in the URL`,
+      `auth ${req?.auth}, url ${req?.url}`
+    );
+    check(!isError(result), `${name} parses a successful response`, toolText(result).slice(0, 160));
+  }
+
+  // GET /tests: page_size is snake_case, createdAfter/createdBefore are camelCase.
+  const listKey = 'ipt-list-params';
+  await callTool(origin, listKey, 'list_inbox_placement_tests', {
+    status: 'finished',
+    createdAfter: '2030-01-01',
+    createdBefore: '2031-12-31',
+    page: 2,
+    pageSize: 25,
+  });
+  const query = loggedRequests(listKey)[0]?.query ?? {};
+  check(
+    query.page_size === '25' && !('pageSize' in query),
+    'list_inbox_placement_tests sends page_size, not pageSize (the API ignores pageSize)',
+    JSON.stringify(query)
+  );
+  check(
+    query.createdAfter === '2030-01-01' &&
+      query.createdBefore === '2031-12-31' &&
+      !('created_after' in query) &&
+      !('created_before' in query),
+    'list_inbox_placement_tests sends createdAfter/createdBefore (the API ignores created_after)',
+    JSON.stringify(query)
+  );
+  check(
+    query.status === 'finished' && query.page === '2',
+    'list_inbox_placement_tests sends status and page',
+    JSON.stringify(query)
+  );
+
+  const badStatus = await callTool(origin, 'ipt-bad-status', 'list_inbox_placement_tests', {
+    status: 'pending',
+  });
+  check(
+    /status must be one of running, finished/.test(toolText(badStatus)) &&
+      loggedRequests('ipt-bad-status').length === 0,
+    'an unsupported status is rejected before calling the API',
+    toolText(badStatus).slice(0, 160)
+  );
+
+  const bigPage = await callTool(origin, 'ipt-big-page', 'list_inbox_placement_tests', {
+    pageSize: 101,
+  });
+  check(
+    /pageSize must be an integer between 1 and 100/.test(toolText(bigPage)) &&
+      loggedRequests('ipt-big-page').length === 0,
+    'pageSize above 100 is rejected before calling the API',
+    toolText(bigPage).slice(0, 160)
+  );
+
+  // POST /test body.
+  const createKey = 'ipt-create-body';
+  await callTool(origin, createKey, 'create_inbox_placement_test', {
+    name: 'October launch',
+    testType: 1,
+    senderEmail: 'sender@example.com',
+    providerIds: [1, 2],
+    seedIds: [7],
+    providers: [{ id: 3, maxSeeds: 5 }],
+    webhookUrl: 'https://hooks.example.com/ipt',
+  });
+  const createBody = loggedRequests(createKey)[0]?.body ?? {};
+  check(
+    createBody.name === 'October launch' &&
+      createBody.testType === 1 &&
+      createBody.senderEmail === 'sender@example.com' &&
+      JSON.stringify(createBody.providerIds) === '[1,2]' &&
+      JSON.stringify(createBody.seedIds) === '[7]' &&
+      JSON.stringify(createBody.providers) === '[{"id":3,"maxSeeds":5}]' &&
+      createBody.webhookUrl === 'https://hooks.example.com/ipt',
+    'create_inbox_placement_test sends the whole test definition as JSON',
+    JSON.stringify(createBody)
+  );
+
+  const longName = await callTool(origin, 'ipt-long-name', 'create_inbox_placement_test', {
+    name: 'n'.repeat(65),
+  });
+  check(
+    /name must be at most 64 characters/.test(toolText(longName)) &&
+      loggedRequests('ipt-long-name').length === 0,
+    'a name longer than 64 characters is rejected before calling the API',
+    toolText(longName).slice(0, 160)
+  );
+
+  const badType = await callTool(origin, 'ipt-bad-type', 'create_inbox_placement_test', {
+    name: 'x',
+    testType: 4,
+  });
+  check(
+    /testType must be one of 1, 2, 3/.test(toolText(badType)) &&
+      loggedRequests('ipt-bad-type').length === 0,
+    'an unsupported testType is rejected before calling the API',
+    toolText(badType).slice(0, 160)
+  );
+
+  const noSender = await callTool(origin, 'ipt-no-sender', 'create_inbox_placement_test', {
+    name: 'x',
+    testType: 1,
+  });
+  check(
+    /senderEmail is required when testType is 1/.test(toolText(noSender)) &&
+      loggedRequests('ipt-no-sender').length === 0,
+    'testType 1 without senderEmail is rejected before calling the API',
+    toolText(noSender).slice(0, 160)
+  );
+
+  const badSeeds = await callTool(origin, 'ipt-bad-seeds', 'create_inbox_placement_test', {
+    name: 'x',
+    providers: [{ id: 3, maxSeeds: 0 }],
+  });
+  check(
+    /providers\[0\]\.maxSeeds must be an integer of at least 1/.test(toolText(badSeeds)) &&
+      loggedRequests('ipt-bad-seeds').length === 0,
+    'a provider maxSeeds below 1 is rejected before calling the API',
+    toolText(badSeeds).slice(0, 160)
+  );
+
+  // Webhook URLs are callbacks ZeroBounce posts to, so they get the returnUrl checks.
+  const privateHook = await callTool(origin, 'ipt-private-hook', 'set_inbox_placement_webhook', {
+    webhookUrl: 'https://127.0.0.1/hook',
+  });
+  check(
+    /webhookUrl must not target private, link-local, or loopback addresses/.test(
+      toolText(privateHook)
+    ) && loggedRequests('ipt-private-hook').length === 0,
+    'a loopback webhookUrl is rejected before calling the API',
+    toolText(privateHook).slice(0, 160)
+  );
+
+  const insecureHook = await callTool(origin, 'ipt-http-hook', 'set_inbox_placement_webhook', {
+    webhookUrl: 'http://hooks.example.com/ipt',
+  });
+  check(
+    /webhookUrl must use HTTPS/.test(toolText(insecureHook)) &&
+      loggedRequests('ipt-http-hook').length === 0,
+    'a non-HTTPS webhookUrl is rejected before calling the API',
+    toolText(insecureHook).slice(0, 160)
+  );
+
+  const hookKey = 'ipt-webhook-body';
+  await callTool(origin, hookKey, 'set_inbox_placement_webhook', {
+    webhookUrl: 'https://hooks.example.com/ipt',
+  });
+  check(
+    loggedRequests(hookKey)[0]?.body?.webhookUrl === 'https://hooks.example.com/ipt',
+    'set_inbox_placement_webhook sends webhookUrl as a JSON body',
+    JSON.stringify(loggedRequests(hookKey)[0]?.body)
+  );
+
+  // Test ids reach the path as one encoded segment, numbers included.
+  await callTool(origin, 'ipt-id-encoded', 'get_inbox_placement_test', { testId: 'a/b c' });
+  check(
+    loggedRequests('ipt-id-encoded')[0]?.url === `${BASE}/test/a%2Fb%20c`,
+    'a testId is percent-encoded into one path segment',
+    loggedRequests('ipt-id-encoded')[0]?.url
+  );
+
+  await callTool(origin, 'ipt-id-number', 'get_inbox_placement_test', { testId: 42 });
+  check(
+    loggedRequests('ipt-id-number')[0]?.url === `${BASE}/test/42`,
+    'a numeric testId is accepted',
+    loggedRequests('ipt-id-number')[0]?.url
+  );
+
+  const noId = await callTool(origin, 'ipt-no-id', 'get_inbox_placement_test', {});
+  check(
+    /testId is required/.test(toolText(noId)) && loggedRequests('ipt-no-id').length === 0,
+    'get_inbox_placement_test without testId is rejected'
+  );
+
+  // DELETE answers 204 with no body; every other endpoint returns JSON, so an empty
+  // body must not read as the usual "empty response" failure.
+  const deleted = await callTool(origin, 'ipt-delete-empty', 'delete_inbox_placement_test', {
+    testId: '42',
+  });
+  const deletedText = toolText(deleted);
+  check(
+    !isError(deleted) && /"success": true/.test(deletedText) && !/Empty response/.test(deletedText),
+    'delete_inbox_placement_test reads an empty 204 body as success',
+    deletedText.slice(0, 160)
+  );
+
+  // Django REST framework errors: {"detail": "..."} and a bare list of messages.
+  const detail = await callTool(origin, 'ipt-detail-1', 'get_inbox_placement_test', {
+    testId: '42',
+  });
+  const detailText = toolText(detail);
+  check(
+    isError(detail) &&
+      /Inbox placement test not found\./.test(detailText) &&
+      detailText.length < 200,
+    'a Django "detail" error body is reduced to its message',
+    detailText.slice(0, 160)
+  );
+
+  const conflict = await callTool(origin, 'ipt-conflict-1', 'delete_inbox_placement_test', {
+    testId: '42',
+  });
+  const conflictText = toolText(conflict);
+  check(
+    isError(conflict) && /In-progress tests cannot be deleted\./.test(conflictText),
+    'a failed delete stays an error, rather than passing as an empty-body success',
+    conflictText.slice(0, 160)
+  );
+}
 
 async function testKeyIsolation(origin, server) {
   console.log('\nPer-request API key isolation');
@@ -899,20 +1438,32 @@ async function testKeyIsolation(origin, server) {
   const results = await Promise.all(calls);
 
   const ok = results.filter(({ result }) => result.status === 200 && result.message?.result);
-  check(ok.length === count, `${count} concurrent requests all succeed`, `${ok.length}/${count} succeeded`);
+  check(
+    ok.length === count,
+    `${count} concurrent requests all succeed`,
+    `${ok.length}/${count} succeeded`
+  );
 
   const leaked = results.filter(({ key }) => {
     const reqs = loggedRequests(key);
     return reqs.length !== 1;
   });
-  check(leaked.length === 0, 'each request reached the API exactly once, with its own key', `mismatched: ${leaked.map((r) => r.key).join(', ')}`);
+  check(
+    leaked.length === 0,
+    'each request reached the API exactly once, with its own key',
+    `mismatched: ${leaked.map((r) => r.key).join(', ')}`
+  );
 
   const crossed = results.filter(({ key, result }) => {
     const text = toolText(result);
     const other = text.match(/concurrent-\d+/g) ?? [];
     return other.some((k) => k !== key);
   });
-  check(crossed.length === 0, 'no response contains another caller\'s key', `crossed: ${crossed.map((r) => r.key).join(', ')}`);
+  check(
+    crossed.length === 0,
+    "no response contains another caller's key",
+    `crossed: ${crossed.map((r) => r.key).join(', ')}`
+  );
 
   check(!/Already connected/.test(server.stderr()), 'server logged no transport reuse errors');
 }
@@ -923,66 +1474,101 @@ async function testBindHost() {
     encoding: 'utf8',
     env: { ...process.env, MCP_TLS_TERMINATED: '' },
   });
-  check(refused.status === 1 && /MCP_TLS_TERMINATED=true/.test(refused.stderr),
-    'non-loopback bind requires explicit TLS termination');
+  check(
+    refused.status === 1 && /MCP_TLS_TERMINATED=true/.test(refused.stderr),
+    'non-loopback bind requires explicit TLS termination'
+  );
   const port = await freePort();
   const local = await startServer(['--port', String(port)], { MCP_HOST: '' });
   check(local.origin === `http://127.0.0.1:${port}`, 'binds to 127.0.0.1 by default', local.origin);
   await stopServer(local);
 
   const flagPort = await freePort();
-  const flag = await startServer(['--port', String(flagPort), '--host', '0.0.0.0'], { MCP_TLS_TERMINATED: 'true' });
-  check(flag.origin === `http://0.0.0.0:${flagPort}`, '--host 0.0.0.0 binds all interfaces', flag.origin);
+  const flag = await startServer(['--port', String(flagPort), '--host', '0.0.0.0'], {
+    MCP_TLS_TERMINATED: 'true',
+  });
+  check(
+    flag.origin === `http://0.0.0.0:${flagPort}`,
+    '--host 0.0.0.0 binds all interfaces',
+    flag.origin
+  );
   const viaAll = await fetch(`http://127.0.0.1:${flagPort}/health`);
   check(viaAll.status === 200, 'server bound to 0.0.0.0 answers on loopback');
   await stopServer(flag);
 
   const envPort = await freePort();
-  const env = await startServer([`--port=${envPort}`], { MCP_HOST: '0.0.0.0', MCP_TLS_TERMINATED: 'true' });
-  check(env.origin === `http://0.0.0.0:${envPort}`, 'MCP_HOST=0.0.0.0 binds all interfaces', env.origin);
+  const env = await startServer([`--port=${envPort}`], {
+    MCP_HOST: '0.0.0.0',
+    MCP_TLS_TERMINATED: 'true',
+  });
+  check(
+    env.origin === `http://0.0.0.0:${envPort}`,
+    'MCP_HOST=0.0.0.0 binds all interfaces',
+    env.origin
+  );
   await stopServer(env);
 
   console.log('\nRegional API base URL');
   // ZeroBounce serves the main API from three hosts. The SDK has always
   // supported them; until now this server gave no way to pick one.
   const readBaseUrl = async (origin) => {
-    const r = await rpc(origin, 'resources/read', { uri: 'zerobounce://config' }, {
-      'X-ZeroBounce-Api-Key': 'region-key',
-    });
+    const r = await rpc(
+      origin,
+      'resources/read',
+      { uri: 'zerobounce://config' },
+      {
+        'X-ZeroBounce-Api-Key': 'region-key',
+      }
+    );
     return JSON.parse(r.message.result.contents[0].text).baseUrl;
   };
 
   const defPort = await freePort();
   const def = await startServer([`--port=${defPort}`], { ZEROBOUNCE_API_URL: '' });
-  check(await readBaseUrl(def.origin) === 'https://api.zerobounce.net/v2',
-    'defaults to the main API host');
+  check(
+    (await readBaseUrl(def.origin)) === 'https://api.zerobounce.net/v2',
+    'defaults to the main API host'
+  );
   await stopServer(def);
 
   const usPort = await freePort();
   const us = await startServer([`--port=${usPort}`, '--url=us']);
-  check(await readBaseUrl(us.origin) === 'https://api-us.zerobounce.net/v2',
-    '--url=us selects the US host');
+  check(
+    (await readBaseUrl(us.origin)) === 'https://api-us.zerobounce.net/v2',
+    '--url=us selects the US host'
+  );
   await stopServer(us);
 
   const euPort = await freePort();
   const eu = await startServer([`--port=${euPort}`], { ZEROBOUNCE_API_URL: 'eu' });
-  check(await readBaseUrl(eu.origin) === 'https://api-eu.zerobounce.net/v2',
-    'ZEROBOUNCE_API_URL=eu selects the EU host');
+  check(
+    (await readBaseUrl(eu.origin)) === 'https://api-eu.zerobounce.net/v2',
+    'ZEROBOUNCE_API_URL=eu selects the EU host'
+  );
   await stopServer(eu);
 
   const customPort = await freePort();
   const custom = await startServer([`--port=${customPort}`, '--url=https://stub.example.com/v2']);
-  check(await readBaseUrl(custom.origin) === 'https://stub.example.com/v2',
-    'an explicit https URL is kept as given');
+  check(
+    (await readBaseUrl(custom.origin)) === 'https://stub.example.com/v2',
+    'an explicit https URL is kept as given'
+  );
   await stopServer(custom);
 
   // Never silently fall back to production: a caller who asked for one host and
   // got another would send their key somewhere they did not choose.
-  const insecure = spawnSync(process.execPath, [SERVER_PATH, '--http', '--url=http://api.zerobounce.net/v2'], {
-    encoding: 'utf8',
-  });
-  check(insecure.status === 1 && /must use https/i.test(insecure.stderr),
-    'a non-https API URL is refused, not silently replaced', insecure.stderr.slice(0, 120));
+  const insecure = spawnSync(
+    process.execPath,
+    [SERVER_PATH, '--http', '--url=http://api.zerobounce.net/v2'],
+    {
+      encoding: 'utf8',
+    }
+  );
+  check(
+    insecure.status === 1 && /must use https/i.test(insecure.stderr),
+    'a non-https API URL is refused, not silently replaced',
+    insecure.stderr.slice(0, 120)
+  );
 
   const bogus = spawnSync(process.execPath, [SERVER_PATH, '--http', '--url=not-a-url'], {
     encoding: 'utf8',
@@ -1102,6 +1688,11 @@ async function testBindHost() {
     `${envNames.filter((n) => n.startsWith('warmup_')).length} listed`
   );
   await stopServer(httpEnv);
+  check(
+    bogus.status === 1 && /Invalid API URL/i.test(bogus.stderr),
+    'a malformed API URL is refused',
+    bogus.stderr.slice(0, 120)
+  );
 }
 
 async function main() {
@@ -1117,9 +1708,10 @@ async function main() {
     await testRoutingAndAuth(server.origin);
     const { names } = await testTools(server.origin);
     await testArgumentHandling(server.origin, names);
-    await testErrorReporting(server.origin);
+    await testErrorReporting(server.origin, names);
     await testBatchEmailColumn(server.origin);
     await testWarmup(server.origin);
+    await testInboxPlacement(server.origin, names);
     await testKeyIsolation(server.origin, server);
   } finally {
     await stopServer(server);
