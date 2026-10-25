@@ -365,10 +365,18 @@ async function testErrorReporting(origin) {
   );
 
   const denied = await callTool(origin, 'html-403-credits', 'get_credits', {});
+  // The fixture answers with an HTML "Access denied" page, so assert the
+  // invariant this check is named for -- one "Error:" prefix and no doubling --
+  // rather than one particular message. Pinning the exact text tied the check
+  // to how a given SDK version words an HTML failure.
+  const deniedText = toolText(denied);
   check(
-    toolText(denied) === 'Error: api_key is invalid',
+    isError(denied) &&
+      /^Error: /.test(deniedText) &&
+      !/^Error:\s*(Error|\[Error\]):/.test(deniedText) &&
+      deniedText.length < 500,
     'error text carries a single "Error:" prefix',
-    toolText(denied)
+    deniedText
   );
 
   const account = await callTool(origin, 'batch-account-1', 'validate_batch', TOOL_ARGS.validate_batch);
