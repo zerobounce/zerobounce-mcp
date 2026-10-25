@@ -43,14 +43,21 @@ Pass a real key:
 npm test -- --api-key="$ZEROBOUNCE_API_KEY"
 ```
 
-Two things this does **not** fix, so do not chase them as regressions:
+**Use real values for the live tests, not just a real key.** A placeholder
+`file_id` trips the same block: `GET /v2/deletefile?file_id=x` answers
+`403 error code: 1020`, which reads like the endpoint being blocked. It is not.
+Upload a file first and use the `file_id` that `sendfile` returns, and the same
+endpoint answers `200` with ordinary JSON. Verified with plain `curl`:
 
-- Some bulk endpoints answer `403 error code: 1020` even with a valid key.
-  Verified with plain `curl`, no SDK involved: `/v2/filestatus` returns JSON,
-  while `/v2/deletefile`, `/v2/scoring/filestatus` and `/v2/scoring/deletefile`
-  are blocked. That is ZeroBounce's WAF, not this repo.
-- `Find Email (by company)` fails on `"firstName" is required`, and the bulk
-  send-file cases fail on the fixture CSV being rejected. Both are test inputs.
+| request | result |
+| --- | --- |
+| `deletefile` with `file_id=x` | `403 error code: 1020` |
+| `deletefile` with a real `file_id` | `200 {"success":false,"message":"File cannot be found."}` |
+
+Two test-input failures are not regressions either: `Find Email (by company)`
+fails on `"firstName" is required`, and the bulk send-file cases fail because
+the fixture CSV is rejected. A CSV of `email` plus one address per line, sent
+with `email_address_column=1` and `has_header_row=true`, is accepted.
 
 The Warmup client needs its own key (`ZEROBOUNCE_WARMUP_API_KEY`, against
 `warmup-api.zerobounce.net`); the main `ZEROBOUNCE_API_KEY` is not valid there
