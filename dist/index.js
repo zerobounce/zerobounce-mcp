@@ -28,217 +28,836 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 // node_modules/@zerobounce/zero-bounce-sdk/dist/zeroBounceSDK.js
 var require_zeroBounceSDK = __commonJS({
   "node_modules/@zerobounce/zero-bounce-sdk/dist/zeroBounceSDK.js"(exports, module) {
-    !(function(e, i) {
-      "object" == typeof exports && "object" == typeof module ? module.exports = i() : "function" == typeof define && define.amd ? define([], i) : "object" == typeof exports ? exports.ZeroBounceSDK = i() : e.ZeroBounceSDK = i();
+    !(function(e, t) {
+      "object" == typeof exports && "object" == typeof module ? module.exports = t() : "function" == typeof define && define.amd ? define([], t) : "object" == typeof exports ? exports.ZeroBounceSDK = t() : e.ZeroBounceSDK = t();
     })(exports, () => (() => {
       "use strict";
-      const e = { d: (i2, a2) => {
-        if (Array.isArray(a2)) for (var t2 = 0; t2 < a2.length; ) {
-          var n2 = a2[t2++], r2 = a2[t2++];
-          e.o(i2, n2) ? 0 === r2 && t2++ : 0 === r2 ? Object.defineProperty(i2, n2, { enumerable: true, value: a2[t2++] }) : Object.defineProperty(i2, n2, { enumerable: true, get: r2 });
+      const e = { d: (t2, i2) => {
+        if (Array.isArray(i2)) for (var r2 = 0; r2 < i2.length; ) {
+          var n2 = i2[r2++], a2 = i2[r2++];
+          e.o(t2, n2) ? 0 === a2 && r2++ : 0 === a2 ? Object.defineProperty(t2, n2, { enumerable: true, value: i2[r2++] }) : Object.defineProperty(t2, n2, { enumerable: true, get: a2 });
         }
-        else for (var n2 in a2) e.o(a2, n2) && !e.o(i2, n2) && Object.defineProperty(i2, n2, { enumerable: true, get: a2[n2] });
-      }, o: (e2, i2) => Object.prototype.hasOwnProperty.call(e2, i2) };
-      let i = {};
-      e.d(i, { default: () => m });
-      const a = { Accept: "*/*", "Accept-Encoding": "gzip, deflate, br", Connection: "keep-alive" };
-      function t(e2, i2) {
-        const a2 = e2[i2];
-        return null != a2 && ("string" == typeof a2 ? "" !== a2.trim() : !!Array.isArray(a2) && a2.some((e3) => "string" == typeof e3 && "" !== e3.trim()));
+        else for (var n2 in i2) e.o(i2, n2) && !e.o(t2, n2) && Object.defineProperty(t2, n2, { enumerable: true, get: i2[n2] });
+      }, o: (e2, t2) => Object.prototype.hasOwnProperty.call(e2, t2) };
+      let t = {};
+      e.d(t, { default: () => H });
+      const i = { Accept: "*/*", "Accept-Encoding": "gzip, deflate, br", Connection: "keep-alive" };
+      class r extends Error {
+        constructor(e2, t2 = 0) {
+          super(e2), this.name = "ZBApiError", this.statusCode = t2;
+        }
       }
-      function n() {
-        return "undefined" != typeof window && "undefined" != typeof document && "function" == typeof document.createElement;
+      function n(e2, t2 = 0) {
+        return new r(e2, t2);
       }
-      function r(e2, i2, a2) {
-        const r2 = (i2.headers.get("content-type") || "").toLowerCase(), s2 = e2.trim();
-        if (r2.includes("application/json") || s2.startsWith("{") || s2.startsWith("[")) try {
-          const i3 = JSON.parse(e2);
-          if ((function(e3) {
-            return !(!e3 || "object" != typeof e3 || Array.isArray(e3)) && (!(!(i4 = e3) || "object" != typeof i4 || Array.isArray(i4) || !(Object.prototype.hasOwnProperty.call(i4, "success") && null != i4.success && (false === i4.success || "False" === i4.success || "false" === i4.success) || t(i4, "message") || t(i4, "error") || t(i4, "error_message"))) || Object.prototype.hasOwnProperty.call(e3, "success"));
-            var i4;
-          })(i3)) return i3;
-        } catch {
-        }
-        if (!i2.ok) try {
-          return JSON.parse(e2);
-        } catch {
-          throw new Error(e2 || `HTTP ${i2.status}`);
-        }
-        return n() ? (function(e3, i3) {
-          if (!n()) throw new Error("saveFile is only available in browser environments");
-          if (!window.navigator.msSaveOrOpenBlob) {
-            const a3 = document.createElement("a");
-            document.body.appendChild(a3);
-            const t2 = window.URL.createObjectURL(e3);
-            return a3.href = t2, a3.download = i3, a3.click(), setTimeout(() => {
-              window.URL.revokeObjectURL(t2), document.body.removeChild(a3);
-            }, 0), i3;
-          }
-          window.navigator.msSaveOrOpenBlob(e3, i3);
-        })(new Blob([e2], { type: "text/csv" }), `result${a2 ? "-scoring" : ""}.csv`) : e2;
+      function a(e2, t2 = "apiBaseURL") {
+        if ("string" != typeof e2 || !/^https:\/\//i.test(e2)) throw new Error(`ZeroBounce: ${t2} must be an https:// URL`);
+        return e2;
       }
-      async function s({ requestType: e2, body: i2 = null, params: t2 = null, path: n2, batch: s2 = false, returnText: l2 = false, scoring: _2 = false, apiBaseURL: o2 }) {
-        const d2 = `${s2 ? "https://bulkapi.zerobounce.net/v2" : o2}${n2}?${new URLSearchParams(t2)}`;
-        try {
-          const t3 = await fetch(d2, { method: e2, headers: a, body: i2 });
-          if (l2) return r(await t3.text(), t3, _2);
-          if (403 === t3.status) throw new Error("[Error]: api_key is invalid");
-          return await t3.json();
-        } catch (e3) {
-          throw new Error(e3);
-        }
+      function s(e2, t2 = "api key") {
+        if ("string" != typeof e2 || !e2.trim()) throw new Error(`ZeroBounce: ${t2} parameter is missing.`);
+        if (e2 !== e2.trim() || /[\u0000-\u001f\u007f]/.test(e2)) throw new Error(`ZeroBounce: ${t2} has surrounding whitespace or control characters.`);
+        return e2;
+      }
+      function o(e2, t2 = []) {
+        let i2 = String(e2);
+        for (const e3 of t2) if (e3) for (const t3 of [e3, encodeURIComponent(e3), escape(e3)]) t3 && (i2 = i2.split(t3).join("***"));
+        return i2.replace(/([?&](?:api_key|API-Key)=)[^&\s"']+/gi, "$1***");
       }
       function l() {
-        console.error("ZeroBounce: Call init function first with a valid api key.");
+        if ("undefined" != typeof AbortSignal && "function" == typeof AbortSignal.timeout) return AbortSignal.timeout(12e4);
       }
-      function _(e2, i2 = "") {
-        console.error(`ZeroBounce: ${e2} parameter is missing. ${i2}`);
+      function u(e2, t2) {
+        const i2 = e2[t2];
+        return null != i2 && ("string" == typeof i2 ? "" !== i2.trim() : !!Array.isArray(i2) && i2.some((e3) => "string" == typeof e3 && "" !== e3.trim()));
       }
-      const o = Object.freeze({ NONE: "", VALID: "valid", INVALID: "invalid", CATCH_ALL: "catch-all", UNKNOWN: "unknown", SPAMTRAP: "spamtrap", ABUSE: "abuse", DO_NOT_MAIL: "do_not_mail" }), d = Object.freeze({ NONE: "", ANTISPAM_SYSTEM: "antispam_system", GREYLISTED: "greylisted", MAIL_SERVER_TEMPORARY_ERROR: "mail_server_temporary_error", FORCIBLE_DISCONNECT: "forcible_disconnect", MAIL_SERVER_DID_NOT_RESPOND: "mail_server_did_not_respond", TIMEOUT_EXCEEDED: "timeout_exceeded", FAILED_SMTP_CONNECTION: "failed_smtp_connection", MAILBOX_QUOTA_EXCEEDED: "mailbox_quota_exceeded", EXCEPTION_OCCURRED: "exception_occurred", POSSIBLE_TRAP: "possible_trap", ROLE_BASED: "role_based", GLOBAL_SUPPRESSION: "global_suppression", MAILBOX_NOT_FOUND: "mailbox_not_found", NO_DNS_ENTRIES: "no_dns_entries", FAILED_SYNTAX_CHECK: "failed_syntax_check", POSSIBLE_TYPO: "possible_typo", UNROUTABLE_IP_ADDRESS: "unroutable_ip_address", LEADING_PERIOD_REMOVED: "leading_period_removed", DOES_NOT_ACCEPT_MAIL: "does_not_accept_mail", ALIAS_ADDRESS: "alias_address", ROLE_BASED_CATCH_ALL: "role_based_catch_all", DISPOSABLE: "disposable", TOXIC: "toxic", ALTERNATE: "alternate", MX_FORWARD: "mx_forward", BLOCKED: "blocked", ALLOWED: "allowed", ACCEPT_ALL: "accept_all", ROLE_BASED_ACCEPT_ALL: "role_based_accept_all", GOLD: "gold" }), p = Object.freeze({ PHASE_1: "phase_1", PHASE_2: "phase_2", COMBINED: "combined" });
-      class u {
+      function d() {
+        return "undefined" != typeof window && "undefined" != typeof document && "function" == typeof document.createElement;
+      }
+      function _(e2) {
+        return e2 && "number" == typeof e2.status ? e2.status : 200;
+      }
+      function c(e2) {
+        return e2 && e2.headers && "function" == typeof e2.headers.get ? String(e2.headers.get("content-type") || "").toLowerCase() : "";
+      }
+      function m(e2) {
+        const t2 = String(e2).slice(0, 2e3).toLowerCase();
+        return t2.includes("<!doctype html") || t2.includes("<html") || t2.includes("<head") || t2.includes("<body");
+      }
+      function p(e2) {
+        let t2 = String(e2).trim();
+        for (; ; ) if (t2.startsWith("Error:")) t2 = t2.slice(6).trim();
+        else {
+          if (!t2.startsWith("[Error]:")) return t2;
+          t2 = t2.slice(8).trim();
+        }
+      }
+      function f(e2) {
+        if (!e2 || "object" != typeof e2 || Array.isArray(e2)) return null;
+        if (Array.isArray(e2.errors)) {
+          for (const t3 of e2.errors) if (t3 && "all" === String(t3.email_address || "").toLowerCase()) return p(("string" == typeof t3.error ? t3.error.trim() : "") || "Invalid API Key or your account ran out of credits");
+        }
+        return "string" == typeof e2.error && (t2 = e2.error, /invalid api key|api_key is invalid|ran out of credits|out of credits/i.test(t2)) ? p(e2.error.trim()) : null;
+        var t2;
+      }
+      function h(e2, t2) {
+        const i2 = String(e2).trim();
+        if (!i2) return `Empty response from ZeroBounce (HTTP ${t2})`;
+        if (m(e2)) {
+          const t3 = (function(e3) {
+            const t4 = String(e3).match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+            return t4 ? t4[1].replace(/\s+/g, " ").trim() : "";
+          })(e2);
+          return t3 ? `ZeroBounce returned an HTML error page ("${t3}") instead of an API response.` : "ZeroBounce returned an HTML error page instead of an API response.";
+        }
+        if (i2.startsWith("{") || i2.startsWith("[")) try {
+          const e3 = JSON.parse(i2), t3 = (function(e4) {
+            return !e4 || "object" != typeof e4 || Array.isArray(e4) || "string" != typeof e4.title ? null : (e4.title.includes("Access denied") || e4.title.includes("1020")) && true === e4.cloudflare_error ? e4.title : null;
+          })(e3);
+          if (t3) return t3;
+          const r2 = f(e3);
+          if (r2) return r2;
+          const n2 = (function(e4) {
+            if (Array.isArray(e4)) {
+              const t4 = e4.find((e5) => "string" == typeof e5 && e5.trim());
+              return t4 ? t4.trim() : null;
+            }
+            if (!e4 || "object" != typeof e4) return null;
+            for (const t4 of ["error", "message", "error_message", "detail"]) {
+              const i3 = e4[t4];
+              if ("string" == typeof i3 && i3.trim()) return i3.trim();
+              if (Array.isArray(i3) && i3.length) {
+                const e5 = i3.filter((e6) => "string" == typeof e6 && e6.trim());
+                if (e5.length) return e5.join("; ");
+                const t5 = i3[0];
+                if (t5 && "object" == typeof t5 && t5.msg) {
+                  const e6 = Array.isArray(t5.loc) ? t5.loc.slice(1).join(".") : "";
+                  return e6 ? `${e6}: ${t5.msg}` : String(t5.msg);
+                }
+              }
+            }
+            return null;
+          })(e3);
+          return n2 ? p(n2) : "ZeroBounce returned an unexpected response.";
+        } catch {
+          return "ZeroBounce returned a response that is not valid JSON.";
+        }
+        return i2.length > 1e3 ? "ZeroBounce returned a response that is not valid JSON." : p(i2) || `Empty response from ZeroBounce (HTTP ${t2})`;
+      }
+      function y(e2, t2 = []) {
+        const i2 = e2 && e2.name ? e2.name : "Error", r2 = e2 && e2.message ? e2.message : String(e2);
+        return new Error(o(`${i2}: ${r2}`, t2));
+      }
+      const g = ["api-eu.zerobounce.net", "api-us.zerobounce.net"];
+      function b(e2) {
+        try {
+          return new URL(String(e2)).hostname.toLowerCase();
+        } catch {
+          return "";
+        }
+      }
+      function S(e2, t2, i2) {
+        const r2 = _(t2), a2 = c(t2);
+        if (m(e2) || a2.includes("text/html") || r2 >= 400) throw n(h(e2, r2), r2);
+        if (!String(e2).trim()) throw n(`Empty response from ZeroBounce (HTTP ${r2})`, r2);
+        const s2 = e2.trim();
+        if (a2.includes("application/json") || s2.startsWith("{") || s2.startsWith("[")) try {
+          const t3 = JSON.parse(e2);
+          if ((function(e3) {
+            return !(!e3 || "object" != typeof e3 || Array.isArray(e3)) && (!(!(t4 = e3) || "object" != typeof t4 || Array.isArray(t4) || !(Object.prototype.hasOwnProperty.call(t4, "success") && null != t4.success && (false === t4.success || "False" === t4.success || "false" === t4.success) || u(t4, "message") || u(t4, "error") || u(t4, "error_message"))) || Object.prototype.hasOwnProperty.call(e3, "success"));
+            var t4;
+          })(t3)) return t3;
+        } catch {
+          throw n("ZeroBounce returned a response that is not valid JSON.", r2);
+        }
+        return d() ? (function(e3, t3) {
+          if (!d()) throw new Error("saveFile is only available in browser environments");
+          if (!window.navigator.msSaveOrOpenBlob) {
+            const i3 = document.createElement("a");
+            document.body.appendChild(i3);
+            const r3 = window.URL.createObjectURL(e3);
+            return i3.href = r3, i3.download = t3, i3.click(), setTimeout(() => {
+              window.URL.revokeObjectURL(r3), document.body.removeChild(i3);
+            }, 0), t3;
+          }
+          window.navigator.msSaveOrOpenBlob(e3, t3);
+        })(new Blob([e2], { type: "text/csv" }), `result${i2 ? "-scoring" : ""}.csv`) : e2;
+      }
+      async function v({ requestType: e2, body: t2 = null, jsonBody: r2 = null, params: s2 = null, path: u2, batch: d2 = false, bulkBase: p2 = "v2", returnText: v2 = false, scoring: E2 = false, apiBaseURL: T2, baseURL: w2 = null, bearerToken: R2 = null, extraHeaders: L2 = null, secrets: U2 = [], regionalWarningState: k2 = null }) {
+        const A2 = (function({ batch: e3, bulkBase: t3, apiBaseURL: i2, baseURL: r3, path: n2, params: a2 }) {
+          const s3 = null != r3 ? r3 : e3 ? /* @__PURE__ */ (function(e4) {
+            return "root" === e4 ? "https://bulkapi.zerobounce.net" : "https://bulkapi.zerobounce.net/v2";
+          })(t3) : i2;
+          return `${s3}${n2}${null != a2 && Object.keys(a2).length > 0 ? `?${new URLSearchParams(a2)}` : ""}`;
+        })({ batch: d2, bulkBase: p2, apiBaseURL: T2, baseURL: w2, path: u2, params: s2 });
+        a(A2, "request URL"), (function(e3, t3, i2) {
+          if (!i2 || i2.warned) return;
+          if (!g.includes(b(t3))) return;
+          if ("bulkapi.zerobounce.net" !== b(e3)) return;
+          i2.warned = true;
+          const r3 = "undefined" != typeof console && console.warn ? console.warn : null;
+          r3 && r3("ZeroBounce: a regional base URL is set, but this request goes to bulkapi.zerobounce.net. ZeroBounce documents no regional bulk host.");
+        })(A2, T2, k2);
+        const B2 = { ...i };
+        let F2;
+        null != r2 && (B2["Content-Type"] = "application/json"), R2 && (B2.Authorization = `Bearer ${R2}`), L2 && Object.assign(B2, L2);
+        try {
+          F2 = await fetch(A2, { method: e2, headers: B2, body: null != r2 ? JSON.stringify(r2) : t2, signal: l(), redirect: "error" });
+        } catch (e3) {
+          throw y(e3, U2);
+        }
+        const P2 = _(F2);
+        if (P2 >= 300 && P2 < 400) throw n("ZeroBounce returned a redirect, which this client does not follow.", P2);
+        let O2;
+        try {
+          O2 = await (async function(e3) {
+            if (e3 && "function" == typeof e3.text) return await e3.text();
+            if (e3 && "function" == typeof e3.json) {
+              const t3 = await e3.json();
+              return "string" == typeof t3 ? t3 : JSON.stringify(t3);
+            }
+            return "";
+          })(F2);
+        } catch (e3) {
+          throw y(e3, U2);
+        }
+        if (v2) return S(O2, F2, E2);
+        const j2 = _(F2), D2 = c(F2);
+        if (m(O2) || D2.includes("text/html") || j2 >= 400 || !String(O2).trim()) throw n(o(h(O2, j2), U2), j2);
+        let I2;
+        try {
+          I2 = JSON.parse(O2);
+        } catch {
+          throw n(o(h(O2, j2), U2), j2);
+        }
+        const z2 = f(I2);
+        if (z2) throw n(z2, j2);
+        if (I2 && "object" == typeof I2 && !Array.isArray(I2) && (false === I2.success || "False" === I2.success || "false" === I2.success)) throw n(h(O2, j2), j2);
+        return I2;
+      }
+      function E() {
+        throw new Error("ZeroBounce: Call init function first with a valid api key.");
+      }
+      function T(e2, t2 = "") {
+        throw new Error(`ZeroBounce: ${e2} parameter is missing.${t2 ? ` ${t2}` : ""}`);
+      }
+      function w(e2, t2 = "") {
+        throw new Error(`ZeroBounce: ${e2} parameter is invalid.${t2 ? ` ${t2}` : ""}`);
+      }
+      const R = Object.freeze({ NONE: "", VALID: "valid", INVALID: "invalid", CATCH_ALL: "catch-all", UNKNOWN: "unknown", SPAMTRAP: "spamtrap", ABUSE: "abuse", DO_NOT_MAIL: "do_not_mail" }), L = Object.freeze({ NONE: "", ANTISPAM_SYSTEM: "antispam_system", GREYLISTED: "greylisted", MAIL_SERVER_TEMPORARY_ERROR: "mail_server_temporary_error", FORCIBLE_DISCONNECT: "forcible_disconnect", MAIL_SERVER_DID_NOT_RESPOND: "mail_server_did_not_respond", TIMEOUT_EXCEEDED: "timeout_exceeded", FAILED_SMTP_CONNECTION: "failed_smtp_connection", MAILBOX_QUOTA_EXCEEDED: "mailbox_quota_exceeded", EXCEPTION_OCCURRED: "exception_occurred", POSSIBLE_TRAP: "possible_trap", ROLE_BASED: "role_based", GLOBAL_SUPPRESSION: "global_suppression", MAILBOX_NOT_FOUND: "mailbox_not_found", NO_DNS_ENTRIES: "no_dns_entries", FAILED_SYNTAX_CHECK: "failed_syntax_check", POSSIBLE_TYPO: "possible_typo", UNROUTABLE_IP_ADDRESS: "unroutable_ip_address", LEADING_PERIOD_REMOVED: "leading_period_removed", DOES_NOT_ACCEPT_MAIL: "does_not_accept_mail", ALIAS_ADDRESS: "alias_address", ROLE_BASED_CATCH_ALL: "role_based_catch_all", DISPOSABLE: "disposable", TOXIC: "toxic", ALTERNATE: "alternate", MX_FORWARD: "mx_forward", BLOCKED: "blocked", ALLOWED: "allowed", ACCEPT_ALL: "accept_all", ROLE_BASED_ACCEPT_ALL: "role_based_accept_all", GOLD: "gold", AI_AGENT_MAILBOX: "ai_agent_mailbox" }), U = Object.freeze({ PHASE_1: "phase_1", PHASE_2: "phase_2", COMBINED: "combined" });
+      function k(e2) {
+        return null == e2 || "string" == typeof e2 && "" === e2.trim();
+      }
+      function A(e2) {
+        return e2 ? "true" : "false";
+      }
+      function B(e2) {
+        return e2 || null;
+      }
+      function F(e2) {
+        return e2 instanceof Date && !Number.isNaN(e2.getTime()) ? e2.toISOString().slice(0, 10) : e2;
+      }
+      const P = ["allow", "block"], O = ["email", "domain", "mx", "tld"];
+      class j {
         static ApiURL = Object.freeze({ DEFAULT_API_URL: "https://api.zerobounce.net/v2", USA_API_URL: "https://api-us.zerobounce.net/v2", EU_API_URL: "https://api-eu.zerobounce.net/v2" });
-        static ZBValidateStatus = o;
-        static ZBValidateSubStatus = d;
-        static ZBDownloadType = p;
+        static ZBValidateStatus = R;
+        static ZBValidateSubStatus = L;
+        static ZBDownloadType = U;
+        static ListEvaluatorURL = Object.freeze({ DEFAULT_URL: "https://bulkapi.zerobounce.net/v2/listevaluator" });
+        static InboxPlacementURL = Object.freeze({ DEFAULT_URL: "https://bulkapi.zerobounce.net/api/ipt" });
+        static EmailFinderURL = Object.freeze({ DEFAULT_URL: "https://bulkapi.zerobounce.net/email-finder" });
+        static DomainSearchURL = Object.freeze({ DEFAULT_URL: "https://bulkapi.zerobounce.net/domain-search" });
         constructor() {
-          this._initialized = false, this._api_key = null, this._api_base_url = u.ApiURL.DEFAULT_API_URL;
+          this._initialized = false, this._api_key = null, this._api_base_url = j.ApiURL.DEFAULT_API_URL, this._list_evaluator_base_url = j.ListEvaluatorURL.DEFAULT_URL, this._inbox_placement_base_url = j.InboxPlacementURL.DEFAULT_URL, this._email_finder_base_url = j.EmailFinderURL.DEFAULT_URL, this._domain_search_base_url = j.DomainSearchURL.DEFAULT_URL, this._regional_warning = { warned: false };
         }
-        init(e2, i2 = u.ApiURL.DEFAULT_API_URL) {
-          e2 ? (this._api_key = e2, this._api_base_url = i2, this._initialized = true) : _("Api key", "Please provide a valid API key.");
+        init(e2, t2 = j.ApiURL.DEFAULT_API_URL, i2 = null) {
+          if (null == e2 || "" === String(e2).trim()) throw new Error("ZeroBounce: Api key parameter is missing. Please provide a valid API key.");
+          s(e2, "Api key"), this._api_key = e2, this._api_base_url = a(t2);
+          const { listEvaluatorBaseURL: r2, inboxPlacementBaseURL: n2, emailFinderBaseURL: o2, domainSearchBaseURL: l2 } = i2 || {};
+          this._list_evaluator_base_url = a(r2 ?? j.ListEvaluatorURL.DEFAULT_URL, "listEvaluatorBaseURL"), this._inbox_placement_base_url = a(n2 ?? j.InboxPlacementURL.DEFAULT_URL, "inboxPlacementBaseURL"), this._email_finder_base_url = a(o2 ?? j.EmailFinderURL.DEFAULT_URL, "emailFinderBaseURL"), this._domain_search_base_url = a(l2 ?? j.DomainSearchURL.DEFAULT_URL, "domainSearchBaseURL"), this._regional_warning = { warned: false }, this._initialized = true;
         }
-        getCredits() {
-          if (this._initialized) return s({ requestType: "GET", params: { api_key: this._api_key }, path: "/getcredits", apiBaseURL: this._api_base_url });
-          l();
+        async getCredits() {
+          if (this._initialized) return v({ requestType: "GET", params: { api_key: this._api_key }, path: "/getcredits", apiBaseURL: this._api_base_url });
+          E();
         }
-        validateEmail(e2, i2 = null) {
-          if (!this._initialized) return void l();
-          if (!e2) return void _("Email");
-          let a2, t2;
-          if ("string" == typeof i2 ? a2 = i2 : i2 && "object" == typeof i2 && (a2 = i2.ip_address, t2 = i2.timeout), null != t2 && (t2 < 3 || t2 > 60)) return void (function(e3, i3 = "") {
-            console.error(`ZeroBounce: ${e3} parameter is invalid. ${i3}`);
-          })("timeout", "Must be between 3 and 60 seconds.");
-          const n2 = { api_key: this._api_key, email: e2 };
-          return null != a2 && (n2.ip_address = a2), null != t2 && (n2.timeout = t2), s({ requestType: "GET", params: n2, path: "/validate", apiBaseURL: this._api_base_url });
+        async validateEmail(e2, t2 = null) {
+          if (!this._initialized) return void E();
+          if (k(e2)) return void T("Email");
+          let i2, r2, n2, a2, s2, o2, l2;
+          if ("string" == typeof t2 ? i2 = t2 : t2 && "object" == typeof t2 && (i2 = t2.ip_address, r2 = t2.timeout, n2 = t2.activityData, a2 = t2.verifyPlus, s2 = t2.domainInfo, o2 = t2.greylistProcessing, l2 = t2.callbackUrl), null != r2 && (r2 < 3 || r2 > 60)) return void w("timeout", "Must be between 3 and 60 seconds.");
+          if (null != l2 && true !== o2) return void w("callbackUrl", "Requires greylistProcessing: true.");
+          if (null != l2 && "" === String(l2).trim()) return void T("callbackUrl");
+          const u2 = { api_key: this._api_key, email: e2 };
+          return null != i2 && (u2.ip_address = i2), null != r2 && (u2.timeout = r2), null != n2 && (u2.activity_data = n2 ? "true" : "false"), null != a2 && (u2.verify_plus = a2 ? "true" : "false"), null != s2 && (u2.domain_info = s2 ? "true" : "false"), null != o2 && (u2.greylist_processing = o2 ? "true" : "false"), null != l2 && (u2.callback_url = l2), v(t2 && "object" == typeof t2 && "POST" === t2.method ? { requestType: "POST", path: "/validate", body: new URLSearchParams(u2), params: {}, apiBaseURL: this._api_base_url } : { requestType: "GET", params: u2, path: "/validate", apiBaseURL: this._api_base_url });
         }
-        getApiUsage(e2, i2) {
-          if (this._initialized) if (e2) {
-            if (i2) return s({ requestType: "GET", params: { api_key: this._api_key, start_date: e2, end_date: i2 }, path: "/getapiusage", apiBaseURL: this._api_base_url });
-            _("End date", "Format: YYYY-MM-DD");
-          } else _("Start date", "Format: YYYY-MM-DD");
-          else l();
+        async getApiUsage(e2, t2) {
+          if (this._initialized) if (k(e2)) T("Start date", "Format: YYYY-MM-DD");
+          else {
+            if (!k(t2)) return v({ requestType: "GET", params: { api_key: this._api_key, start_date: F(e2), end_date: F(t2) }, path: "/getapiusage", apiBaseURL: this._api_base_url });
+            T("End date", "Format: YYYY-MM-DD");
+          }
+          else E();
         }
-        validateBatch(e2) {
-          if (!this._initialized) return void l();
-          if (!e2) return void _("Email list");
-          const i2 = { api_key: this._api_key, email_batch: e2 };
-          return s({ requestType: "POST", path: "/validatebatch", body: JSON.stringify(i2), apiBaseURL: this._api_base_url });
+        async validateBatch(e2, t2 = null) {
+          if (!this._initialized) return void E();
+          if (null == e2) return void T("Email list");
+          let i2, r2, n2;
+          if (t2 && "object" == typeof t2 && (i2 = t2.timeout, r2 = t2.activityData, n2 = t2.verifyPlus), null != i2 && (i2 < 10 || i2 > 120)) return void w("timeout", "Must be between 10 and 120 seconds.");
+          const a2 = { api_key: this._api_key, email_batch: e2 };
+          return null != i2 && (a2.timeout = String(i2)), null != r2 && (a2.activity_data = r2), null != n2 && (a2.verify_plus = n2), v({ requestType: "POST", path: "/validatebatch", body: JSON.stringify(a2), apiBaseURL: this._api_base_url });
         }
-        getEmailActivity(e2) {
+        async getEmailActivity(e2) {
           if (this._initialized) {
-            if (e2) return s({ requestType: "GET", params: { api_key: this._api_key, email: e2 }, path: "/activity", apiBaseURL: this._api_base_url });
-            _("Email");
-          } else l();
+            if (!k(e2)) return v({ requestType: "GET", params: { api_key: this._api_key, email: e2 }, path: "/activity", apiBaseURL: this._api_base_url });
+            T("Email");
+          } else E();
         }
-        sendFile({ file: e2, email_address_column: i2, first_name_column: a2 = false, return_url: t2 = false, last_name_column: n2 = false, gender_column: r2 = false, ip_address_column: o2 = false, has_header_row: d2 = false, remove_duplicate: p2 = false, allowPhase2: u2 = null }) {
-          if (!this._initialized) return void l();
-          if (!e2) return void _("file");
-          if (!i2) return void _("email_address_column");
-          const m2 = new FormData();
-          return t2 && m2.append("return_url", t2), a2 && m2.append("first_name_column", a2), n2 && m2.append("last_name_column", n2), r2 && m2.append("gender_column", r2), o2 && m2.append("ip_address_column", o2), m2.append("email_address_column", i2), m2.append("file", e2), m2.append("has_header_row", d2), m2.append("remove_duplicate", p2), m2.append("api_key", this._api_key), null != u2 && m2.append("allow_phase_2", String(u2)), s({ requestType: "POST", path: "/sendfile", body: m2, batch: true, apiBaseURL: this._api_base_url });
+        async scoreEmail(e2, t2 = null) {
+          if (!this._initialized) return void E();
+          if (k(e2)) return void T("Email");
+          const i2 = { api_key: this._api_key, email: e2 };
+          return v(t2 && "object" == typeof t2 && "POST" === t2.method ? { requestType: "POST", path: "/scoring", body: new URLSearchParams(i2), params: {}, apiBaseURL: this._api_base_url } : { requestType: "GET", params: i2, path: "/scoring", apiBaseURL: this._api_base_url });
         }
-        sendFileStream(e2, i2, { email_address_column: a2, first_name_column: t2 = false, return_url: n2 = false, last_name_column: r2 = false, gender_column: o2 = false, ip_address_column: d2 = false, has_header_row: p2 = false, remove_duplicate: u2 = false, allowPhase2: m2 = null } = {}) {
-          if (!this._initialized) return void l();
-          if (!e2) return void _("fileStreamOrBlob");
-          if (!i2) return void _("fileName");
-          if (!a2) return void _("email_address_column");
-          const c = new FormData();
-          return n2 && c.append("return_url", n2), t2 && c.append("first_name_column", t2), r2 && c.append("last_name_column", r2), o2 && c.append("gender_column", o2), d2 && c.append("ip_address_column", d2), c.append("email_address_column", a2), c.append("file", e2, i2), c.append("has_header_row", p2), c.append("remove_duplicate", u2), c.append("api_key", this._api_key), null != m2 && c.append("allow_phase_2", String(m2)), s({ requestType: "POST", path: "/sendfile", body: c, batch: true, apiBaseURL: this._api_base_url });
+        async sendFile({ file: e2, email_address_column: t2, first_name_column: i2 = false, return_url: r2 = false, last_name_column: n2 = false, gender_column: a2 = false, ip_address_column: s2 = false, has_header_row: o2 = false, remove_duplicate: l2 = false, allowPhase2: u2 = null }) {
+          if (!this._initialized) return void E();
+          if (!e2) return void T("file");
+          if (k(t2)) return void T("email_address_column");
+          const d2 = new FormData();
+          return r2 && d2.append("return_url", r2), i2 && d2.append("first_name_column", i2), n2 && d2.append("last_name_column", n2), a2 && d2.append("gender_column", a2), s2 && d2.append("ip_address_column", s2), d2.append("email_address_column", t2), d2.append("file", e2), d2.append("has_header_row", A(o2)), d2.append("remove_duplicate", A(l2)), d2.append("api_key", this._api_key), null != u2 && d2.append("allow_phase_2", A(u2)), v({ requestType: "POST", path: "/sendfile", body: d2, batch: true, apiBaseURL: this._api_base_url });
         }
-        sendScoringFile({ file: e2, email_address_column: i2, return_url: a2 = false, has_header_row: t2 = false, remove_duplicate: n2 = false }) {
-          if (!this._initialized) return void l();
-          if (!e2) return void _("file: File");
-          if (!i2) return void _("email_address_column: number");
-          const r2 = new FormData();
-          return a2 && r2.append("return_url", a2), r2.append("file", e2), r2.append("email_address_column", i2), r2.append("has_header_row", t2), r2.append("api_key", this._api_key), r2.append("remove_duplicate", n2), s({ requestType: "POST", path: "/scoring/sendfile", body: r2, batch: true, apiBaseURL: this._api_base_url });
+        async sendFileStream(e2, t2, { email_address_column: i2, first_name_column: r2 = false, return_url: n2 = false, last_name_column: a2 = false, gender_column: s2 = false, ip_address_column: o2 = false, has_header_row: l2 = false, remove_duplicate: u2 = false, allowPhase2: d2 = null } = {}) {
+          if (!this._initialized) return void E();
+          if (!e2) return void T("fileStreamOrBlob");
+          if (k(t2)) return void T("fileName");
+          if (k(i2)) return void T("email_address_column");
+          const _2 = new FormData();
+          return n2 && _2.append("return_url", n2), r2 && _2.append("first_name_column", r2), a2 && _2.append("last_name_column", a2), s2 && _2.append("gender_column", s2), o2 && _2.append("ip_address_column", o2), _2.append("email_address_column", i2), _2.append("file", e2, t2), _2.append("has_header_row", A(l2)), _2.append("remove_duplicate", A(u2)), _2.append("api_key", this._api_key), null != d2 && _2.append("allow_phase_2", A(d2)), v({ requestType: "POST", path: "/sendfile", body: _2, batch: true, apiBaseURL: this._api_base_url });
         }
-        sendScoringFileStream(e2, i2, { email_address_column: a2, return_url: t2 = false, has_header_row: n2 = false, remove_duplicate: r2 = false } = {}) {
-          if (!this._initialized) return void l();
-          if (!e2) return void _("fileStreamOrBlob");
-          if (!i2) return void _("fileName");
-          if (!a2) return void _("email_address_column");
-          const o2 = new FormData();
-          return t2 && o2.append("return_url", t2), o2.append("file", e2, i2), o2.append("email_address_column", a2), o2.append("has_header_row", n2), o2.append("api_key", this._api_key), o2.append("remove_duplicate", r2), s({ requestType: "POST", path: "/scoring/sendfile", body: o2, batch: true, apiBaseURL: this._api_base_url });
+        async sendScoringFile({ file: e2, email_address_column: t2, return_url: i2 = false, has_header_row: r2 = false, remove_duplicate: n2 = false }) {
+          if (!this._initialized) return void E();
+          if (!e2) return void T("file: File");
+          if (k(t2)) return void T("email_address_column: number");
+          const a2 = new FormData();
+          return i2 && a2.append("return_url", i2), a2.append("file", e2), a2.append("email_address_column", t2), a2.append("has_header_row", A(r2)), a2.append("api_key", this._api_key), a2.append("remove_duplicate", A(n2)), v({ requestType: "POST", path: "/scoring/sendfile", body: a2, batch: true, apiBaseURL: this._api_base_url });
         }
-        _getStatusUtil(e2, i2) {
+        async sendScoringFileStream(e2, t2, { email_address_column: i2, return_url: r2 = false, has_header_row: n2 = false, remove_duplicate: a2 = false } = {}) {
+          if (!this._initialized) return void E();
+          if (!e2) return void T("fileStreamOrBlob");
+          if (k(t2)) return void T("fileName");
+          if (k(i2)) return void T("email_address_column");
+          const s2 = new FormData();
+          return r2 && s2.append("return_url", r2), s2.append("file", e2, t2), s2.append("email_address_column", i2), s2.append("has_header_row", A(n2)), s2.append("api_key", this._api_key), s2.append("remove_duplicate", A(a2)), v({ requestType: "POST", path: "/scoring/sendfile", body: s2, batch: true, apiBaseURL: this._api_base_url });
+        }
+        async _getStatusUtil(e2, t2, { bulkRoot: i2 = false } = {}) {
           if (this._initialized) {
-            if (e2) return s({ requestType: "GET", params: { api_key: this._api_key, file_id: e2 }, path: i2, batch: true, apiBaseURL: this._api_base_url });
-            _("File id");
-          } else l();
+            if (!k(e2)) return v({ requestType: "GET", params: { api_key: this._api_key, file_id: e2 }, path: t2, batch: true, bulkBase: i2 ? "root" : "v2", apiBaseURL: this._api_base_url });
+            T("File id");
+          } else E();
         }
-        getFileStatus(e2) {
+        async _sendBulkRootFormPost(e2, t2) {
+          const i2 = { api_key: this._api_key, ...t2 };
+          return v({ requestType: "POST", path: e2, body: new URLSearchParams(i2), params: {}, batch: true, bulkBase: "root", apiBaseURL: this._api_base_url });
+        }
+        async getFileStatus(e2) {
           return this._getStatusUtil(e2, "/filestatus");
         }
-        getScoringFileStatus(e2) {
+        async getScoringFileStatus(e2) {
           return this._getStatusUtil(e2, "/scoring/filestatus");
         }
-        _getFileUtil(e2, i2, a2 = false, t2 = null) {
-          if (!this._initialized) return void l();
-          if (!e2) return void _("File id");
-          const n2 = { api_key: this._api_key, file_id: e2 };
-          return null != t2 && "object" == typeof t2 && (null != t2.downloadType && (n2.download_type = t2.downloadType), a2 || null == t2.activityData || (n2.activity_data = t2.activityData ? "true" : "false")), s({ requestType: "GET", params: n2, path: i2, batch: true, returnText: true, scoring: a2, apiBaseURL: this._api_base_url });
+        async _getFileUtil(e2, t2, i2 = false, r2 = null, { bulkRoot: n2 = false } = {}) {
+          if (!this._initialized) return void E();
+          if (k(e2)) return void T("File id");
+          const a2 = { api_key: this._api_key, file_id: e2 };
+          return null != r2 && "object" == typeof r2 && (null != r2.downloadType && (a2.download_type = r2.downloadType), i2 || null == r2.activityData || (a2.activity_data = r2.activityData ? "true" : "false")), v({ requestType: "GET", params: a2, path: t2, batch: true, bulkBase: n2 ? "root" : "v2", returnText: true, scoring: i2, apiBaseURL: this._api_base_url });
         }
-        getFile(e2, i2 = null) {
-          return this._getFileUtil(e2, "/getfile", false, i2);
+        async getFile(e2, t2 = null) {
+          return this._getFileUtil(e2, "/getfile", false, t2);
         }
-        getScoringFile(e2, i2 = null) {
-          return this._getFileUtil(e2, "/scoring/getfile", true, i2);
+        async getScoringFile(e2, t2 = null) {
+          return this._getFileUtil(e2, "/scoring/getfile", true, t2);
         }
-        _deleteFileUtil(e2, i2, a2 = false) {
+        async _deleteFileUtil(e2, t2, i2 = false, { bulkRoot: r2 = false } = {}) {
           if (this._initialized) {
-            if (e2) return s({ requestType: "GET", params: { api_key: this._api_key, file_id: e2 }, path: i2, batch: true, scoring: a2, apiBaseURL: this._api_base_url });
-            _("File id");
-          } else l();
+            if (!k(e2)) return v({ requestType: "GET", params: { api_key: this._api_key, file_id: e2 }, path: t2, batch: true, bulkBase: r2 ? "root" : "v2", scoring: i2, apiBaseURL: this._api_base_url });
+            T("File id");
+          } else E();
         }
-        deleteFile(e2) {
+        async _sendBulkRootMultipartFile(e2, { file: t2, fileName: i2 = null, fields: r2 = {} }) {
+          const n2 = new FormData();
+          for (const [e3, t3] of Object.entries(r2)) null != t3 && n2.append(e3, "boolean" == typeof t3 ? A(t3) : t3);
+          return null != i2 ? n2.append("file", t2, i2) : n2.append("file", t2), n2.append("api_key", this._api_key), v({ requestType: "POST", path: e2, body: n2, batch: true, bulkBase: "root", apiBaseURL: this._api_base_url });
+        }
+        async deleteFile(e2) {
           return this._deleteFileUtil(e2, "/deletefile");
         }
-        deleteScoringFile(e2) {
+        async deleteScoringFile(e2) {
           return this._deleteFileUtil(e2, "/scoring/deletefile", true);
         }
-        findEmailByDomain({ domain: e2, first_name: i2, middle_name: a2 = null, last_name: t2 = null }) {
-          return this._findEmail({ domain: e2, first_name: i2, middle_name: a2, last_name: t2 });
+        async sendEmailFinderFile({ file: e2, domain_column: t2, first_name_column: i2 = false, last_name_column: r2 = false, middle_name_column: n2 = false, full_name_column: a2 = false, has_header_row: s2 = false }) {
+          if (this._initialized) if (e2) {
+            if (!k(t2)) return this._sendBulkRootMultipartFile("/email-finder/sendfile", { file: e2, fields: { domain_column: t2, first_name_column: B(i2), last_name_column: B(r2), middle_name_column: B(n2), full_name_column: B(a2), has_header_row: Boolean(s2) } });
+            T("domain_column");
+          } else T("file");
+          else E();
         }
-        findEmailByCompanyName({ company_name: e2, first_name: i2, middle_name: a2 = null, last_name: t2 = null }) {
-          return this._findEmail({ company_name: e2, first_name: i2, middle_name: a2, last_name: t2 });
+        async sendEmailFinderFileStream(e2, t2, { domain_column: i2, first_name_column: r2 = false, last_name_column: n2 = false, middle_name_column: a2 = false, full_name_column: s2 = false, has_header_row: o2 = false } = {}) {
+          if (this._initialized) if (e2) if (k(t2)) T("fileName");
+          else {
+            if (!k(i2)) return this._sendBulkRootMultipartFile("/email-finder/sendfile", { file: e2, fileName: t2, fields: { domain_column: i2, first_name_column: B(r2), last_name_column: B(n2), middle_name_column: B(a2), full_name_column: B(s2), has_header_row: Boolean(o2) } });
+            T("domain_column");
+          }
+          else T("fileStreamOrBlob");
+          else E();
         }
-        _findEmail({ domain: e2 = null, company_name: i2 = null, first_name: a2, middle_name: t2 = null, last_name: n2 = null }) {
-          if (!this._initialized) return void l();
-          if (!e2 && !i2) return _("domain"), void _("company_name");
-          if (!a2) return void _("first_name");
-          const r2 = { api_key: this._api_key, first_name: a2, middle_name: t2, last_name: n2 };
-          return null != e2 ? r2.domain = e2 : null != i2 && (r2.company_name = i2), s({ requestType: "GET", params: r2, path: "/guessformat", apiBaseURL: this._api_base_url });
+        async getEmailFinderFileStatus(e2) {
+          return this._getStatusUtil(e2, "/email-finder/filestatus", { bulkRoot: true });
         }
-        findEmailFormatByDomain({ domain: e2 }) {
+        async getEmailFinderFile(e2) {
+          return this._getFileUtil(e2, "/email-finder/getfile", false, null, { bulkRoot: true });
+        }
+        async deleteEmailFinderFile(e2) {
+          return this._deleteFileUtil(e2, "/email-finder/deletefile", false, { bulkRoot: true });
+        }
+        async sendDomainSearchFile({ file: e2, domain_column: t2, has_header_row: i2 = false }) {
+          if (this._initialized) if (e2) {
+            if (!k(t2)) return this._sendBulkRootMultipartFile("/domain-search/sendfile", { file: e2, fields: { domain_column: t2, has_header_row: Boolean(i2) } });
+            T("domain_column");
+          } else T("file");
+          else E();
+        }
+        async sendDomainSearchFileStream(e2, t2, { domain_column: i2, has_header_row: r2 = false } = {}) {
+          if (this._initialized) if (e2) if (k(t2)) T("fileName");
+          else {
+            if (!k(i2)) return this._sendBulkRootMultipartFile("/domain-search/sendfile", { file: e2, fileName: t2, fields: { domain_column: i2, has_header_row: Boolean(r2) } });
+            T("domain_column");
+          }
+          else T("fileStreamOrBlob");
+          else E();
+        }
+        async getDomainSearchFileStatus(e2) {
+          return this._getStatusUtil(e2, "/domain-search/filestatus", { bulkRoot: true });
+        }
+        async getDomainSearchFile(e2) {
+          return this._getFileUtil(e2, "/domain-search/getfile", false, null, { bulkRoot: true });
+        }
+        async deleteDomainSearchFile(e2) {
+          return this._deleteFileUtil(e2, "/domain-search/deletefile", false, { bulkRoot: true });
+        }
+        async sendListEvaluatorFile({ file: e2, email_address_column: t2 }) {
+          if (!this._initialized) return void E();
+          if (!e2) return void T("file");
+          if (k(t2)) return void T("email_address_column");
+          const i2 = new FormData();
+          return i2.append("file", e2), i2.append("email_address_column", t2), i2.append("api_key", this._api_key), v({ requestType: "POST", path: "/", body: i2, apiBaseURL: this._list_evaluator_base_url });
+        }
+        async sendListEvaluatorFileStream(e2, t2, { email_address_column: i2 } = {}) {
+          if (!this._initialized) return void E();
+          if (!e2) return void T("fileStreamOrBlob");
+          if (k(t2)) return void T("fileName");
+          if (k(i2)) return void T("email_address_column");
+          const r2 = new FormData();
+          return r2.append("file", e2, t2), r2.append("email_address_column", i2), r2.append("api_key", this._api_key), v({ requestType: "POST", path: "/", body: r2, apiBaseURL: this._list_evaluator_base_url });
+        }
+        async getListEvaluatorResult(e2) {
+          if (this._initialized) {
+            if (!k(e2)) return v({ requestType: "GET", params: { api_key: this._api_key }, path: `/${encodeURIComponent(e2)}/`, apiBaseURL: this._list_evaluator_base_url });
+            T("File id");
+          } else E();
+        }
+        async sendEvaluatedFile(e2) {
+          if (!this._initialized) return void E();
+          const t2 = "object" == typeof e2 && null !== e2 ? e2.file_id : e2;
+          if (k(t2)) return void T("File id");
+          const i2 = new FormData();
+          return i2.append("api_key", this._api_key), i2.append("file_id", String(t2)), v({ requestType: "POST", path: "/send-evaluated-file/", body: i2, batch: true, secrets: [this._api_key], apiBaseURL: this._api_base_url, regionalWarningState: this._regional_warning });
+        }
+        async addFilter({ rule: e2, target: t2, value: i2 }) {
+          if (!this._initialized) return void E();
+          if (k(e2)) return void T("rule");
+          if (!P.includes(e2)) return void w("rule", `Must be one of ${P.join(", ")}.`);
+          if (k(t2)) return void T("target");
+          if (!O.includes(t2)) return void w("target", `Must be one of ${O.join(", ")}.`);
+          if (k(i2)) return void T("value");
+          const r2 = { api_key: this._api_key, rule: e2, target: t2, value: i2 };
+          return v({ requestType: "POST", path: "/filters/add", body: new URLSearchParams(r2), params: {}, apiBaseURL: this._api_base_url });
+        }
+        async listFilters(e2 = null) {
+          if (!this._initialized) return void E();
+          const t2 = { api_key: this._api_key };
+          return v(e2 && "object" == typeof e2 && "POST" === e2.method ? { requestType: "POST", path: "/filters/list", body: new URLSearchParams(t2), params: {}, apiBaseURL: this._api_base_url } : { requestType: "GET", params: t2, path: "/filters/list", apiBaseURL: this._api_base_url });
+        }
+        async deleteFilter({ rule: e2, target: t2, value: i2 }) {
+          if (!this._initialized) return void E();
+          if (k(e2)) return void T("rule");
+          if (!P.includes(e2)) return void w("rule", `Must be one of ${P.join(", ")}.`);
+          if (k(t2)) return void T("target");
+          if (!O.includes(t2)) return void w("target", `Must be one of ${O.join(", ")}.`);
+          if (k(i2)) return void T("value");
+          const r2 = { api_key: this._api_key, rule: e2, target: t2, value: i2 };
+          return v({ requestType: "POST", path: "/filters/delete", body: new URLSearchParams(r2), params: {}, apiBaseURL: this._api_base_url });
+        }
+        async listS3files({ bucket: e2 = null, search: t2 = null } = {}) {
+          if (!this._initialized) return void E();
+          const i2 = { api_key: this._api_key };
+          return null != e2 && (i2.bucket = e2), null != t2 && (i2.search = t2), v({ requestType: "GET", params: i2, path: "/listS3files", batch: true, bulkBase: "root", apiBaseURL: this._api_base_url });
+        }
+        async validateS3file({ file_name: e2, has_header_row: t2, remove_duplicates: i2, email_address_column: r2 = null, return_url: n2 = false, first_name_column: a2 = false, last_name_column: s2 = false, gender_column: o2 = false, ip_address_column: l2 = false, remove_duplicate: u2 = null, allowPhase2: d2 = null }) {
+          if (!this._initialized) return void E();
+          if (k(e2)) return void T("file_name");
+          const _2 = { file_name: e2 };
+          return null != t2 && (_2.has_header_row = t2), null != i2 && (_2.remove_duplicates = i2), null != u2 && (_2.remove_duplicate = u2), null != r2 && (_2.email_address_column = r2), n2 && (_2.return_url = n2), a2 && (_2.first_name_column = a2), s2 && (_2.last_name_column = s2), o2 && (_2.gender_column = o2), l2 && (_2.ip_address_column = l2), null != d2 && (_2.allow_phase_2 = String(d2)), this._sendBulkRootFormPost("/validateS3file", _2);
+        }
+        async scoreS3file({ file_name: e2, has_header_row: t2, remove_duplicates: i2, email_address_column: r2 = null, remove_duplicate: n2 = null }) {
+          if (!this._initialized) return void E();
+          if (k(e2)) return void T("file_name");
+          const a2 = { file_name: e2 };
+          return null != t2 && (a2.has_header_row = t2), null != i2 && (a2.remove_duplicates = i2), null != n2 && (a2.remove_duplicate = n2), null != r2 && (a2.email_address_column = r2), this._sendBulkRootFormPost("/scoreS3file", a2);
+        }
+        async exportS3file({ file_id: e2, export_bucket: t2 }) {
+          if (this._initialized) if (k(e2)) T("file_id");
+          else {
+            if (!k(t2)) return this._sendBulkRootFormPost("/exportS3file", { file_id: e2, export_bucket: t2 });
+            T("export_bucket");
+          }
+          else E();
+        }
+        async _bulkRootFileJob(e2, { file_name: t2, has_header_row: i2, remove_duplicates: r2, return_url: n2 }) {
+          if (!this._initialized) return void E();
+          if (k(t2) || "" === String(t2).trim()) return void T("file_name");
+          if (null == i2) return void T("has_header_row");
+          if (k(n2) || "" === String(n2).trim()) return void T("return_url", "The API rejects a job without it.");
+          const a2 = { file_name: t2, has_header_row: A(i2), return_url: n2 };
+          return null != r2 && (a2.remove_duplicates = A(r2)), this._sendBulkRootFormPost(e2, a2);
+        }
+        async emailFinderS3file(e2) {
+          return this._bulkRootFileJob("/emailFinderS3file", e2 || {});
+        }
+        async domainSearchS3file(e2) {
+          return this._bulkRootFileJob("/domainSearchS3file", e2 || {});
+        }
+        async validateSFTPfile(e2) {
+          return this._bulkRootFileJob("/validateSFTPfile", e2 || {}, false);
+        }
+        async scoreSFTPfile(e2) {
+          return this._bulkRootFileJob("/scoreSFTPfile", e2 || {});
+        }
+        async emailFinderSFTPfile(e2) {
+          return this._bulkRootFileJob("/emailFinderSFTPfile", e2 || {});
+        }
+        async domainSearchSFTPfile(e2) {
+          return this._bulkRootFileJob("/domainSearchSFTPfile", e2 || {});
+        }
+        async exportSFTPfile({ file_id: e2, export_path: t2 = null } = {}) {
+          if (!this._initialized) return void E();
+          if (k(e2)) return void T("file_id");
+          if (null != t2 && "" === String(t2).trim()) return void T("export_path");
+          const i2 = { file_id: e2 };
+          return null != t2 && (i2.export_path = t2), this._sendBulkRootFormPost("/exportSFTPfile", i2);
+        }
+        _iptRequest(e2, t2, { params: i2 = null, jsonBody: r2 = null } = {}) {
+          return v({ requestType: e2, path: t2, params: i2, jsonBody: r2, bearerToken: this._api_key, secrets: [this._api_key], apiBaseURL: this._api_base_url, baseURL: this._inbox_placement_base_url, regionalWarningState: this._regional_warning });
+        }
+        async getInboxPlacementProviders() {
+          if (this._initialized) return this._iptRequest("GET", "/providers");
+          E();
+        }
+        async getInboxPlacementTestTypes() {
+          if (this._initialized) return this._iptRequest("GET", "/test-types");
+          E();
+        }
+        async createInboxPlacementTest({ name: e2, testType: t2 = null, senderEmail: i2 = null, providerIds: r2 = null, seedIds: n2 = null, providers: a2 = null, webhookUrl: s2 = null } = {}) {
+          if (!this._initialized) return void E();
+          if (k(e2)) return void T("name");
+          if (String(e2).length > 64) return void w("name", "Must be at most 64 characters.");
+          if (null != t2 && ![1, 2, 3].includes(t2)) return void w("testType", "Must be 1, 2 or 3.");
+          if (1 === t2 && k(i2)) return void T("senderEmail", "Required when testType is 1.");
+          for (const e3 of a2 || []) {
+            if (!e3 || "object" != typeof e3 || null == e3.id) return void w("providers", "Each entry needs an id.");
+            if (null != e3.maxSeeds && e3.maxSeeds < 1) return void w("providers", "maxSeeds must be at least 1.");
+          }
+          const o2 = { name: e2 };
+          return null != t2 && (o2.testType = t2), null != i2 && (o2.senderEmail = i2), null != r2 && (o2.providerIds = r2), null != n2 && (o2.seedIds = n2), null != a2 && (o2.providers = a2), null != s2 && (o2.webhookUrl = s2), this._iptRequest("POST", "/test", { jsonBody: o2 });
+        }
+        async getInboxPlacementTest(e2) {
+          if (this._initialized) {
+            if (!k(e2)) return this._iptRequest("GET", `/test/${encodeURIComponent(String(e2).trim())}`);
+            T("testId");
+          } else E();
+        }
+        async listInboxPlacementTests({ status: e2 = null, createdAfter: t2 = null, createdBefore: i2 = null, page: r2 = null, pageSize: n2 = null } = {}) {
+          if (!this._initialized) return void E();
+          if (null != e2 && !["running", "finished"].includes(e2)) return void w("status", "Must be running or finished.");
+          if (null != r2 && r2 < 1) return void w("page", "Must be at least 1.");
+          if (null != n2 && (n2 < 1 || n2 > 100)) return void w("pageSize", "Must be between 1 and 100.");
+          const a2 = {};
+          return null != e2 && (a2.status = e2), null != t2 && (a2.createdAfter = t2), null != i2 && (a2.createdBefore = i2), null != r2 && (a2.page = r2), null != n2 && (a2.page_size = n2), this._iptRequest("GET", "/tests", { params: a2 });
+        }
+        async deleteInboxPlacementTest(e2) {
+          if (this._initialized) {
+            if (!k(e2)) return this._iptRequest("DELETE", `/test/${encodeURIComponent(String(e2).trim())}`);
+            T("testId");
+          } else E();
+        }
+        async getInboxPlacementWebhook() {
+          if (this._initialized) return this._iptRequest("GET", "/webhook");
+          E();
+        }
+        async setInboxPlacementWebhook(e2) {
+          if (this._initialized) {
+            if (!k(e2)) return this._iptRequest("PUT", "/webhook", { jsonBody: { webhookUrl: e2 } });
+            T("webhookUrl");
+          } else E();
+        }
+        async findEmailByDomain({ domain: e2, first_name: t2, middle_name: i2 = null, last_name: r2 = null }) {
+          return this._findEmail({ domain: e2, first_name: t2, middle_name: i2, last_name: r2 });
+        }
+        async findEmailByCompanyName({ company_name: e2, first_name: t2, middle_name: i2 = null, last_name: r2 = null }) {
+          return this._findEmail({ company_name: e2, first_name: t2, middle_name: i2, last_name: r2 });
+        }
+        async _findEmail({ domain: e2 = null, company_name: t2 = null, first_name: i2, middle_name: r2 = null, last_name: n2 = null }) {
+          if (!this._initialized) return void E();
+          if (k(e2) && k(t2)) return T("domain"), void T("company_name");
+          if (k(i2)) return void T("first_name");
+          const a2 = { api_key: this._api_key, first_name: i2 };
+          return k(r2) || (a2.middle_name = r2), k(n2) || (a2.last_name = n2), null != e2 ? a2.domain = e2 : null != t2 && (a2.company_name = t2), v({ requestType: "GET", params: a2, path: "/guessformat", apiBaseURL: this._api_base_url });
+        }
+        async findEmailFormatByDomain({ domain: e2 }) {
           return this._findEmailFormat({ domain: e2 });
         }
-        findEmailFormatByCompanyName({ company_name: e2 }) {
+        async findEmailFormatByCompanyName({ company_name: e2 }) {
           return this._findEmailFormat({ company_name: e2 });
         }
-        _findEmailFormat({ domain: e2 = null, company_name: i2 = null }) {
-          if (!this._initialized) return void l();
-          if (!e2 && !i2) return _("domain"), void _("company_name");
-          const a2 = { api_key: this._api_key };
-          return null != e2 ? a2.domain = e2 : null != i2 && (a2.company_name = i2), s({ requestType: "GET", params: a2, path: "/guessformat", apiBaseURL: this._api_base_url });
+        async _findEmailFormat({ domain: e2 = null, company_name: t2 = null }) {
+          if (!this._initialized) return void E();
+          if (k(e2) && k(t2)) return T("domain"), void T("company_name");
+          const i2 = { api_key: this._api_key };
+          return null != e2 ? i2.domain = e2 : null != t2 && (i2.company_name = t2), v({ requestType: "GET", params: i2, path: "/guessformat", apiBaseURL: this._api_base_url });
         }
-        guessFormat({ domain: e2, first_name: i2 = null, middle_name: a2 = null, last_name: t2 = null }) {
-          if (console.warn("guessFormat() is deprecated. Use findEmail for Email Finder API, or findEmailFormat for Domain Search API."), this._initialized) {
-            if (e2) return s({ requestType: "GET", params: { api_key: this._api_key, domain: e2, first_name: i2, middle_name: a2, last_name: t2 }, path: "/guessformat", apiBaseURL: this._api_base_url });
-            _("domain");
-          } else l();
+        async guessFormat({ domain: e2, first_name: t2 = null, middle_name: i2 = null, last_name: r2 = null }) {
+          if (console.warn("guessFormat() is deprecated. Use findEmail for Email Finder API, or findEmailFormat for Domain Search API."), !this._initialized) return void E();
+          if (k(e2)) return void T("domain");
+          const n2 = { api_key: this._api_key, domain: e2 };
+          return k(t2) || (n2.first_name = t2), k(i2) || (n2.middle_name = i2), k(r2) || (n2.last_name = r2), v({ requestType: "GET", params: n2, path: "/guessformat", apiBaseURL: this._api_base_url });
         }
       }
-      const m = u;
-      return i = i.default, i;
+      const D = "https://warmup-api.zerobounce.net", I = ["self_managed", "zb_managed"], z = ["transactional", "newsletter", "marketing"], N = [0, 4], x = [0, 8], C = /^[A-Za-z0-9.\-_@+]*$/, $ = /^\d{4}-\d{2}-\d{2}$/;
+      function M(e2) {
+        return new Error(`ZeroBounce: ${e2}`);
+      }
+      function q(e2, t2) {
+        if (null == e2 || !String(e2).trim()) throw M(`${t2} parameter is missing.`);
+        return e2;
+      }
+      function G(e2, [t2, i2], r2) {
+        if ("number" != typeof e2 || !Number.isInteger(e2) || e2 < t2 || e2 > i2) throw M(`${r2} parameter is invalid. Must be ${t2} to ${i2}.`);
+        return e2;
+      }
+      function Z(e2, t2) {
+        if (e2 instanceof Date) return e2.toISOString().slice(0, 10);
+        if ("string" != typeof e2 || !$.test(e2)) throw M(`${t2} parameter is invalid. Expected YYYY-MM-DD.`);
+        return e2;
+      }
+      function J() {
+        if ("undefined" != typeof AbortSignal && "function" == typeof AbortSignal.timeout) return AbortSignal.timeout(12e4);
+      }
+      function W(e2, t2, i2, r2) {
+        if (q(e2, "c_from"), G(t2, [5, 45], "reply_pct"), G(i2, [5, 40], "important_pct"), G(r2, [0, 70], "click_pct"), r2 > 1.75 * i2) throw M("click_pct parameter is invalid. At most important_pct x 1.75.");
+        return { c_from: e2, reply_pct: t2, important_pct: i2, click_pct: r2 };
+      }
+      function Y(e2, t2) {
+        const i2 = String(e2 || "").trim();
+        if (!i2) return `Empty response from ZeroBounce (HTTP ${t2})`;
+        const r2 = i2.slice(0, 2e3).toLowerCase();
+        if (r2.includes("<!doctype html") || r2.includes("<html")) return "ZeroBounce returned an HTML error page instead of an API response.";
+        if (i2.startsWith("{") || i2.startsWith("[")) {
+          let e3;
+          try {
+            e3 = JSON.parse(i2);
+          } catch {
+            return "ZeroBounce returned a response that is not valid JSON.";
+          }
+          if (Array.isArray(e3)) {
+            const t3 = e3.find((e4) => "string" == typeof e4 && e4.trim());
+            if (t3) return t3.trim();
+          } else if (e3 && "object" == typeof e3) for (const t3 of ["message", "error", "error_message", "detail"]) {
+            const i3 = e3[t3];
+            if ("string" == typeof i3 && i3.trim()) return i3.trim();
+            if (Array.isArray(i3) && i3.length) {
+              const e4 = i3.filter((e5) => "string" == typeof e5 && e5.trim());
+              if (e4.length) return e4.join("; ");
+              const t4 = i3[0];
+              if (t4 && "object" == typeof t4 && t4.msg) {
+                const e5 = Array.isArray(t4.loc) ? t4.loc.slice(1).join(".") : "";
+                return e5 ? `${e5}: ${t4.msg}` : String(t4.msg);
+              }
+            }
+          }
+          return `ZeroBounce returned an error (HTTP ${t2}).`;
+        }
+        return i2.length > 1e3 ? "ZeroBounce returned a response that is not valid JSON." : i2;
+      }
+      j.Warmup = class {
+        static DEFAULT_BASE_URL = D;
+        constructor(e2, t2 = D) {
+          s(e2, "Warmup api key");
+          const i2 = a(t2 || D, "baseURL");
+          this._api_key = e2, this._root = `${(function(e3) {
+            let t3 = e3.length;
+            for (; t3 > 0 && 47 === e3.charCodeAt(t3 - 1); ) t3 -= 1;
+            return e3.slice(0, t3);
+          })(i2)}/api/v1/warmup`;
+        }
+        async _send(e2, t2, { params: i2 = null, jsonBody: r2 = null, secrets: s2 = [] } = {}) {
+          const l2 = i2 && Object.keys(i2).length ? `?${new URLSearchParams(i2)}` : "", u2 = `${this._root}${t2}${l2}`;
+          a(u2, "request URL");
+          const d2 = [this._api_key, ...s2], _2 = { "API-Key": this._api_key, Accept: "application/json" };
+          let c2;
+          null != r2 && (_2["Content-Type"] = "application/json");
+          try {
+            c2 = await fetch(u2, { method: e2, headers: _2, body: null != r2 ? JSON.stringify(r2) : void 0, signal: J(), redirect: "error" });
+          } catch (e3) {
+            const t3 = e3 && e3.name ? e3.name : "Error", i3 = e3 && e3.message ? e3.message : String(e3);
+            throw new Error(o(`${t3}: ${i3}`, d2));
+          }
+          const m2 = "number" == typeof c2.status ? c2.status : 200;
+          if (m2 >= 300 && m2 < 400) throw n("ZeroBounce returned a redirect, which this client does not follow.", m2);
+          const p2 = "function" == typeof c2.text ? await c2.text() : "";
+          if (m2 > 299) throw n(o(Y(p2, m2), d2), m2);
+          return { status: m2, body: p2, response: c2 };
+        }
+        async _json(e2, t2, i2 = {}) {
+          const { status: r2, body: a2 } = await this._send(e2, t2, i2);
+          if (204 === r2 || !String(a2).trim()) return null;
+          try {
+            return JSON.parse(a2);
+          } catch {
+            throw n(o(Y(a2, r2), [this._api_key, ...i2.secrets || []]), r2);
+          }
+        }
+        async _csv(e2, t2 = null) {
+          const { status: i2, body: r2, response: a2 } = await this._send("GET", e2, { params: t2 }), s2 = a2 && a2.headers && "function" == typeof a2.headers.get ? String(a2.headers.get("content-type") || "").toLowerCase() : "";
+          if (!String(r2).trim() || s2.includes("application/json")) throw n(o(Y(r2, i2), [this._api_key]), i2);
+          return r2;
+        }
+        listSendingAccounts() {
+          return this._json("GET", "/sending-accounts");
+        }
+        getSendingAccount(e2) {
+          return this._json("GET", "/sending-account", { params: { from_address: q(e2, "from_address") } });
+        }
+        addSendingAccount({ fromAddress: e2, onboardingModel: t2, engagementRuleId: i2 = null, ignoreConflict: r2 = null, emailContent: n2 = null, managedSending: a2 = null } = {}) {
+          if (q(e2, "from_address"), !I.includes(t2)) throw M("onboarding_model parameter is invalid. Must be self_managed or zb_managed.");
+          const s2 = { from_address: e2, onboarding_model: t2 };
+          if ("self_managed" === t2) {
+            if (null == i2) throw M("engagement_rule_id parameter is missing. Required for self_managed.");
+            if (s2.engagement_rule_id = G(i2, N, "engagement_rule_id"), null != n2 || null != a2) throw M("email_content and managed_sending are for zb_managed.");
+          }
+          if (null != r2 && (s2.ignore_conflict = Boolean(r2)), null != n2) {
+            const e3 = { ...n2 }, t3 = e3.types_of_emails;
+            if (null != t3 && (!Array.isArray(t3) || t3.some((e4) => !z.includes(e4)))) throw M("types_of_emails parameter is invalid. transactional, newsletter and/or marketing.");
+            s2.email_content = e3;
+          }
+          if (null != a2) {
+            const e3 = { ...a2 }, t3 = e3.timezone_offset;
+            if (null != t3 && ("number" != typeof t3 || t3 < -11 || t3 > 14)) throw M("timezone_offset parameter is invalid. Must be -11 to 14.");
+            null != e3.warmup_start_date && (e3.warmup_start_date = Z(e3.warmup_start_date, "warmup_start_date")), s2.managed_sending = e3;
+          }
+          return this._json("POST", "/sending-accounts", { jsonBody: s2 });
+        }
+        updateSendingAccount({ fromAddress: e2, engagementRuleId: t2, statusId: i2, autoEnable: r2 } = {}) {
+          if (q(e2, "from_address"), "boolean" != typeof r2) throw M("auto_enable parameter is missing. Must be true or false.");
+          return this._json("PUT", "/sending-accounts", { jsonBody: { team_id: 1, from_address: e2, engagement_rule_id: G(t2, N, "engagement_rule_id"), status_id: G(i2, x, "status_id"), auto_enable: r2 } });
+        }
+        deleteSendingAccount(e2) {
+          return this._json("DELETE", "/sending-accounts", { params: { from_address: q(e2, "from_address") } });
+        }
+        changeFromAddress(e2, t2) {
+          return this._json("PUT", "/smtp-credentials", { jsonBody: { team_id: 1, old_from_address: q(e2, "old_from_address"), new_from_address: q(t2, "new_from_address") } });
+        }
+        listFromAddresses({ searchFrom: e2 = null, offset: t2 = null, limit: i2 = null } = {}) {
+          const r2 = {};
+          if (null != e2) {
+            if (!C.test(e2)) throw M("search_from parameter is invalid. Letters, digits and . - _ @ + only.");
+            r2.search_from = e2;
+          }
+          for (const [e3, n2] of [["offset", t2], ["limit", i2]]) if (null != n2) {
+            if ("number" != typeof n2 || !Number.isInteger(n2) || n2 < 0) throw M(`${e3} parameter is invalid. Must be a non-negative integer.`);
+            r2[e3] = String(n2);
+          }
+          return this._json("GET", "/from-addresses", { params: r2 });
+        }
+        getEngagementRules() {
+          return this._json("GET", "/engagement-rules");
+        }
+        setEngagementRule(e2, t2) {
+          return q(e2, "c_from"), this._json("PUT", "/engagement-rule", { params: { c_from: e2 }, jsonBody: { rule_id: G(t2, N, "rule_id") } });
+        }
+        getCustomEngagement(e2) {
+          return this._json("GET", `/custom-engagement/${(function(e3, t2) {
+            const i2 = null == e3 ? "" : String(e3).trim();
+            if (!i2) throw new Error(`ZeroBounce: ${t2} parameter is missing.`);
+            if ("." === i2 || ".." === i2) throw new Error(`ZeroBounce: ${t2} parameter is invalid.`);
+            return encodeURIComponent(i2);
+          })(e2, "c_from")}`);
+        }
+        createCustomEngagement({ cFrom: e2, replyPct: t2, importantPct: i2, clickPct: r2 } = {}) {
+          return this._json("POST", "/custom-engagement", { jsonBody: W(e2, t2, i2, r2) });
+        }
+        updateCustomEngagement({ cFrom: e2, replyPct: t2, importantPct: i2, clickPct: r2 } = {}) {
+          return this._json("PUT", "/custom-engagement", { jsonBody: W(e2, t2, i2, r2) });
+        }
+        deleteCustomEngagement(e2, t2) {
+          return this._json("DELETE", "/custom-engagement", { jsonBody: { c_from: q(e2, "c_from"), engagement_rule_id: G(t2, [1, 4], "engagement_rule_id") } });
+        }
+        getSeeds() {
+          return this._json("GET", "/seeds");
+        }
+        downloadSeeds() {
+          return this._csv("/seeds/download");
+        }
+        getSeedCount() {
+          return this._json("GET", "/seed-count");
+        }
+        getProgressToday() {
+          return this._json("GET", "/progress-today");
+        }
+        getSentToday() {
+          return this._json("GET", "/sent-today");
+        }
+        getEmailsPerDay() {
+          return this._json("GET", "/emails-per-day");
+        }
+        getStatistics(e2) {
+          return this._json("GET", "/statistics", { params: { from_address: q(e2, "from_address") } });
+        }
+        getStatisticsPerDay({ fromAddress: e2, startDate: t2, endDate: i2 } = {}) {
+          q(e2, "from_address");
+          const r2 = Z(t2, "start_date"), n2 = Z(i2, "end_date");
+          if (r2 > n2) throw M("start_date parameter is invalid. It is later than end_date.");
+          return this._json("GET", "/statistics-per-day", { params: { from_address: e2, start_date: r2, end_date: n2 } });
+        }
+        getStatisticsDetailed(e2) {
+          return this._json("GET", "/statistics-detailed", { params: { c_from: q(e2, "c_from") } });
+        }
+        downloadStatistics(e2) {
+          return this._csv("/statistics/download", { c_from: q(e2, "c_from") });
+        }
+        getFromAddressStatistics(e2) {
+          return this._json("GET", "/from-address-statistics", { params: { from_address: q(e2, "from_address") } });
+        }
+        checkDomainDmarc(e2, t2 = null) {
+          if (q(e2, "from_address"), !String(e2).includes("@")) throw M("from_address parameter is invalid. Pass an email address, e.g. sender@example.com.");
+          const i2 = { from_address: e2 };
+          return null != t2 && (i2.dkim_selector = q(t2, "dkim_selector")), this._json("GET", "/check-domain-dmarc", { params: i2 });
+        }
+        testSmtpConfiguration({ fromAddress: e2, username: t2, password: i2, server: r2, port: n2 } = {}) {
+          if ("number" != typeof n2 || !Number.isInteger(n2) || n2 < 1 || n2 > 65535) throw M("port parameter is invalid. Must be 1 to 65535.");
+          const a2 = { from_address: q(e2, "from_address"), username: q(t2, "username"), password: q(i2, "password"), server: q(r2, "server"), port: n2 };
+          return this._json("POST", "/test-smtp-configuration", { jsonBody: a2, secrets: [i2, t2] });
+        }
+      };
+      const H = j;
+      return t = t.default, t;
     })());
   }
 });

@@ -32,6 +32,41 @@ npm run build
 npm test            # stdio test (live API, TEST_KEY by default), then the offline HTTP test
 ```
 
+**Do not run the live tests with an invalid or placeholder API key.** ZeroBounce
+sits behind Cloudflare, which answers a request carrying a bogus key (`TEST_KEY`
+and the like) with a 403 `error code: 1020` "Access denied" page instead of the
+API's own `api_key is invalid` JSON. The suite then fails on the block rather
+than testing anything, and the failures look like SDK bugs when they are not.
+Pass a real key:
+
+```bash
+npm test -- --api-key="$ZEROBOUNCE_API_KEY"
+```
+
+**Use real values for the live tests, not just a real key.** A placeholder
+`file_id` trips the same block: `GET /v2/deletefile?file_id=x` answers
+`403 error code: 1020`, which reads like the endpoint being blocked. It is not.
+Upload a file first and use the `file_id` that `sendfile` returns, and the same
+endpoint answers `200` with ordinary JSON. Verified with plain `curl`:
+
+| request | result |
+| --- | --- |
+| `deletefile` with `file_id=x` | `403 error code: 1020` |
+| `deletefile` with a real `file_id` | `200 {"success":false,"message":"File cannot be found."}` |
+
+Two test-input failures are not regressions either: `Find Email (by company)`
+fails on `"firstName" is required`, and the bulk send-file cases fail because
+the fixture CSV is rejected. A CSV of `email` plus one address per line, sent
+with `email_address_column=1` and `has_header_row=true`, is accepted.
+
+The Warmup client needs its own key (`ZEROBOUNCE_WARMUP_API_KEY`, against
+`warmup-api.zerobounce.net`); the main `ZEROBOUNCE_API_KEY` is not valid there
+and trips the same block.
+
+CI has no real key, so it runs with `TEST_KEY` and the live stdio test fails on
+the Cloudflare block. Give the workflow a real key as a secret, or keep the live
+test out of CI -- the offline `test-http.js` is the part that gates meaningfully.
+
 ## Conventions
 
 - **Only endpoints documented at https://www.zerobounce.net/docs/.** Do not add a tool for an

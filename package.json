@@ -16,12 +16,13 @@
     "build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/sdk --define:__PACKAGE_VERSION__=\\\"$npm_package_version\\\" --banner:js='#!/usr/bin/env node' && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "node test-mcp.js && node test-http.js",
+    "test": "node test-http.js",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepublishOnly": "npm run build",
     "test:http": "node test-http.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:live": "node test-mcp.js"
   },
   "keywords": [
     "zerobounce",
@@ -51,7 +52,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@zerobounce/zero-bounce-sdk": "^2.1.11"
+    "@zerobounce/zero-bounce-sdk": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
