@@ -11,6 +11,13 @@
  *   batch-account-  /validatebatch reports an account-level error for "all" addresses
  *   batch-partial-  /validatebatch reports an error for one address only
  *
+ * The Warmup API (warmup-api.zerobounce.net) is served too. It carries its key in an
+ * `API-Key` header rather than an `api_key` parameter, so warmup entries log that header
+ * as `apiKey` and record the full URL for checking that the key never reaches the query
+ * string. Warmup key prefixes:
+ *   warmup-error-   400 with a JSON error body
+ *   warmup-notcsv-  a CSV download endpoint answers with JSON instead
+ *
  * Usage: node --import ./test/fake-zerobounce-api.mjs dist/index.js --http
  */
 
@@ -39,6 +46,83 @@ async function readFields(body) {
   }
 }
 
+const WARMUP_BASE_PATH = '/api/v1/warmup';
+
+/** Case-insensitive lookup over whatever shape the caller passed as headers. */
+function readHeader(headers, name) {
+  if (!headers) return null;
+  const wanted = name.toLowerCase();
+  const entries =
+    typeof headers.entries === 'function' ? headers.entries() : Object.entries(headers);
+  for (const [key, value] of entries) {
+    if (String(key).toLowerCase() === wanted) return value;
+  }
+  return null;
+}
+
+/** CSV downloads, keyed by the warmup sub-path that serves them. */
+const WARMUP_CSV = {
+  '/seeds/download': 'seed,provider\nseed1@example.com,gmail\nseed2@example.com,outlook\n',
+  '/statistics/download': 'date,sent,inbox,spam\n2026-10-01,10,9,1\n',
+};
+
+async function handleWarmup(url, init, fields) {
+  const path = url.pathname.slice(WARMUP_BASE_PATH.length) || '/';
+  const key = readHeader(init.headers, 'API-Key') ?? null;
+  const entry = {
+    method: init.method ?? 'GET',
+    host: url.hostname,
+    path,
+    apiKey: key,
+    url: url.href,
+    query: Object.fromEntries(url.searchParams),
+    contentType: readHeader(init.headers, 'Content-Type'),
+    accept: readHeader(init.headers, 'Accept'),
+    fields,
+  };
+  if (LOG_FILE) {
+    appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n');
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, Math.random() * 40));
+
+  const prefix = String(key ?? '');
+  if (prefix.startsWith('warmup-error-')) {
+    return new Response(JSON.stringify({ detail: 'from_address parameter is invalid.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const csv = WARMUP_CSV[path];
+  if (csv !== undefined) {
+    if (prefix.startsWith('warmup-notcsv-')) {
+      return new Response(JSON.stringify({ message: 'No statistics available.' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(csv, {
+      status: 200,
+      headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+    });
+  }
+
+  // Echo the key and the sub-path back so a response can be matched to the
+  // request that produced it, the same way the validation fixture does.
+  return new Response(
+    JSON.stringify({
+      success: true,
+      echo_api_key: key,
+      echo_path: path,
+      echo_method: entry.method,
+      echo_query: entry.query,
+      echo_body: fields,
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } }
+  );
+}
+
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === 'string' ? input : input.url);
   if (url.hostname !== 'zerobounce.net' && !url.hostname.endsWith('.zerobounce.net')) {
@@ -46,6 +130,11 @@ globalThis.fetch = async (input, init = {}) => {
   }
 
   const fields = { ...Object.fromEntries(url.searchParams), ...(await readFields(init.body)) };
+
+  if (url.pathname.startsWith(WARMUP_BASE_PATH)) {
+    return handleWarmup(url, init, fields);
+  }
+
   const entry = {
     method: init.method ?? 'GET',
     host: url.hostname,

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- 26 ZeroBounce Warmup tools, covering every documented Warmup operation: `warmup_list_sending_accounts`, `warmup_get_sending_account`, `warmup_add_sending_account`, `warmup_update_sending_account`, `warmup_delete_sending_account`, `warmup_change_from_address`, `warmup_list_from_addresses`, `warmup_get_engagement_rules`, `warmup_set_engagement_rule`, `warmup_get_custom_engagement`, `warmup_create_custom_engagement`, `warmup_update_custom_engagement`, `warmup_delete_custom_engagement`, `warmup_get_seeds`, `warmup_download_seeds`, `warmup_get_seed_count`, `warmup_get_progress_today`, `warmup_get_sent_today`, `warmup_get_emails_per_day`, `warmup_get_statistics`, `warmup_get_statistics_per_day`, `warmup_get_statistics_detailed`, `warmup_download_statistics`, `warmup_get_from_address_statistics`, `warmup_check_domain_dmarc` and `warmup_test_smtp_configuration`.
+- `--warmup-api-key` and `ZEROBOUNCE_WARMUP_API_KEY` supply the Warmup API key in stdio mode. Warmup is a separate product with a separate key and host, so the main `ZEROBOUNCE_API_KEY` does not work there. Without a Warmup key the 26 Warmup tools are not advertised at all, so a client never sees a tool it cannot use.
+- HTTP mode reads the Warmup key from a per-request `X-ZeroBounce-Warmup-Api-Key` header, alongside the existing `X-ZeroBounce-Api-Key`. Like the validation key it is never taken from the server environment and never shared between requests.
+- `--warmup-url` and `ZEROBOUNCE_WARMUP_API_URL` point the Warmup client at a test host. Only an explicit `https://` URL is accepted: there is no regional Warmup host, so `us` and `eu` are refused rather than quietly ignored.
+- `warmup_download_seeds` and `warmup_download_statistics` return the API's CSV as text rather than wrapping it in JSON.
+- The `zerobounce://config` resource now also reports `warmupBaseUrl` and whether a Warmup key is configured.
 - `--url` and `ZEROBOUNCE_API_URL` select the main API host: `us`, `eu`, or an explicit `https://` URL for a test server. ZeroBounce serves the main API from `api`, `api-us` and `api-eu`; the SDK has always supported all three, but this server had no way to reach anything but the default. There is no regional bulk or warmup host, so those calls are unaffected.
 - The `zerobounce://config` resource now reports the base URL actually in use. It previously returned a hard-coded `https://api.zerobounce.net/v2` whatever the server was pointed at.
 

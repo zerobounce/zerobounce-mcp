@@ -110,8 +110,32 @@ async function rpc(origin, method, params, headers = {}) {
   return { status: response.status, message, text };
 }
 
+const WARMUP_KEY_HEADER = 'X-ZeroBounce-Warmup-Api-Key';
+
+/**
+ * Warmup tools need the separate Warmup key. Sending the same value in both
+ * headers keeps `loggedRequests(key)` working for either API: the fixture logs
+ * the `api_key` parameter for validation calls and the `API-Key` header for
+ * warmup ones.
+ */
 function callTool(origin, apiKey, name, args) {
-  return rpc(origin, 'tools/call', { name, arguments: args }, { 'X-ZeroBounce-Api-Key': apiKey });
+  const headers = { 'X-ZeroBounce-Api-Key': apiKey };
+  if (name.startsWith('warmup_')) {
+    headers[WARMUP_KEY_HEADER] = apiKey;
+  }
+  return rpc(origin, 'tools/call', { name, arguments: args }, headers);
+}
+
+/** Every warmup request the fixture logged, whatever key it carried. */
+function warmupRequests() {
+  if (!existsSync(LOG_FILE)) {
+    return [];
+  }
+  return readFileSync(LOG_FILE, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .filter((entry) => entry.host === 'warmup-api.zerobounce.net');
 }
 
 function toolText(result) {
@@ -130,6 +154,10 @@ function loggedRequests(apiKey) {
 }
 
 const CSV = 'email,first,last,domain\nalice@example.com,Alice,Smith,example.com\n';
+
+const WARMUP_FROM = 'sender@example.com';
+// Not a credential: the fixture never connects to anything and nothing is stored.
+const SMTP_PLACEHOLDER = 'placeholder-not-a-real-password';
 
 // Valid arguments for every tool the server can expose.
 const TOOL_ARGS = {
@@ -166,7 +194,69 @@ const TOOL_ARGS = {
   validate_s3_file: { fileName: 'input/list.csv' },
   score_s3_file: { fileName: 'input/list.csv' },
   export_s3_file: { fileId: 'f1', exportBucket: 'results-bucket' },
+
+  // Warmup API (operations 49-74). Separate host, separate key.
+  warmup_list_sending_accounts: {},
+  warmup_get_sending_account: { fromAddress: WARMUP_FROM },
+  warmup_add_sending_account: {
+    fromAddress: WARMUP_FROM,
+    onboardingModel: 'self_managed',
+    engagementRuleId: 0,
+  },
+  warmup_update_sending_account: {
+    fromAddress: WARMUP_FROM,
+    engagementRuleId: 3,
+    statusId: 4,
+    autoEnable: false,
+  },
+  warmup_delete_sending_account: { fromAddress: WARMUP_FROM },
+  warmup_change_from_address: {
+    oldFromAddress: WARMUP_FROM,
+    newFromAddress: 'new-sender@example.com',
+  },
+  warmup_list_from_addresses: {},
+  warmup_get_engagement_rules: {},
+  warmup_set_engagement_rule: { cFrom: WARMUP_FROM, ruleId: 2 },
+  warmup_get_custom_engagement: { cFrom: WARMUP_FROM },
+  warmup_create_custom_engagement: {
+    cFrom: WARMUP_FROM,
+    replyPct: 10,
+    importantPct: 20,
+    clickPct: 15,
+  },
+  warmup_update_custom_engagement: {
+    cFrom: WARMUP_FROM,
+    replyPct: 10,
+    importantPct: 20,
+    clickPct: 15,
+  },
+  warmup_delete_custom_engagement: { cFrom: WARMUP_FROM, engagementRuleId: 1 },
+  warmup_get_seeds: {},
+  warmup_download_seeds: {},
+  warmup_get_seed_count: {},
+  warmup_get_progress_today: {},
+  warmup_get_sent_today: {},
+  warmup_get_emails_per_day: {},
+  warmup_get_statistics: { fromAddress: WARMUP_FROM },
+  warmup_get_statistics_per_day: {
+    fromAddress: WARMUP_FROM,
+    startDate: '2026-10-01',
+    endDate: '2026-10-31',
+  },
+  warmup_get_statistics_detailed: { cFrom: WARMUP_FROM },
+  warmup_download_statistics: { cFrom: WARMUP_FROM },
+  warmup_get_from_address_statistics: { fromAddress: WARMUP_FROM },
+  warmup_check_domain_dmarc: { fromAddress: WARMUP_FROM },
+  warmup_test_smtp_configuration: {
+    fromAddress: WARMUP_FROM,
+    username: 'smtp-user',
+    password: SMTP_PLACEHOLDER,
+    server: 'smtp.example.com',
+    port: 587,
+  },
 };
+
+const WARMUP_TOOLS = Object.keys(TOOL_ARGS).filter((n) => n.startsWith('warmup_'));
 
 // Tools that only exist with a newer ZeroBounce SDK.
 const SDK_GATED = new Set([
@@ -250,18 +340,36 @@ async function testRoutingAndAuth(origin) {
 
 async function testTools(origin) {
   console.log('\nTools');
-  const list = await rpc(origin, 'tools/list', {}, { 'X-ZeroBounce-Api-Key': 'list-key' });
+  // The Warmup tools only register when a Warmup key is present, so list with one.
+  const list = await rpc(origin, 'tools/list', {}, {
+    'X-ZeroBounce-Api-Key': 'list-key',
+    [WARMUP_KEY_HEADER]: 'list-warmup-key',
+  });
   const names = (list.message?.result?.tools ?? []).map((t) => t.name);
   const gatedListed = names.filter((n) => SDK_GATED.has(n));
   const fullSdk = gatedListed.length === SDK_GATED.size;
-  console.log(`  (${names.length} tools listed; ${fullSdk ? 'SDK has all newer methods' : 'older SDK, gated tools hidden'})`);
+  const warmupListed = names.filter((n) => n.startsWith('warmup_'));
+  const fullWarmup = warmupListed.length === WARMUP_TOOLS.length;
+  console.log(`  (${names.length} tools listed; ${fullSdk ? 'SDK has all newer methods' : 'older SDK, gated tools hidden'}; ${fullWarmup ? 'SDK has the Warmup client' : 'no Warmup client in this SDK'})`);
 
   check(
     gatedListed.length === 0 || fullSdk,
     'SDK-gated tools are listed all together or not at all',
     `listed: ${gatedListed.join(', ')}`
   );
-  const expected = Object.keys(TOOL_ARGS).filter((n) => fullSdk || !SDK_GATED.has(n));
+  check(
+    warmupListed.length === 0 || fullWarmup,
+    'Warmup tools are listed all together or not at all',
+    `listed ${warmupListed.length} of ${WARMUP_TOOLS.length}`
+  );
+  check(
+    !fullWarmup || warmupListed.length === 26,
+    'all 26 documented Warmup operations are exposed',
+    `listed ${warmupListed.length}`
+  );
+  const expected = Object.keys(TOOL_ARGS).filter(
+    (n) => (fullSdk || !SDK_GATED.has(n)) && (fullWarmup || !n.startsWith('warmup_'))
+  );
   check(
     names.length === expected.length && expected.every((n) => names.includes(n)),
     `tools/list matches the expected ${expected.length} tools`,
@@ -283,7 +391,7 @@ async function testTools(origin) {
   const unknownTool = await callTool(origin, 'unknown-tool-key', 'does_not_exist', {});
   check(/Unknown tool/.test(toolText(unknownTool)), 'unknown tool returns an error result');
 
-  return { names, fullSdk };
+  return { names, fullSdk, fullWarmup };
 }
 
 async function testArgumentHandling(origin, names) {
@@ -498,6 +606,287 @@ async function testBatchEmailColumn(origin) {
   );
 }
 
+
+async function testWarmup(origin) {
+  console.log('\nWarmup API');
+  const warmupCall = (apiKey, warmupKey, name, args) =>
+    rpc(origin, 'tools/call', { name, arguments: args }, {
+      'X-ZeroBounce-Api-Key': apiKey,
+      ...(warmupKey === null ? {} : { [WARMUP_KEY_HEADER]: warmupKey }),
+    });
+
+  // -- registration gating ---------------------------------------------------
+  const noWarmup = await rpc(origin, 'tools/list', {}, { 'X-ZeroBounce-Api-Key': 'bare-key' });
+  const bareNames = (noWarmup.message?.result?.tools ?? []).map((t) => t.name);
+  check(
+    bareNames.length > 0 && bareNames.every((n) => !n.startsWith('warmup_')),
+    'without a Warmup key, no Warmup tool is advertised',
+    `listed: ${bareNames.filter((n) => n.startsWith('warmup_')).join(', ')}`
+  );
+
+  const unregistered = await warmupCall('bare-key', null, 'warmup_get_seed_count', {});
+  check(
+    /Unknown tool/.test(toolText(unregistered)) && warmupRequests().every((e) => e.apiKey !== 'bare-key'),
+    'calling a Warmup tool without a Warmup key is an unknown tool, not an API call',
+    toolText(unregistered).slice(0, 160)
+  );
+
+  const blank = await warmupCall('blank-warmup', '   ', 'warmup_get_seed_count', {});
+  check(/Unknown tool/.test(toolText(blank)), 'a whitespace-only Warmup key does not register the tools');
+
+  // -- method, URL and key placement ----------------------------------------
+  await warmupCall('v-get-account', 'w-get-account', 'warmup_get_sending_account', {
+    fromAddress: WARMUP_FROM,
+  });
+  const [getAccount] = loggedRequests('w-get-account');
+  check(
+    getAccount?.method === 'GET' &&
+      getAccount?.url ===
+        `https://warmup-api.zerobounce.net/api/v1/warmup/sending-account?from_address=${encodeURIComponent(WARMUP_FROM)}`,
+    'warmup_get_sending_account sends GET to the Warmup host with from_address',
+    `${getAccount?.method} ${getAccount?.url}`
+  );
+  check(
+    getAccount?.apiKey === 'w-get-account',
+    'the Warmup key travels in the API-Key header',
+    JSON.stringify(getAccount?.apiKey)
+  );
+  check(
+    getAccount?.accept === 'application/json' && getAccount?.contentType == null,
+    'a Warmup GET asks for JSON and sends no body content type',
+    `accept ${getAccount?.accept}, content-type ${getAccount?.contentType}`
+  );
+
+  // The validation key must not reach the Warmup host, and vice versa.
+  check(
+    loggedRequests('v-get-account').length === 0,
+    'the validation key is not used for Warmup calls'
+  );
+
+  await warmupCall('cross-validation', 'cross-warmup', 'get_credits', {});
+  const [credits] = loggedRequests('cross-validation');
+  check(
+    credits?.host === 'api.zerobounce.net' && loggedRequests('cross-warmup').length === 0,
+    'the Warmup key is not used for validation calls',
+    `${credits?.host}`
+  );
+
+  // -- query parameters ------------------------------------------------------
+  await warmupCall('v-list-from', 'w-list-from', 'warmup_list_from_addresses', {
+    searchFrom: 'sender@example.com',
+    offset: 5,
+    limit: 10,
+  });
+  const [listFrom] = loggedRequests('w-list-from');
+  check(
+    listFrom?.query.search_from === 'sender@example.com' &&
+      listFrom?.query.offset === '5' &&
+      listFrom?.query.limit === '10',
+    'warmup_list_from_addresses sends search_from, offset and limit',
+    JSON.stringify(listFrom?.query)
+  );
+
+  await warmupCall('v-stats-day', 'w-stats-day', 'warmup_get_statistics_per_day', {
+    fromAddress: WARMUP_FROM,
+    startDate: '2026-10-01',
+    endDate: '2026-10-31',
+  });
+  const [statsDay] = loggedRequests('w-stats-day');
+  check(
+    statsDay?.path === '/statistics-per-day' &&
+      statsDay?.query.start_date === '2026-10-01' &&
+      statsDay?.query.end_date === '2026-10-31',
+    'warmup_get_statistics_per_day sends start_date and end_date',
+    JSON.stringify(statsDay?.query)
+  );
+
+  // -- bodies and verbs ------------------------------------------------------
+  await warmupCall('v-update', 'w-update', 'warmup_update_sending_account', {
+    fromAddress: WARMUP_FROM,
+    engagementRuleId: 3,
+    statusId: 4,
+    autoEnable: false,
+  });
+  const [update] = loggedRequests('w-update');
+  check(
+    update?.method === 'PUT' &&
+      update?.path === '/sending-accounts' &&
+      update?.fields.from_address === WARMUP_FROM &&
+      update?.fields.engagement_rule_id === 3 &&
+      update?.fields.status_id === 4 &&
+      update?.fields.auto_enable === false &&
+      update?.contentType === 'application/json',
+    'warmup_update_sending_account PUTs a JSON body with the rule, status and auto_enable',
+    `${update?.method} ${update?.path} ${JSON.stringify(update?.fields)}`
+  );
+
+  await warmupCall('v-delete', 'w-delete', 'warmup_delete_sending_account', {
+    fromAddress: WARMUP_FROM,
+  });
+  const [del] = loggedRequests('w-delete');
+  check(
+    del?.method === 'DELETE' && del?.query.from_address === WARMUP_FROM,
+    'warmup_delete_sending_account sends DELETE with from_address',
+    `${del?.method} ${JSON.stringify(del?.query)}`
+  );
+
+  await warmupCall('v-custom', 'w-custom', 'warmup_create_custom_engagement', {
+    cFrom: WARMUP_FROM,
+    replyPct: 10,
+    importantPct: 20,
+    clickPct: 15,
+  });
+  const [custom] = loggedRequests('w-custom');
+  check(
+    custom?.method === 'POST' &&
+      custom?.path === '/custom-engagement' &&
+      custom?.fields.c_from === WARMUP_FROM &&
+      custom?.fields.reply_pct === 10 &&
+      custom?.fields.important_pct === 20 &&
+      custom?.fields.click_pct === 15,
+    'warmup_create_custom_engagement POSTs c_from and the three percentages',
+    JSON.stringify(custom?.fields)
+  );
+
+  await warmupCall('v-custom-get', 'w-custom-get', 'warmup_get_custom_engagement', {
+    cFrom: WARMUP_FROM,
+  });
+  const [customGet] = loggedRequests('w-custom-get');
+  check(
+    customGet?.path === `/custom-engagement/${encodeURIComponent(WARMUP_FROM)}`,
+    'warmup_get_custom_engagement puts c_from in the path, encoded',
+    customGet?.path
+  );
+
+  await warmupCall('v-smtp', 'w-smtp', 'warmup_test_smtp_configuration', {
+    ...TOOL_ARGS.warmup_test_smtp_configuration,
+  });
+  const [smtp] = loggedRequests('w-smtp');
+  check(
+    smtp?.method === 'POST' &&
+      smtp?.path === '/test-smtp-configuration' &&
+      smtp?.fields.username === 'smtp-user' &&
+      smtp?.fields.port === 587,
+    'warmup_test_smtp_configuration POSTs the SMTP fields',
+    `${smtp?.method} ${smtp?.path}`
+  );
+  check(
+    !String(smtp?.url).includes(SMTP_PLACEHOLDER) && !String(smtp?.url).includes('smtp-user'),
+    'SMTP credentials go in the body, never the URL',
+    smtp?.url
+  );
+
+  // -- CSV endpoints (operations 63 and 71) ----------------------------------
+  const seedCsv = await warmupCall('v-seed-csv', 'w-seed-csv', 'warmup_download_seeds', {});
+  const seedText = toolText(seedCsv);
+  check(
+    seedText.startsWith('seed,provider') && seedText.includes('seed1@example.com,gmail'),
+    'warmup_download_seeds returns CSV text, not JSON',
+    seedText.slice(0, 120)
+  );
+  check(
+    loggedRequests('w-seed-csv')[0]?.path === '/seeds/download',
+    'warmup_download_seeds calls /seeds/download'
+  );
+
+  const statsCsv = await warmupCall('v-stats-csv', 'w-stats-csv', 'warmup_download_statistics', {
+    cFrom: WARMUP_FROM,
+  });
+  const statsText = toolText(statsCsv);
+  check(
+    statsText.startsWith('date,sent,inbox,spam') &&
+      loggedRequests('w-stats-csv')[0]?.query.c_from === WARMUP_FROM,
+    'warmup_download_statistics returns CSV text and sends c_from',
+    statsText.slice(0, 120)
+  );
+
+  const notCsv = await warmupCall(
+    'v-notcsv',
+    'warmup-notcsv-1',
+    'warmup_download_statistics',
+    { cFrom: WARMUP_FROM }
+  );
+  check(
+    notCsv.message?.result?.isError === true && /No statistics available/.test(toolText(notCsv)),
+    'a CSV endpoint answering with JSON is reported as an error',
+    toolText(notCsv).slice(0, 160)
+  );
+
+  // -- error bodies ----------------------------------------------------------
+  const apiError = await warmupCall('v-error', 'warmup-error-1', 'warmup_get_statistics', {
+    fromAddress: WARMUP_FROM,
+  });
+  const apiErrorText = toolText(apiError);
+  check(
+    apiError.message?.result?.isError === true &&
+      /from_address parameter is invalid/.test(apiErrorText) &&
+      !/^Error:\s*(Error|\[Error\]):/.test(apiErrorText),
+    'a Warmup JSON error body becomes one short error message',
+    apiErrorText.slice(0, 160)
+  );
+  check(
+    !apiErrorText.includes('warmup-error-1'),
+    'a Warmup error message does not echo the Warmup key',
+    apiErrorText.slice(0, 160)
+  );
+
+  // -- argument validation ---------------------------------------------------
+  const bareDomain = await warmupCall('v-dmarc', 'w-dmarc-bare', 'warmup_check_domain_dmarc', {
+    fromAddress: 'example.com',
+  });
+  check(
+    bareDomain.message?.result?.isError === true &&
+      /email address/i.test(toolText(bareDomain)) &&
+      loggedRequests('w-dmarc-bare').length === 0,
+    'warmup_check_domain_dmarc rejects a bare domain before calling the API',
+    toolText(bareDomain).slice(0, 160)
+  );
+
+  await warmupCall('v-dmarc-ok', 'w-dmarc-ok', 'warmup_check_domain_dmarc', {
+    fromAddress: WARMUP_FROM,
+    dkimSelector: 'selector1',
+  });
+  const [dmarc] = loggedRequests('w-dmarc-ok');
+  check(
+    dmarc?.query.from_address === WARMUP_FROM && dmarc?.query.dkim_selector === 'selector1',
+    'warmup_check_domain_dmarc sends an email address and the DKIM selector',
+    JSON.stringify(dmarc?.query)
+  );
+
+  const missing = await warmupCall('v-missing', 'w-missing', 'warmup_get_sending_account', {});
+  check(
+    /fromAddress is required/.test(toolText(missing)) && loggedRequests('w-missing').length === 0,
+    'a missing Warmup argument is rejected before calling the API',
+    toolText(missing).slice(0, 160)
+  );
+
+  const badRule = await warmupCall('v-bad-rule', 'w-bad-rule', 'warmup_set_engagement_rule', {
+    cFrom: WARMUP_FROM,
+    ruleId: 9,
+  });
+  check(
+    badRule.message?.result?.isError === true && loggedRequests('w-bad-rule').length === 0,
+    'an out-of-range engagement rule is rejected before calling the API',
+    toolText(badRule).slice(0, 160)
+  );
+
+  // -- the key is never in a URL --------------------------------------------
+  const all = warmupRequests();
+  check(all.length > 0, `${all.length} Warmup requests reached the fixture`);
+  const inUrl = all.filter((e) => e.apiKey && String(e.url).includes(e.apiKey));
+  check(
+    inUrl.length === 0,
+    'no Warmup request ever carried its key in the query string',
+    inUrl.map((e) => e.url).join(', ').slice(0, 200)
+  );
+  const noHeader = all.filter((e) => !e.apiKey);
+  check(noHeader.length === 0, 'every Warmup request carried an API-Key header',
+    noHeader.map((e) => e.path).join(', '));
+  const offHost = all.filter((e) => !String(e.url).startsWith('https://warmup-api.zerobounce.net/api/v1/warmup'));
+  check(offHost.length === 0, 'every Warmup request went to the Warmup base path',
+    offHost.map((e) => e.url).join(', ').slice(0, 200));
+}
+
 async function testKeyIsolation(origin, server) {
   console.log('\nPer-request API key isolation');
   const count = 60;
@@ -600,6 +989,119 @@ async function testBindHost() {
   });
   check(bogus.status === 1 && /Invalid API URL/i.test(bogus.stderr),
     'a malformed API URL is refused', bogus.stderr.slice(0, 120));
+
+  console.log('\nWarmup base URL');
+  // There is no regional Warmup host: warmup-api-us and warmup-api-eu do not
+  // resolve, so only the default and an explicit https URL are accepted.
+  const readWarmupConfig = async (origin) => {
+    const r = await rpc(origin, 'resources/read', { uri: 'zerobounce://config' }, {
+      'X-ZeroBounce-Api-Key': 'region-key',
+    });
+    return JSON.parse(r.message.result.contents[0].text);
+  };
+
+  const wDefPort = await freePort();
+  const wDef = await startServer([`--port=${wDefPort}`], { ZEROBOUNCE_WARMUP_API_URL: '' });
+  const defConfig = await readWarmupConfig(wDef.origin);
+  check(defConfig.warmupBaseUrl === 'https://warmup-api.zerobounce.net',
+    'defaults to the single Warmup host', defConfig.warmupBaseUrl);
+  check(defConfig.warmupApiKeyConfigured === false,
+    'HTTP mode reports no server-level Warmup key', String(defConfig.warmupApiKeyConfigured));
+  await stopServer(wDef);
+
+  const wCustomPort = await freePort();
+  const wCustom = await startServer([`--port=${wCustomPort}`, '--warmup-url=https://warmup.example.com']);
+  check((await readWarmupConfig(wCustom.origin)).warmupBaseUrl === 'https://warmup.example.com',
+    '--warmup-url accepts an explicit https URL for a test host');
+  await stopServer(wCustom);
+
+  const wRegion = spawnSync(process.execPath, [SERVER_PATH, '--http', '--warmup-url=us'], {
+    encoding: 'utf8',
+  });
+  check(wRegion.status === 1 && /Invalid Warmup API URL/i.test(wRegion.stderr),
+    'a regional shorthand is refused: no regional Warmup host exists',
+    wRegion.stderr.slice(0, 120));
+
+  const wInsecure = spawnSync(
+    process.execPath,
+    [SERVER_PATH, '--http', '--warmup-url=http://warmup-api.zerobounce.net'],
+    { encoding: 'utf8' }
+  );
+  check(wInsecure.status === 1 && /must use https/i.test(wInsecure.stderr),
+    'a non-https Warmup URL is refused, not silently replaced',
+    wInsecure.stderr.slice(0, 120));
+
+  console.log('\nWarmup key in stdio mode');
+  // stdio takes the Warmup key from a flag or the environment, mirroring --api-key.
+  const stdioTools = (args, env) => {
+    const result = spawnSync(process.execPath, ['--import', FAKE_API, SERVER_PATH, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, FAKE_ZB_LOG: LOG_FILE, ...env },
+      input:
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } },
+        }) +
+        '\n' +
+        JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) +
+        '\n' +
+        JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }) +
+        '\n',
+      timeout: 15000,
+    });
+    const listed = result.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .find((m) => m?.id === 2);
+    return (listed?.result?.tools ?? []).map((t) => t.name);
+  };
+
+  const noKeyTools = stdioTools(['--api-key=stdio-key'], { ZEROBOUNCE_WARMUP_API_KEY: '' });
+  check(
+    noKeyTools.length > 0 && noKeyTools.every((n) => !n.startsWith('warmup_')),
+    'stdio without a Warmup key advertises no Warmup tools',
+    `${noKeyTools.filter((n) => n.startsWith('warmup_')).length} listed`
+  );
+
+  const flagTools = stdioTools(['--api-key=stdio-key', '--warmup-api-key=stdio-warmup'], {
+    ZEROBOUNCE_WARMUP_API_KEY: '',
+  });
+  check(
+    flagTools.filter((n) => n.startsWith('warmup_')).length === 26,
+    '--warmup-api-key registers all 26 Warmup tools in stdio mode',
+    `${flagTools.filter((n) => n.startsWith('warmup_')).length} listed`
+  );
+
+  const envTools = stdioTools(['--api-key=stdio-key'], {
+    ZEROBOUNCE_WARMUP_API_KEY: 'stdio-warmup-env',
+  });
+  check(
+    envTools.filter((n) => n.startsWith('warmup_')).length === 26,
+    'ZEROBOUNCE_WARMUP_API_KEY registers the Warmup tools in stdio mode',
+    `${envTools.filter((n) => n.startsWith('warmup_')).length} listed`
+  );
+
+  const httpIgnoresEnv = await freePort();
+  const httpEnv = await startServer([`--port=${httpIgnoresEnv}`], {
+    ZEROBOUNCE_WARMUP_API_KEY: 'should-be-ignored',
+  });
+  const envList = await rpc(httpEnv.origin, 'tools/list', {}, { 'X-ZeroBounce-Api-Key': 'env-key' });
+  const envNames = (envList.message?.result?.tools ?? []).map((t) => t.name);
+  check(
+    envNames.length > 0 && envNames.every((n) => !n.startsWith('warmup_')),
+    'HTTP mode ignores ZEROBOUNCE_WARMUP_API_KEY, so one caller cannot spend another\'s Warmup key',
+    `${envNames.filter((n) => n.startsWith('warmup_')).length} listed`
+  );
+  await stopServer(httpEnv);
 }
 
 async function main() {
@@ -617,6 +1119,7 @@ async function main() {
     await testArgumentHandling(server.origin, names);
     await testErrorReporting(server.origin);
     await testBatchEmailColumn(server.origin);
+    await testWarmup(server.origin);
     await testKeyIsolation(server.origin, server);
   } finally {
     await stopServer(server);

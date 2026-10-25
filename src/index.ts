@@ -16,11 +16,15 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { HTTP_MAX_REQUEST_BODY_BYTES } from './security/bulk-input.js';
 import { ZeroBounceClient } from './zerobounce-client.js';
+import { DEFAULT_WARMUP_BASE_URL } from './warmup-client.js';
 import { getAllTools, getToolRegistry } from './tools/index.js';
 
 interface ServerConfig {
   apiKey: string;
   baseUrl: string;
+  /** Optional: without it the Warmup tools are not registered at all. */
+  warmupApiKey?: string;
+  warmupBaseUrl: string;
 }
 
 interface CliConfig extends ServerConfig {
@@ -30,6 +34,7 @@ interface CliConfig extends ServerConfig {
 }
 
 const API_KEY_HEADER = 'x-zerobounce-api-key';
+const WARMUP_API_KEY_HEADER = 'x-zerobounce-warmup-api-key';
 
 const DEFAULT_API_BASE_URL = 'https://api.zerobounce.net/v2';
 
@@ -68,6 +73,27 @@ function resolveApiBaseUrl(value: string | undefined): string {
   return raw.replace(/\/+$/, '');
 }
 
+/**
+ * The Warmup API has exactly one host: `warmup-api-us` and `warmup-api-eu` do
+ * not resolve, so there are deliberately no regional shorthands here. An
+ * explicit https URL is accepted so the server can be pointed at a test double.
+ */
+function resolveWarmupBaseUrl(value: string | undefined): string {
+  const raw = value?.trim();
+  if (!raw) return DEFAULT_WARMUP_BASE_URL;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid Warmup API URL: ${raw}. Use an https:// URL.`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`The Warmup API URL must use https, got: ${raw}`);
+  }
+  return raw.replace(/\/+$/, '');
+}
+
 // Injected from package.json by the esbuild --define in `npm run build`.
 declare const __PACKAGE_VERSION__: string | undefined;
 const SERVER_VERSION = typeof __PACKAGE_VERSION__ === 'string' ? __PACKAGE_VERSION__ : '0.0.0-dev';
@@ -82,6 +108,8 @@ class ZeroBounceMCPServer {
     this.client = new ZeroBounceClient({
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
+      warmupApiKey: config.warmupApiKey,
+      warmupBaseUrl: config.warmupBaseUrl,
     });
 
     this.server = new Server(
@@ -101,8 +129,9 @@ class ZeroBounceMCPServer {
   }
 
   private setupHandlers(): void {
-    const allTools = getAllTools();
-    const toolRegistry = getToolRegistry();
+    const availability = { warmupConfigured: this.client.hasWarmup };
+    const allTools = getAllTools(availability);
+    const toolRegistry = getToolRegistry(availability);
 
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: allTools.map((tool) => tool.definition),
@@ -151,6 +180,8 @@ class ZeroBounceMCPServer {
                 {
                   baseUrl: this.config.baseUrl,
                   apiKeyConfigured: !!this.config.apiKey,
+                  warmupBaseUrl: this.config.warmupBaseUrl,
+                  warmupApiKeyConfigured: !!this.config.warmupApiKey,
                 },
                 null,
                 2
@@ -173,10 +204,12 @@ class ZeroBounceMCPServer {
   }
 }
 
-async function runStdio(apiKey: string, baseUrl: string): Promise<void> {
-  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
+async function runStdio(config: ServerConfig): Promise<void> {
+  const server = new ZeroBounceMCPServer(config);
   await server.connect(new StdioServerTransport());
-  console.error('ZeroBounce MCP server running on stdio');
+  console.error(
+    `ZeroBounce MCP server running on stdio${config.warmupApiKey ? ' (Warmup tools enabled)' : ''}`
+  );
 }
 
 // Same set as a JavaScript `\s` match, checked one character at a time so a long
@@ -215,17 +248,32 @@ function bearerToken(authorization: string): string {
   return authorization.slice(index).trim();
 }
 
+function headerValue(req: IncomingMessage, name: string): string {
+  const header = req.headers[name];
+  const value = Array.isArray(header) ? header[0] : header;
+  return value?.trim() ?? '';
+}
+
 // Each HTTP caller supplies their own ZeroBounce key, so there is deliberately
 // no fallback to ZEROBOUNCE_API_KEY in this mode.
 function getRequestApiKey(req: IncomingMessage): string {
-  const header = req.headers[API_KEY_HEADER];
-  const value = Array.isArray(header) ? header[0] : header;
-  if (value?.trim()) {
-    return value.trim();
+  const value = headerValue(req, API_KEY_HEADER);
+  if (value) {
+    return value;
   }
 
   const authorization = req.headers.authorization;
   return typeof authorization === 'string' ? bearerToken(authorization) : '';
+}
+
+/**
+ * The Warmup key is a credential of its own, so it travels per request like the
+ * validation key and is never taken from the server's environment: one caller's
+ * Warmup key must not warm another caller's mailboxes. A request without it
+ * simply gets a server with no Warmup tools.
+ */
+function getRequestWarmupApiKey(req: IncomingMessage): string {
+  return headerValue(req, WARMUP_API_KEY_HEADER);
 }
 
 function sendJsonRpcError(res: ServerResponse, status: number, message: string): void {
@@ -241,7 +289,8 @@ function sendJsonRpcError(res: ServerResponse, status: number, message: string):
 async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  baseUrl: string
+  baseUrl: string,
+  warmupBaseUrl: string
 ): Promise<void> {
   // Stateless mode: no sessions, so GET (SSE stream) and DELETE (session end) do not apply.
   if (req.method !== 'POST') {
@@ -263,7 +312,12 @@ async function handleMcpRequest(
   // A fresh server per request keeps each caller's API key isolated: an SDK Server
   // can only be connected to one transport at a time, and sharing one instance
   // across concurrent requests would mix up which key a tool call runs with.
-  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
+  const server = new ZeroBounceMCPServer({
+    apiKey,
+    baseUrl,
+    warmupApiKey: getRequestWarmupApiKey(req) || undefined,
+    warmupBaseUrl,
+  });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     maxRequestBodySize: HTTP_MAX_REQUEST_BODY_BYTES,
@@ -277,7 +331,12 @@ async function handleMcpRequest(
   await transport.handleRequest(req, res);
 }
 
-async function runHttp(host: string, port: number, baseUrl: string): Promise<void> {
+async function runHttp(
+  host: string,
+  port: number,
+  baseUrl: string,
+  warmupBaseUrl: string
+): Promise<void> {
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? '/', 'http://localhost');
 
@@ -291,7 +350,7 @@ async function runHttp(host: string, port: number, baseUrl: string): Promise<voi
       return;
     }
 
-    handleMcpRequest(req, res, baseUrl).catch((error) => {
+    handleMcpRequest(req, res, baseUrl, warmupBaseUrl).catch((error) => {
       console.error('Error handling MCP request:', error);
       if (!res.headersSent) {
         sendJsonRpcError(res, 500, 'Internal server error.');
@@ -311,11 +370,13 @@ function parseArgs(): CliConfig {
   const args = process.argv.slice(2);
   const config: CliConfig = {
     apiKey: '',
+    warmupApiKey: '',
     transport: process.env.MCP_TRANSPORT?.trim() === 'http' ? 'http' : 'stdio',
     // Loopback by default; hosted deployments must opt in to 0.0.0.0 explicitly.
     host: process.env.MCP_HOST?.trim() || '127.0.0.1',
     port: Number(process.env.PORT) || 3000,
     baseUrl: resolveApiBaseUrl(process.env.ZEROBOUNCE_API_URL),
+    warmupBaseUrl: resolveWarmupBaseUrl(process.env.ZEROBOUNCE_WARMUP_API_URL),
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -331,6 +392,24 @@ function parseArgs(): CliConfig {
       }
     } else if (arg.startsWith('--api-key=')) {
       config.apiKey = arg.slice('--api-key='.length);
+    } else if (arg === '--warmup-api-key') {
+      if (nextArg) {
+        config.warmupApiKey = nextArg;
+        i++;
+      } else {
+        throw new Error('--warmup-api-key requires a value');
+      }
+    } else if (arg.startsWith('--warmup-api-key=')) {
+      config.warmupApiKey = arg.slice('--warmup-api-key='.length);
+    } else if (arg === '--warmup-url') {
+      if (nextArg) {
+        config.warmupBaseUrl = resolveWarmupBaseUrl(nextArg);
+        i++;
+      } else {
+        throw new Error('--warmup-url requires a value');
+      }
+    } else if (arg.startsWith('--warmup-url=')) {
+      config.warmupBaseUrl = resolveWarmupBaseUrl(arg.slice('--warmup-url='.length));
     } else if (arg === '--http') {
       config.transport = 'http';
     } else if (arg === '--port') {
@@ -379,6 +458,12 @@ function parseArgs(): CliConfig {
     config.apiKey = process.env.ZEROBOUNCE_API_KEY?.trim() ?? '';
   }
 
+  // Optional: the Warmup tools are simply not registered without it, so a user
+  // who has no Warmup subscription is not forced to supply anything.
+  if (!config.warmupApiKey) {
+    config.warmupApiKey = process.env.ZEROBOUNCE_WARMUP_API_KEY?.trim() ?? '';
+  }
+
   if (!config.apiKey) {
     throw new Error(
       'ZeroBounce API key is required. Provide it via the --api-key flag or the ZEROBOUNCE_API_KEY environment variable.'
@@ -393,9 +478,14 @@ async function main(): Promise<void> {
   try {
     const config = parseArgs();
     if (config.transport === 'http') {
-      await runHttp(config.host, config.port, config.baseUrl);
+      await runHttp(config.host, config.port, config.baseUrl, config.warmupBaseUrl);
     } else {
-      await runStdio(config.apiKey, config.baseUrl);
+      await runStdio({
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        warmupApiKey: config.warmupApiKey || undefined,
+        warmupBaseUrl: config.warmupBaseUrl,
+      });
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
