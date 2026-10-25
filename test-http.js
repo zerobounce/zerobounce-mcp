@@ -1591,8 +1591,11 @@ async function testBindHost() {
   const defConfig = await readWarmupConfig(wDef.origin);
   check(defConfig.warmupBaseUrl === 'https://warmup-api.zerobounce.net',
     'defaults to the single Warmup host', defConfig.warmupBaseUrl);
+  // The detail is deliberately omitted. The value is a boolean saying whether a
+  // key is set, never a key -- but CodeQL's clear-text-logging rule keys off the
+  // identifier name and flags any logging of it, so this stays off the log.
   check(defConfig.warmupApiKeyConfigured === false,
-    'HTTP mode reports no server-level Warmup key', String(defConfig.warmupApiKeyConfigured));
+    'HTTP mode reports no server-level Warmup key');
   await stopServer(wDef);
 
   const wCustomPort = await freePort();
