@@ -18,6 +18,7 @@
  *   batch-partial-  /validatebatch reports an error for one address only
  *   ipt-detail-     the Inbox Placement Tester answers 404 with a Django `detail` error
  *   ipt-conflict-   the Inbox Placement Tester answers 400 with a JSON list of messages
+ *   returnurl-400- 400 with the live API's "Provided return URL is not permitted: None"
  *
  * Usage: node --import ./test/fake-zerobounce-api.mjs dist/index.js --http
  */
@@ -77,20 +78,25 @@ globalThis.fetch = async (input, init = {}) => {
   }
 
   const query = Object.fromEntries(url.searchParams);
-  const body = await readFields(init.body);
-  const fields = { ...query, ...body };
+  // Read the body once: both branches of the merge read it, and a request body
+  // is a stream that cannot be consumed twice.
+  const bodyFields = await readFields(init.body);
+  const fields = { ...query, ...bodyFields };
   const bearer = bearerToken(init.headers);
   const entry = {
     method: init.method ?? 'GET',
     host: url.hostname,
+    // The full URL as sent, so tests can pin host, path and query together.
+    url: url.href,
     path: url.pathname.replace(/^\/v2/, ''),
-    // The Inbox Placement Tester carries its key in the Authorization header; every
-    // other endpoint carries it as an api_key parameter.
+    // The Inbox Placement Tester carries its key in the Authorization header;
+    // every other endpoint carries it as an api_key parameter.
     apiKey: fields.api_key ?? bearer ?? null,
     auth: bearer ? 'bearer' : fields.api_key != null ? 'parameter' : 'none',
-    url: url.toString(),
+    // Kept apart so tests can assert where the key and each field travelled.
     query,
-    body,
+    body: bodyFields,
+    bodyFields,
     fields,
   };
   if (LOG_FILE) {
@@ -110,9 +116,21 @@ globalThis.fetch = async (input, init = {}) => {
       headers: { 'Content-Type': 'text/html; charset=UTF-8' },
     });
   }
+  if (key.startsWith('returnurl-400-')) {
+    // Verbatim from the live API when an S3/SFTP job goes out without return_url.
+    return new Response(
+      JSON.stringify({ error_message: 'Provided return URL is not permitted: None' }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
   if (entry.path === '/validatebatch' && key.startsWith('batch-account-')) {
     return Response.json({
-      errors: [{ email_address: 'all', error: 'Invalid API Key or your account ran out of credits' }],
+      errors: [
+        { email_address: 'all', error: 'Invalid API Key or your account ran out of credits' },
+      ],
       email_batch: [],
     });
   }

@@ -226,6 +226,20 @@ export interface ActivityDataResult {
 }
 
 
+/** The documented fields of an S3 or SFTP bulk file job (ops 31-34, 36-39). */
+export interface BulkRootFileJobRequest {
+  fileName: string;
+  hasHeaderRow: boolean;
+  removeDuplicates?: boolean;
+  returnUrl: string;
+}
+
+/** The S3 / SFTP job and export endpoints answer with {success, message}. */
+export interface BulkRootJobResponse {
+  success: boolean;
+  message?: string;
+}
+
 // List Evaluator interfaces
 export interface ListEvaluatorRequest {
   emails: string[];
@@ -785,10 +799,16 @@ export class ZeroBounceClient {
     return result as Record<string, unknown>;
   }
 
-  async sendEvaluatedFile(fileContent: string | Blob, fileName: string): Promise<BulkFileSendResponse> {
-    const blob = this.toCsvBlob(fileContent);
+  /**
+   * Submit a finished list evaluation for validation (POST /v2/send-evaluated-file/).
+   *
+   * This takes the List Evaluator's `file_id` as a form field. It is not a file
+   * upload, whatever the public docs say: an upload comes back as
+   * "file_id: This field is required".
+   */
+  async sendEvaluatedFile(fileId: string): Promise<BulkFileSendResponse> {
     const result = this.requireSdkResult(
-      await this.sdk.sendEvaluatedFileStream(blob, fileName),
+      await this.sdk.sendEvaluatedFile(fileId),
       'send evaluated file'
     );
     return result as BulkFileSendResponse;
@@ -825,22 +845,110 @@ export class ZeroBounceClient {
     );
   }
 
-  async validateS3File(fields: Record<string, unknown>): Promise<BulkFileSendResponse> {
-    const result = this.requireSdkResult(await this.sdk.validateS3file(fields), 'validate S3 file');
-    return result as BulkFileSendResponse;
-  }
-
-  async scoreS3File(fields: Record<string, unknown>): Promise<BulkFileSendResponse> {
-    const result = this.requireSdkResult(await this.sdk.scoreS3file(fields), 'score S3 file');
-    return result as BulkFileSendResponse;
-  }
-
-  async exportS3File(fileId: string, exportBucket: string): Promise<BulkFileSendResponse> {
+  /**
+   * One of the eight S3 / SFTP file jobs on the bulkapi root.
+   *
+   * `return_url` is sent on every call: the live API refuses a job without one
+   * ("Provided return URL is not permitted: None"), although the docs mark it
+   * optional. `file_name` is likewise required for all eight, SFTP included.
+   */
+  private async bulkRootFileJob(
+    sdkMethod: string,
+    context: string,
+    request: BulkRootFileJobRequest,
+    path?: string
+  ): Promise<BulkRootJobResponse> {
+    const fields: Record<string, unknown> = {
+      file_name: request.fileName,
+      has_header_row: request.hasHeaderRow,
+      return_url: request.returnUrl,
+    };
+    if (request.removeDuplicates != null) {
+      fields.remove_duplicates = request.removeDuplicates;
+    }
     const result = this.requireSdkResult(
-      await this.sdk.exportS3file({ file_id: fileId, export_bucket: exportBucket }),
+      path ? await this.sdk[sdkMethod](path, fields) : await this.sdk[sdkMethod](fields),
+      context
+    );
+    return result as BulkRootJobResponse;
+  }
+
+  async validateS3File(request: BulkRootFileJobRequest): Promise<BulkRootJobResponse> {
+    return this.bulkRootFileJob('validateS3file', 'validate S3 file', request);
+  }
+
+  /**
+   * scoreS3file is the one job the SDK's public method cannot send correctly.
+   * In @zerobounce/zero-bounce-sdk 3.0.0 it kept an older signature that has no
+   * `return_url` parameter at all, so the field is dropped and the API answers
+   * "Provided return URL is not permitted: None". The other seven jobs already
+   * go through the SDK's own `_bulkRootFileJob`, which sends all four
+   * documented fields, so this calls that helper directly for this one path.
+   *
+   * `_bulkRootFileJob` is listed in the tool's `sdkMethods`, so the tool hides
+   * itself rather than breaking if a future SDK drops it. Once the SDK routes
+   * scoreS3file through the shared helper, this can go back to the public
+   * method like its siblings.
+   */
+  async scoreS3File(request: BulkRootFileJobRequest): Promise<BulkRootJobResponse> {
+    return this.bulkRootFileJob('_bulkRootFileJob', 'score S3 file', request, '/scoreS3file');
+  }
+
+  async emailFinderS3File(request: BulkRootFileJobRequest): Promise<BulkRootJobResponse> {
+    return this.bulkRootFileJob('emailFinderS3file', 'email finder S3 file', request);
+  }
+
+  async domainSearchS3File(request: BulkRootFileJobRequest): Promise<BulkRootJobResponse> {
+    return this.bulkRootFileJob('domainSearchS3file', 'domain search S3 file', request);
+  }
+
+  async validateSftpFile(request: BulkRootFileJobRequest): Promise<BulkRootJobResponse> {
+    return this.bulkRootFileJob('validateSFTPfile', 'validate SFTP file', request);
+  }
+
+  async scoreSftpFile(request: BulkRootFileJobRequest): Promise<BulkRootJobResponse> {
+    return this.bulkRootFileJob('scoreSFTPfile', 'score SFTP file', request);
+  }
+
+  async emailFinderSftpFile(request: BulkRootFileJobRequest): Promise<BulkRootJobResponse> {
+    return this.bulkRootFileJob('emailFinderSFTPfile', 'email finder SFTP file', request);
+  }
+
+  async domainSearchSftpFile(request: BulkRootFileJobRequest): Promise<BulkRootJobResponse> {
+    return this.bulkRootFileJob('domainSearchSFTPfile', 'domain search SFTP file', request);
+  }
+
+  /**
+   * Without an export bucket the API uses the one configured on the account.
+   *
+   * The SDK's public `exportS3file` refuses to send the request at all without
+   * an `export_bucket` ("export_bucket parameter is missing"), a requirement the
+   * API itself does not impose, so this posts the documented fields through the
+   * SDK's own form-post helper instead. That keeps the SDK's base URL, HTTPS
+   * enforcement, key redaction and error handling; only the surplus check is
+   * skipped. `_sendBulkRootFormPost` is gated in the tool's `sdkMethods`.
+   */
+  async exportS3File(fileId: string, exportBucket?: string): Promise<BulkRootJobResponse> {
+    const result = this.requireSdkResult(
+      await this.sdk._sendBulkRootFormPost('/exportS3file', {
+        file_id: fileId,
+        ...(exportBucket != null ? { export_bucket: exportBucket } : {}),
+      }),
       'export S3 file'
     );
-    return result as BulkFileSendResponse;
+    return result as BulkRootJobResponse;
+  }
+
+  /** Without an export path the API uses the one configured on the account. */
+  async exportSftpFile(fileId: string, exportPath?: string): Promise<BulkRootJobResponse> {
+    const result = this.requireSdkResult(
+      await this.sdk.exportSFTPfile({
+        file_id: fileId,
+        ...(exportPath != null ? { export_path: exportPath } : {}),
+      }),
+      'export SFTP file'
+    );
+    return result as BulkRootJobResponse;
   }
 
   // ========== Inbox Placement Tester Operations ==========

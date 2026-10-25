@@ -11,11 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Inbox Placement Tester tools, covering all eight documented operations: `get_inbox_placement_providers`, `get_inbox_placement_test_types`, `create_inbox_placement_test`, `get_inbox_placement_test`, `list_inbox_placement_tests`, `delete_inbox_placement_test`, `get_inbox_placement_webhook`, and `set_inbox_placement_webhook`. This API tells you where a campaign actually landed -- inbox, spam, or nowhere -- per mailbox provider, and the server previously exposed none of it.
 - `set_inbox_placement_webhook` and the `webhookUrl` argument of `create_inbox_placement_test` hold a callback URL to the same bar as a bulk `returnUrl`: HTTPS only, and never a private, link-local, or loopback address.
+- `send_evaluated_file` submits a finished List Evaluator run for bulk validation. It takes the evaluator's `fileId`, not a file upload: the public docs describe an upload, which the API rejects with "file_id: This field is required".
+- `email_finder_s3_file` and `domain_search_s3_file` run the bulk email finder and bulk domain search over a file already in your S3 bucket.
+- SFTP/FTP bulk tools: `validate_sftp_file`, `score_sftp_file`, `email_finder_sftp_file`, `domain_search_sftp_file`, and `export_sftp_file`. The server, path and protocol come from your ZeroBounce account settings. `export_sftp_file` takes an optional `exportPath` -- a path, not a bucket.
+- `validate_s3_file` and `score_s3_file` take `hasHeaderRow` and `removeDuplicates`, which the endpoints have always accepted but these tools never passed on.
 - `--url` and `ZEROBOUNCE_API_URL` select the main API host: `us`, `eu`, or an explicit `https://` URL for a test server. ZeroBounce serves the main API from `api`, `api-us` and `api-eu`; the SDK has always supported all three, but this server had no way to reach anything but the default. There is no regional bulk or warmup host, so those calls are unaffected.
 - The `zerobounce://config` resource now reports the base URL actually in use. It previously returned a hard-coded `https://api.zerobounce.net/v2` whatever the server was pointed at.
 
+### Changed
+
+- `validate_s3_file` and `score_s3_file` now require `returnUrl`. The API refuses a job without a callback URL, so a job submitted without one could never be created or reported back.
+- `export_s3_file` no longer requires `exportBucket`. The spec makes it optional: without a bucket the API exports to the output bucket configured on your account.
+
 ### Fixed
 
+- `validate_s3_file` and `score_s3_file` could not run against the live API at all. Neither tool exposed `returnUrl`, so none was ever sent and every job came back `400 Provided return URL is not permitted: None`. Both now take a `returnUrl` and send it.
+- A `returnUrl` given to any S3 or SFTP job is checked by the same callback-URL validator as the CSV upload path, so a job is never created with a callback pointing at a private, loopback or non-HTTPS address.
 - HTTP mode accepts a bulk `fileContent` up to 32 MiB. The transport previously stopped at 4 MiB, so a larger file never reached the file-size check.
 
 ### Security

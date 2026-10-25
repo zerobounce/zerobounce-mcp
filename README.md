@@ -349,11 +349,65 @@ Get the webhook URL finished results are posted to for this API key.
 
 Save that webhook URL. It must be an HTTPS URL on a public host, the same rule the bulk
 `returnUrl` follows.
+### List Evaluator Tools
+
+#### `list_evaluator_send_file`
+
+Upload a CSV to the List Evaluator and get back a `file_id`.
+
+#### `list_evaluator_result`
+
+Fetch the evaluation for a `file_id`.
+
+#### `send_evaluated_file`
+
+Submit a finished evaluation for bulk validation. Takes the List Evaluator's
+`fileId` -- despite what the public docs show, this endpoint is not a file
+upload, and an upload is rejected with "file_id: This field is required".
+
+### S3 and SFTP/FTP Bulk Tools
+
+These run a bulk job over a file that already sits in your storage, so nothing
+is uploaded through the MCP server. The bucket, server, path and protocol all
+come from your ZeroBounce account settings.
+
+Every job tool takes the same arguments:
+
+| Argument | Required | Notes |
+| --- | --- | --- |
+| `fileName` | yes | Object key (S3) or path on the server (SFTP/FTP) |
+| `returnUrl` | yes | HTTPS callback notified when the job finishes. The API refuses a job without one. Only use a URL you control: it receives your bulk results |
+| `hasHeaderRow` | no | Defaults to `false` |
+| `removeDuplicates` | no | Omitted when not given |
+
+#### `list_s3_files`
+
+List the files in your S3 bucket. Optional `bucket` and `search` filters.
+
+#### `validate_s3_file` / `score_s3_file` / `email_finder_s3_file` / `domain_search_s3_file`
+
+Run bulk validation, AI scoring, email finder or domain search over an object in
+your S3 bucket.
+
+#### `validate_sftp_file` / `score_sftp_file` / `email_finder_sftp_file` / `domain_search_sftp_file`
+
+The same four jobs over a file on your SFTP/FTP server.
+
+#### `export_s3_file`
+
+Export a completed bulk job to S3. Takes `fileId` and an optional
+`exportBucket`; without a bucket the API uses the output bucket configured on
+your account.
+
+#### `export_sftp_file`
+
+Export a completed bulk job back to your SFTP/FTP server. Takes `fileId` and an
+optional `exportPath` -- a path, not a bucket; without it the API uses the
+export path configured on your account.
 
 ### Limitations and Non-Supported Endpoints
 
 - **Custom filters / filter management**: Not available via the official ZeroBounce Node SDK and therefore not exposed as MCP tools.
-- **List Evaluator**: The List Evaluator endpoint is not supported by the Node SDK and is not implemented in this MCP server.
 - **Per-email AI scoring tool**: AI scoring is currently supported only via bulk CSV file operations, not as a single-email scoring tool.
 
 ## Resources

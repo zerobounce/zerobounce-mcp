@@ -63,3 +63,36 @@ export const listEvaluatorResultTool: ToolHandler = {
     }
   },
 };
+
+/**
+ * Op 15. The public docs describe a file upload; the live API wants the List
+ * Evaluator's `file_id` in a form field and answers an upload with
+ * "file_id: This field is required".
+ */
+export const sendEvaluatedFileTool: ToolHandler = {
+  sdkMethods: ['sendEvaluatedFile'],
+  definition: {
+    name: 'send_evaluated_file',
+    description:
+      'Submit a finished list evaluation for bulk validation (POST /send-evaluated-file/). ' +
+      'Takes the List Evaluator file_id, not a file upload. Returns the new validation job.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        fileId: {
+          type: 'string',
+          description: 'file_id returned by list_evaluator_send_file',
+        },
+      },
+      required: ['fileId'],
+    },
+  },
+  handler: async (client: ZeroBounceClient, args) => {
+    try {
+      const result = await client.sendEvaluatedFile(requireString(args.fileId, 'fileId'));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  },
+};
