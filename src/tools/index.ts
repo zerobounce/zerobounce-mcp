@@ -33,14 +33,27 @@ import { getActivityDataTool } from './activity-data.js';
 // Priority 3 tools
 import { bulkEmailFinderTools } from './bulk-email-finder.js';
 import { bulkDomainSearchTools } from './bulk-domain-search.js';
-import { listEvaluatorSendFileTool, listEvaluatorResultTool } from './list-evaluator.js';
+import {
+  listEvaluatorSendFileTool,
+  listEvaluatorResultTool,
+  sendEvaluatedFileTool,
+} from './list-evaluator.js';
 import { addFilterTool, listFiltersTool, deleteFilterTool } from './filters.js';
 import {
   listS3FilesTool,
   validateS3FileTool,
   scoreS3FileTool,
+  emailFinderS3FileTool,
+  domainSearchS3FileTool,
   exportS3FileTool,
 } from './s3-bulk.js';
+import {
+  validateSftpFileTool,
+  scoreSftpFileTool,
+  emailFinderSftpFileTool,
+  domainSearchSftpFileTool,
+  exportSftpFileTool,
+} from './sftp-bulk.js';
 
 // Re-export all tools
 export {
@@ -94,13 +107,22 @@ function listTools(): ToolHandler[] {
     bulkDomainSearchTools.deleteFile,
     listEvaluatorSendFileTool,
     listEvaluatorResultTool,
+    sendEvaluatedFileTool,
     addFilterTool,
     listFiltersTool,
     deleteFilterTool,
     listS3FilesTool,
     validateS3FileTool,
     scoreS3FileTool,
+    emailFinderS3FileTool,
+    domainSearchS3FileTool,
     exportS3FileTool,
+    // SFTP/FTP bulk
+    validateSftpFileTool,
+    scoreSftpFileTool,
+    emailFinderSftpFileTool,
+    domainSearchSftpFileTool,
+    exportSftpFileTool,
   ];
 }
 

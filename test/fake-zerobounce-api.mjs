@@ -10,6 +10,7 @@
  *   html-200-       200 with an HTML page instead of JSON or CSV
  *   batch-account-  /validatebatch reports an account-level error for "all" addresses
  *   batch-partial-  /validatebatch reports an error for one address only
+ *   returnurl-400- 400 with the live API's "Provided return URL is not permitted: None"
  *
  * Usage: node --import ./test/fake-zerobounce-api.mjs dist/index.js --http
  */
@@ -45,12 +46,19 @@ globalThis.fetch = async (input, init = {}) => {
     return realFetch(input, init);
   }
 
-  const fields = { ...Object.fromEntries(url.searchParams), ...(await readFields(init.body)) };
+  const query = Object.fromEntries(url.searchParams);
+  const bodyFields = await readFields(init.body);
+  const fields = { ...query, ...bodyFields };
   const entry = {
     method: init.method ?? 'GET',
     host: url.hostname,
+    // The full URL as sent, so tests can pin host, path and query together.
+    url: url.href,
     path: url.pathname.replace(/^\/v2/, ''),
     apiKey: fields.api_key ?? null,
+    // Kept apart so tests can assert where the key and each field travelled.
+    query,
+    bodyFields,
     fields,
   };
   if (LOG_FILE) {
@@ -70,9 +78,21 @@ globalThis.fetch = async (input, init = {}) => {
       headers: { 'Content-Type': 'text/html; charset=UTF-8' },
     });
   }
+  if (key.startsWith('returnurl-400-')) {
+    // Verbatim from the live API when an S3/SFTP job goes out without return_url.
+    return new Response(
+      JSON.stringify({ error_message: 'Provided return URL is not permitted: None' }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }
   if (entry.path === '/validatebatch' && key.startsWith('batch-account-')) {
     return Response.json({
-      errors: [{ email_address: 'all', error: 'Invalid API Key or your account ran out of credits' }],
+      errors: [
+        { email_address: 'all', error: 'Invalid API Key or your account ran out of credits' },
+      ],
       email_batch: [],
     });
   }
