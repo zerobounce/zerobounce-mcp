@@ -20,6 +20,13 @@
  *   ipt-conflict-   the Inbox Placement Tester answers 400 with a JSON list of messages
  *   returnurl-400- 400 with the live API's "Provided return URL is not permitted: None"
  *
+ * The Warmup API (warmup-api.zerobounce.net) is served too. It carries its key in an
+ * `API-Key` header rather than an `api_key` parameter, so warmup entries log that header
+ * as `apiKey` and record the full URL for checking that the key never reaches the query
+ * string. Warmup key prefixes:
+ *   warmup-error-   400 with a JSON error body
+ *   warmup-notcsv-  a CSV download endpoint answers with JSON instead
+ *
  * Usage: node --import ./test/fake-zerobounce-api.mjs dist/index.js --http
  */
 
@@ -48,19 +55,21 @@ async function readFields(body) {
   }
 }
 
-/** One header value, whatever shape the caller passed its headers in. */
+const WARMUP_BASE_PATH = '/api/v1/warmup';
+
+/** One header value, whatever shape the caller passed its headers in, case-insensitively. */
 function readHeader(headers, name) {
-  if (!headers) {
-    return null;
-  }
-  if (typeof headers.get === 'function') {
-    return headers.get(name);
-  }
-  const entries = Array.isArray(headers) ? headers : Object.entries(headers);
+  if (!headers) return null;
+  const wanted = String(name).toLowerCase();
+  if (typeof headers.get === 'function') return headers.get(name);
+  const entries =
+    typeof headers.entries === 'function'
+      ? headers.entries()
+      : Array.isArray(headers)
+        ? headers
+        : Object.entries(headers);
   for (const [key, value] of entries) {
-    if (String(key).toLowerCase() === name) {
-      return value;
-    }
+    if (String(key).toLowerCase() === wanted) return value;
   }
   return null;
 }
@@ -71,6 +80,69 @@ function bearerToken(headers) {
   return match ? match[1].trim() : null;
 }
 
+/** CSV downloads, keyed by the warmup sub-path that serves them. */
+const WARMUP_CSV = {
+  '/seeds/download': 'seed,provider\nseed1@example.com,gmail\nseed2@example.com,outlook\n',
+  '/statistics/download': 'date,sent,inbox,spam\n2026-10-01,10,9,1\n',
+};
+
+async function handleWarmup(url, init, fields) {
+  const path = url.pathname.slice(WARMUP_BASE_PATH.length) || '/';
+  const key = readHeader(init.headers, 'API-Key') ?? null;
+  const entry = {
+    method: init.method ?? 'GET',
+    host: url.hostname,
+    path,
+    apiKey: key,
+    url: url.href,
+    query: Object.fromEntries(url.searchParams),
+    contentType: readHeader(init.headers, 'Content-Type'),
+    accept: readHeader(init.headers, 'Accept'),
+    fields,
+  };
+  if (LOG_FILE) {
+    appendFileSync(LOG_FILE, JSON.stringify(entry) + '\n');
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, Math.random() * 40));
+
+  const prefix = String(key ?? '');
+  if (prefix.startsWith('warmup-error-')) {
+    return new Response(JSON.stringify({ detail: 'from_address parameter is invalid.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const csv = WARMUP_CSV[path];
+  if (csv !== undefined) {
+    if (prefix.startsWith('warmup-notcsv-')) {
+      return new Response(JSON.stringify({ message: 'No statistics available.' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(csv, {
+      status: 200,
+      headers: { 'Content-Type': 'text/csv; charset=utf-8' },
+    });
+  }
+
+  // Echo the key and the sub-path back so a response can be matched to the
+  // request that produced it, the same way the validation fixture does.
+  return new Response(
+    JSON.stringify({
+      success: true,
+      echo_api_key: key,
+      echo_path: path,
+      echo_method: entry.method,
+      echo_query: entry.query,
+      echo_body: fields,
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } }
+  );
+}
+
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === 'string' ? input : input.url);
   if (url.hostname !== 'zerobounce.net' && !url.hostname.endsWith('.zerobounce.net')) {
@@ -78,11 +150,14 @@ globalThis.fetch = async (input, init = {}) => {
   }
 
   const query = Object.fromEntries(url.searchParams);
-  // Read the body once: both branches of the merge read it, and a request body
-  // is a stream that cannot be consumed twice.
+  // Read the body once: a request body is a stream and cannot be consumed twice.
   const bodyFields = await readFields(init.body);
   const fields = { ...query, ...bodyFields };
   const bearer = bearerToken(init.headers);
+
+  if (url.pathname.startsWith(WARMUP_BASE_PATH)) {
+    return handleWarmup(url, init, fields);
+  }
   const entry = {
     method: init.method ?? 'GET',
     host: url.hostname,

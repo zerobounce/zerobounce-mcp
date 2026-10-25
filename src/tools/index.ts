@@ -5,6 +5,7 @@
 
 import { ToolHandler } from './types.js';
 import { isSdkMethodAvailable } from '../zerobounce-client.js';
+import { isWarmupMethodAvailable } from '../warmup-client.js';
 
 // Validation tools
 import { validateEmailTool } from './validate-email.js';
@@ -58,6 +59,9 @@ import {
 // Inbox Placement Tester tools
 import { inboxPlacementTools } from './inbox-placement.js';
 
+// Warmup tools (separate API, separate key)
+import { warmupTools } from './warmup/index.js';
+
 // Re-export all tools
 export {
   validateEmailTool,
@@ -70,8 +74,15 @@ export {
   findEmailTool,
   domainSearchTool,
   getActivityDataTool,
+  warmupTools,
   inboxPlacementTools,
 };
+
+/** What `getAllTools` needs to know about the running server to gate tools. */
+export interface ToolAvailability {
+  /** Whether a ZeroBounce Warmup API key is configured for this server. */
+  warmupConfigured?: boolean;
+}
 
 /**
  * Get all tools as an array
@@ -121,6 +132,7 @@ function listTools(): ToolHandler[] {
     emailFinderS3FileTool,
     domainSearchS3FileTool,
     exportS3FileTool,
+    ...warmupTools,
     // Inbox Placement Tester
     inboxPlacementTools.providers,
     inboxPlacementTools.testTypes,
@@ -140,18 +152,28 @@ function listTools(): ToolHandler[] {
 }
 
 /**
- * Get every tool the installed ZeroBounce SDK can serve
+ * Get every tool this server can actually serve: the installed SDK must provide
+ * the methods a tool calls, and a tool on the Warmup API also needs a Warmup key
+ * to have been configured. Advertising a tool that cannot work just turns into a
+ * failed call for the client.
  */
-export function getAllTools(): ToolHandler[] {
-  return listTools().filter((tool) => (tool.sdkMethods ?? []).every(isSdkMethodAvailable));
+export function getAllTools(availability: ToolAvailability = {}): ToolHandler[] {
+  return listTools().filter((tool) => {
+    if (!(tool.sdkMethods ?? []).every(isSdkMethodAvailable)) return false;
+    if (!(tool.warmupMethods ?? []).every(isWarmupMethodAvailable)) return false;
+    if (tool.requiresWarmupKey && !availability.warmupConfigured) return false;
+    return true;
+  });
 }
 
 /**
  * Get tool registry (map of tool name to handler)
  */
-export function getToolRegistry(): Map<string, ToolHandler['handler']> {
+export function getToolRegistry(
+  availability: ToolAvailability = {}
+): Map<string, ToolHandler['handler']> {
   const registry = new Map<string, ToolHandler['handler']>();
-  const allTools = getAllTools();
+  const allTools = getAllTools(availability);
 
   for (const tool of allTools) {
     registry.set(tool.definition.name, tool.handler);

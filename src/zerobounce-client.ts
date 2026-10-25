@@ -4,11 +4,20 @@
  */
 
 import ZeroBounceSDK from '@zerobounce/zero-bounce-sdk';
+import type { ZeroBounceWarmup } from '@zerobounce/zero-bounce-sdk';
 import { looksLikeHtml } from './errors.js';
+import { createWarmupClient } from './warmup-client.js';
 
 export interface ZeroBounceConfig {
   apiKey: string;
   baseUrl?: string;
+  /**
+   * The Warmup API key. Separate product, separate host, separate key: the
+   * validation `apiKey` is not accepted by the Warmup API. Omit it and the
+   * Warmup tools are never registered.
+   */
+  warmupApiKey?: string;
+  warmupBaseUrl?: string;
 }
 
 export interface EmailValidationResult {
@@ -356,6 +365,7 @@ export class ZeroBounceClient {
   // Use official ZeroBounce SDK for core endpoints
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private sdk: any;
+  private warmupClient?: ZeroBounceWarmup;
 
   constructor(config: ZeroBounceConfig) {
     this.apiKey = config.apiKey;
@@ -364,6 +374,33 @@ export class ZeroBounceClient {
     // Initialize official SDK with optional regional API base URL
     this.sdk = new (ZeroBounceSDK as any)();
     this.sdk.init(this.apiKey, this.baseUrl);
+
+    // Built only when a Warmup key was supplied: the Warmup SDK class rejects an
+    // empty key in its constructor, and the validation key would be refused by
+    // the Warmup API anyway.
+    if (config.warmupApiKey) {
+      this.warmupClient = createWarmupClient(config.warmupApiKey, config.warmupBaseUrl);
+    }
+  }
+
+  /**
+   * The Warmup API client. Warmup tools are only registered when a Warmup key is
+   * configured, so reaching this without one means a stale tool registry.
+   */
+  get warmup(): ZeroBounceWarmup {
+    if (!this.warmupClient) {
+      throw new Error(
+        'A ZeroBounce Warmup API key is required. Provide it via --warmup-api-key, the ' +
+          'ZEROBOUNCE_WARMUP_API_KEY environment variable, or the X-ZeroBounce-Warmup-Api-Key ' +
+          'header in HTTP mode.'
+      );
+    }
+    return this.warmupClient;
+  }
+
+  /** Whether this client can serve Warmup calls. */
+  get hasWarmup(): boolean {
+    return this.warmupClient !== undefined;
   }
 
   /** SDK bulk APIs use 1-based column indexes; MCP tools accept 0-based. */

@@ -991,7 +991,7 @@ function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent"
 }
 
 // src/zerobounce-client.ts
-var import_zero_bounce_sdk = __toESM(require_zeroBounceSDK(), 1);
+var import_zero_bounce_sdk2 = __toESM(require_zeroBounceSDK(), 1);
 
 // src/errors.ts
 var MAX_ERROR_MESSAGE_LENGTH = 1e3;
@@ -1009,6 +1009,27 @@ function formatErrorMessage(error) {
     return `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}\u2026 (truncated)`;
   }
   return message || "Unknown error";
+}
+
+// src/warmup-client.ts
+var import_zero_bounce_sdk = __toESM(require_zeroBounceSDK(), 1);
+var DEFAULT_WARMUP_BASE_URL = "https://warmup-api.zerobounce.net";
+function warmupConstructor() {
+  const sdk = import_zero_bounce_sdk.default;
+  return typeof sdk.Warmup === "function" ? sdk.Warmup : void 0;
+}
+function isWarmupMethodAvailable(name) {
+  const ctor = warmupConstructor();
+  return ctor !== void 0 && typeof ctor.prototype?.[name] === "function";
+}
+function createWarmupClient(apiKey, baseUrl) {
+  const Warmup = warmupConstructor();
+  if (!Warmup) {
+    throw new Error(
+      "The Warmup API requires @zerobounce/zero-bounce-sdk with Warmup support (upgrade SDK)."
+    );
+  }
+  return new Warmup(apiKey, baseUrl || DEFAULT_WARMUP_BASE_URL);
 }
 
 // src/zerobounce-client.ts
@@ -1052,7 +1073,7 @@ function readCsvColumn(row, column, rowIndex) {
   return value;
 }
 function isSdkMethodAvailable(name) {
-  return typeof import_zero_bounce_sdk.default.prototype?.[name] === "function";
+  return typeof import_zero_bounce_sdk2.default.prototype?.[name] === "function";
 }
 var ZeroBounceClient = class {
   apiKey;
@@ -1060,11 +1081,31 @@ var ZeroBounceClient = class {
   // Use official ZeroBounce SDK for core endpoints
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sdk;
+  warmupClient;
   constructor(config) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || "https://api.zerobounce.net/v2";
-    this.sdk = new import_zero_bounce_sdk.default();
+    this.sdk = new import_zero_bounce_sdk2.default();
     this.sdk.init(this.apiKey, this.baseUrl);
+    if (config.warmupApiKey) {
+      this.warmupClient = createWarmupClient(config.warmupApiKey, config.warmupBaseUrl);
+    }
+  }
+  /**
+   * The Warmup API client. Warmup tools are only registered when a Warmup key is
+   * configured, so reaching this without one means a stale tool registry.
+   */
+  get warmup() {
+    if (!this.warmupClient) {
+      throw new Error(
+        "A ZeroBounce Warmup API key is required. Provide it via --warmup-api-key, the ZEROBOUNCE_WARMUP_API_KEY environment variable, or the X-ZeroBounce-Warmup-Api-Key header in HTTP mode."
+      );
+    }
+    return this.warmupClient;
+  }
+  /** Whether this client can serve Warmup calls. */
+  get hasWarmup() {
+    return this.warmupClient !== void 0;
   }
   /** SDK bulk APIs use 1-based column indexes; MCP tools accept 0-based. */
   toSdkColumnIndex(column) {
@@ -1573,6 +1614,16 @@ function createSuccessResponse(data) {
     ]
   };
 }
+function createTextResponse(text) {
+  return {
+    content: [
+      {
+        type: "text",
+        text
+      }
+    ]
+  };
+}
 function createErrorResponse(error) {
   const errorMessage = formatErrorMessage(error);
   return {
@@ -1594,6 +1645,31 @@ function requireString(value, fieldName) {
 function requireArray(value, fieldName) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${fieldName} is required and must be a non-empty array`);
+  }
+  return value;
+}
+function requireNumber(value, fieldName) {
+  if (value === null || value === void 0 || value === "") {
+    throw new Error(`${fieldName} is required and must be a number`);
+  }
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) {
+    throw new Error(`${fieldName} is required and must be a number`);
+  }
+  return num;
+}
+function requireBoolean(value, fieldName) {
+  if (typeof value !== "boolean") {
+    throw new Error(`${fieldName} is required and must be true or false`);
+  }
+  return value;
+}
+function optionalObject(value, fieldName) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an object`);
   }
   return value;
 }
@@ -2902,6 +2978,711 @@ var inboxPlacementTools = {
   setWebhook: setInboxPlacementWebhookTool
 };
 
+// src/tools/warmup/sending-accounts.ts
+var warmupListSendingAccountsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["listSendingAccounts"],
+  definition: {
+    name: "warmup_list_sending_accounts",
+    description: "List every ZeroBounce Warmup sending account belonging to the Warmup key's team.",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.listSendingAccounts());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetSendingAccountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getSendingAccount"],
+  definition: {
+    name: "warmup_get_sending_account",
+    description: "Get one ZeroBounce Warmup sending account by its from-address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getSendingAccount(
+        requireString(args.fromAddress, "fromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupAddSendingAccountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["addSendingAccount"],
+  definition: {
+    name: "warmup_add_sending_account",
+    description: 'Add a from-address to ZeroBounce Warmup. "self_managed" runs your own mailbox and requires engagementRuleId (0-4). "zb_managed" has ZeroBounce provision the mailbox and takes emailContent and managedSending instead; it rejects engagementRuleId.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The from-address to warm up" },
+        onboardingModel: {
+          type: "string",
+          enum: ["self_managed", "zb_managed"],
+          description: "Who runs the mailbox"
+        },
+        engagementRuleId: {
+          type: "number",
+          description: "Standard engagement rule, 0-4 (0 Default, 1 Slow Pace, 2 Repair, 3 Boost, 4 Protect). Required for self_managed."
+        },
+        ignoreConflict: {
+          type: "boolean",
+          description: "Accept the address even if it conflicts with an existing one"
+        },
+        emailContent: {
+          type: "object",
+          description: "zb_managed only: company_name, company_website, company_description, types_of_emails (transactional/newsletter/marketing), example_email"
+        },
+        managedSending: {
+          type: "object",
+          description: "zb_managed only: weekdays_only, timezone, timezone_offset (-11 to 14), warmup_start_date (YYYY-MM-DD)"
+        }
+      },
+      required: ["fromAddress", "onboardingModel"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.addSendingAccount({
+        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        onboardingModel: requireString(args.onboardingModel, "onboardingModel"),
+        engagementRuleId: optionalNumber(args.engagementRuleId) ?? null,
+        ignoreConflict: optionalBoolean(args.ignoreConflict) ?? null,
+        emailContent: optionalObject(args.emailContent, "emailContent") ?? null,
+        managedSending: optionalObject(args.managedSending, "managedSending") ?? null
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupUpdateSendingAccountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["updateSendingAccount"],
+  definition: {
+    name: "warmup_update_sending_account",
+    description: "Update a ZeroBounce Warmup sending account's engagement rule, status and auto-enable flag.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" },
+        engagementRuleId: { type: "number", description: "Standard engagement rule, 0-4" },
+        statusId: { type: "number", description: "Status, 0-8 (4 Paused, 5 Disabled)" },
+        autoEnable: {
+          type: "boolean",
+          description: "Accepted as true only for an account that is not active"
+        }
+      },
+      required: ["fromAddress", "engagementRuleId", "statusId", "autoEnable"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.updateSendingAccount({
+        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        engagementRuleId: requireNumber(args.engagementRuleId, "engagementRuleId"),
+        statusId: requireNumber(args.statusId, "statusId"),
+        autoEnable: requireBoolean(args.autoEnable, "autoEnable")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupDeleteSendingAccountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["deleteSendingAccount"],
+  definition: {
+    name: "warmup_delete_sending_account",
+    description: "Remove a sending account from ZeroBounce Warmup. Destructive: the account and its warmup history are deleted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.deleteSendingAccount(
+        requireString(args.fromAddress, "fromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupChangeFromAddressTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["changeFromAddress"],
+  definition: {
+    name: "warmup_change_from_address",
+    description: "Move a ZeroBounce Warmup account and its history to a new from-address. Despite the underlying /smtp-credentials path, no SMTP credentials are stored.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        oldFromAddress: { type: "string", description: "The current from-address" },
+        newFromAddress: { type: "string", description: "The replacement from-address" }
+      },
+      required: ["oldFromAddress", "newFromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.changeFromAddress(
+        requireString(args.oldFromAddress, "oldFromAddress"),
+        requireString(args.newFromAddress, "newFromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupListFromAddressesTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["listFromAddresses"],
+  definition: {
+    name: "warmup_list_from_addresses",
+    description: "List the from-addresses registered with ZeroBounce Warmup.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        searchFrom: {
+          type: "string",
+          description: "Filter text. Letters, digits and . - _ @ + only."
+        },
+        offset: { type: "number", description: "Non-negative offset; the API defaults to 0" },
+        limit: { type: "number", description: "Page size; the API defaults to 100" }
+      }
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.listFromAddresses({
+        searchFrom: optionalString(args.searchFrom) ?? null,
+        offset: optionalNumber(args.offset) ?? null,
+        limit: optionalNumber(args.limit) ?? null
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/warmup/engagement.ts
+var warmupGetEngagementRulesTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getEngagementRules"],
+  definition: {
+    name: "warmup_get_engagement_rules",
+    description: "List the ZeroBounce Warmup engagement rule catalogue: -1 Custom, 0 Default, 1 Slow Pace, 2 Repair, 3 Boost, 4 Protect.",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getEngagementRules());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupSetEngagementRuleTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["setEngagementRule"],
+  definition: {
+    name: "warmup_set_engagement_rule",
+    description: "Set a standard ZeroBounce Warmup engagement rule (0-4) on an address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" },
+        ruleId: { type: "number", description: "Standard engagement rule, 0-4" }
+      },
+      required: ["cFrom", "ruleId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.setEngagementRule(
+        requireString(args.cFrom, "cFrom"),
+        requireNumber(args.ruleId, "ruleId")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetCustomEngagementTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getCustomEngagement"],
+  definition: {
+    name: "warmup_get_custom_engagement",
+    description: "Get an address's custom ZeroBounce Warmup engagement rule, including can_update and remaining_seconds of the update cooldown.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" }
+      },
+      required: ["cFrom"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getCustomEngagement(requireString(args.cFrom, "cFrom"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupCreateCustomEngagementTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["createCustomEngagement"],
+  definition: {
+    name: "warmup_create_custom_engagement",
+    description: "Create a custom ZeroBounce Warmup engagement rule. Starts a 7-day cooldown before the rule can be updated again.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" },
+        replyPct: { type: "number", description: "Reply percentage, 5-45" },
+        importantPct: { type: "number", description: "Mark-as-important percentage, 5-40" },
+        clickPct: {
+          type: "number",
+          description: "Click percentage, 0-70 and at most importantPct x 1.75"
+        }
+      },
+      required: ["cFrom", "replyPct", "importantPct", "clickPct"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.createCustomEngagement({
+        cFrom: requireString(args.cFrom, "cFrom"),
+        replyPct: requireNumber(args.replyPct, "replyPct"),
+        importantPct: requireNumber(args.importantPct, "importantPct"),
+        clickPct: requireNumber(args.clickPct, "clickPct")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupUpdateCustomEngagementTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["updateCustomEngagement"],
+  definition: {
+    name: "warmup_update_custom_engagement",
+    description: "Update a custom ZeroBounce Warmup engagement rule. During the 7-day cooldown the API answers with HTTP 429.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" },
+        replyPct: { type: "number", description: "Reply percentage, 5-45" },
+        importantPct: { type: "number", description: "Mark-as-important percentage, 5-40" },
+        clickPct: {
+          type: "number",
+          description: "Click percentage, 0-70 and at most importantPct x 1.75"
+        }
+      },
+      required: ["cFrom", "replyPct", "importantPct", "clickPct"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.updateCustomEngagement({
+        cFrom: requireString(args.cFrom, "cFrom"),
+        replyPct: requireNumber(args.replyPct, "replyPct"),
+        importantPct: requireNumber(args.importantPct, "importantPct"),
+        clickPct: requireNumber(args.clickPct, "clickPct")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupDeleteCustomEngagementTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["deleteCustomEngagement"],
+  definition: {
+    name: "warmup_delete_custom_engagement",
+    description: "Delete a custom ZeroBounce Warmup engagement rule and fall back to a standard rule (1-4).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" },
+        engagementRuleId: {
+          type: "number",
+          description: "Standard rule to fall back to, 1-4"
+        }
+      },
+      required: ["cFrom", "engagementRuleId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.deleteCustomEngagement(
+        requireString(args.cFrom, "cFrom"),
+        requireNumber(args.engagementRuleId, "engagementRuleId")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/warmup/insights.ts
+var warmupGetSeedsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getSeeds"],
+  definition: {
+    name: "warmup_get_seeds",
+    description: "List the ZeroBounce Warmup seed accounts.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getSeeds());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupDownloadSeedsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["downloadSeeds"],
+  definition: {
+    name: "warmup_download_seeds",
+    description: "Download the ZeroBounce Warmup seed list as CSV text (columns seed,provider). Returns the CSV itself, not JSON.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createTextResponse(await client.warmup.downloadSeeds());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetSeedCountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getSeedCount"],
+  definition: {
+    name: "warmup_get_seed_count",
+    description: "Get the number of ZeroBounce Warmup seed accounts.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getSeedCount());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetProgressTodayTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getProgressToday"],
+  definition: {
+    name: "warmup_get_progress_today",
+    description: "Get today's ZeroBounce Warmup progress.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getProgressToday());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetSentTodayTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getSentToday"],
+  definition: {
+    name: "warmup_get_sent_today",
+    description: "Get the number of ZeroBounce Warmup messages sent today.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getSentToday());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetEmailsPerDayTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getEmailsPerDay"],
+  definition: {
+    name: "warmup_get_emails_per_day",
+    description: "Get the current ZeroBounce Warmup daily sending volume.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getEmailsPerDay());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetStatisticsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getStatistics"],
+  definition: {
+    name: "warmup_get_statistics",
+    description: "Get ZeroBounce Warmup statistics for a from-address. An address with no history returns zeros.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getStatistics(
+        requireString(args.fromAddress, "fromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetStatisticsPerDayTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getStatisticsPerDay"],
+  definition: {
+    name: "warmup_get_statistics_per_day",
+    description: "Get daily ZeroBounce Warmup statistics between two dates, inclusive.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" },
+        startDate: { type: "string", description: "Start date, YYYY-MM-DD" },
+        endDate: { type: "string", description: "End date, YYYY-MM-DD" }
+      },
+      required: ["fromAddress", "startDate", "endDate"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getStatisticsPerDay({
+        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        startDate: requireString(args.startDate, "startDate"),
+        endDate: requireString(args.endDate, "endDate")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetStatisticsDetailedTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getStatisticsDetailed"],
+  definition: {
+    name: "warmup_get_statistics_detailed",
+    description: "Get detailed ZeroBounce Warmup statistics for an address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" }
+      },
+      required: ["cFrom"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getStatisticsDetailed(requireString(args.cFrom, "cFrom"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupDownloadStatisticsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["downloadStatistics"],
+  definition: {
+    name: "warmup_download_statistics",
+    description: "Download an address's ZeroBounce Warmup statistics as CSV text. Returns the CSV itself, not JSON.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" }
+      },
+      required: ["cFrom"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const csv = await client.warmup.downloadStatistics(requireString(args.cFrom, "cFrom"));
+      return createTextResponse(csv);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetFromAddressStatisticsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getFromAddressStatistics"],
+  definition: {
+    name: "warmup_get_from_address_statistics",
+    description: "Get ZeroBounce Warmup statistics for one from-address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getFromAddressStatistics(
+        requireString(args.fromAddress, "fromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/warmup/diagnostics.ts
+var warmupCheckDomainDmarcTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["checkDomainDmarc"],
+  definition: {
+    name: "warmup_check_domain_dmarc",
+    description: "Check the SPF, DKIM and DMARC records of a from-address's domain. fromAddress must be a full email address such as sender@example.com: the live API rejects a bare domain, although the public docs describe one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: {
+          type: "string",
+          description: "An email address, not a bare domain (e.g. sender@example.com)"
+        },
+        dkimSelector: { type: "string", description: "DKIM selector to look up" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.checkDomainDmarc(
+        requireString(args.fromAddress, "fromAddress"),
+        optionalString(args.dkimSelector) ?? null
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupTestSmtpConfigurationTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["testSmtpConfiguration"],
+  definition: {
+    name: "warmup_test_smtp_configuration",
+    description: "Check that SMTP credentials connect and hand off a message. Nothing is stored, and the test message goes to a ZeroBounce test recipient rather than fromAddress. The live API answers a failed SMTP login with HTTP 500; the username and password are masked in every error from this call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The from-address being configured" },
+        username: { type: "string", description: "SMTP username" },
+        password: { type: "string", description: "SMTP password" },
+        server: { type: "string", description: "SMTP server hostname" },
+        port: { type: "number", description: "SMTP port, 1-65535" }
+      },
+      required: ["fromAddress", "username", "password", "server", "port"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.testSmtpConfiguration({
+        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        username: requireString(args.username, "username"),
+        password: requireString(args.password, "password"),
+        server: requireString(args.server, "server"),
+        port: requireNumber(args.port, "port")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/warmup/index.ts
+var warmupTools = [
+  // Sending accounts (49-55)
+  warmupListSendingAccountsTool,
+  warmupGetSendingAccountTool,
+  warmupAddSendingAccountTool,
+  warmupUpdateSendingAccountTool,
+  warmupDeleteSendingAccountTool,
+  warmupChangeFromAddressTool,
+  warmupListFromAddressesTool,
+  // Engagement rules (56-61)
+  warmupGetEngagementRulesTool,
+  warmupSetEngagementRuleTool,
+  warmupGetCustomEngagementTool,
+  warmupCreateCustomEngagementTool,
+  warmupUpdateCustomEngagementTool,
+  warmupDeleteCustomEngagementTool,
+  // Seeds, progress and statistics (62-72)
+  warmupGetSeedsTool,
+  warmupDownloadSeedsTool,
+  warmupGetSeedCountTool,
+  warmupGetProgressTodayTool,
+  warmupGetSentTodayTool,
+  warmupGetEmailsPerDayTool,
+  warmupGetStatisticsTool,
+  warmupGetStatisticsPerDayTool,
+  warmupGetStatisticsDetailedTool,
+  warmupDownloadStatisticsTool,
+  warmupGetFromAddressStatisticsTool,
+  // Diagnostics (73-74)
+  warmupCheckDomainDmarcTool,
+  warmupTestSmtpConfigurationTool
+];
+
 // src/tools/index.ts
 function listTools() {
   return [
@@ -2948,6 +3729,7 @@ function listTools() {
     emailFinderS3FileTool,
     domainSearchS3FileTool,
     exportS3FileTool,
+    ...warmupTools,
     // Inbox Placement Tester
     inboxPlacementTools.providers,
     inboxPlacementTools.testTypes,
@@ -2965,12 +3747,17 @@ function listTools() {
     exportSftpFileTool
   ];
 }
-function getAllTools() {
-  return listTools().filter((tool) => (tool.sdkMethods ?? []).every(isSdkMethodAvailable));
+function getAllTools(availability = {}) {
+  return listTools().filter((tool) => {
+    if (!(tool.sdkMethods ?? []).every(isSdkMethodAvailable)) return false;
+    if (!(tool.warmupMethods ?? []).every(isWarmupMethodAvailable)) return false;
+    if (tool.requiresWarmupKey && !availability.warmupConfigured) return false;
+    return true;
+  });
 }
-function getToolRegistry() {
+function getToolRegistry(availability = {}) {
   const registry = /* @__PURE__ */ new Map();
-  const allTools = getAllTools();
+  const allTools = getAllTools(availability);
   for (const tool of allTools) {
     registry.set(tool.definition.name, tool.handler);
   }
@@ -2979,6 +3766,7 @@ function getToolRegistry() {
 
 // src/index.ts
 var API_KEY_HEADER = "x-zerobounce-api-key";
+var WARMUP_API_KEY_HEADER = "x-zerobounce-warmup-api-key";
 var DEFAULT_API_BASE_URL = "https://api.zerobounce.net/v2";
 var REGIONAL_API_BASE_URLS = {
   default: DEFAULT_API_BASE_URL,
@@ -3003,6 +3791,20 @@ function resolveApiBaseUrl(value) {
   }
   return raw.replace(/\/+$/, "");
 }
+function resolveWarmupBaseUrl(value) {
+  const raw = value?.trim();
+  if (!raw) return DEFAULT_WARMUP_BASE_URL;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid Warmup API URL: ${raw}. Use an https:// URL.`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`The Warmup API URL must use https, got: ${raw}`);
+  }
+  return raw.replace(/\/+$/, "");
+}
 var SERVER_VERSION = true ? "0.2.0" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
@@ -3012,7 +3814,9 @@ var ZeroBounceMCPServer = class {
     this.config = config;
     this.client = new ZeroBounceClient({
       apiKey: config.apiKey,
-      baseUrl: config.baseUrl
+      baseUrl: config.baseUrl,
+      warmupApiKey: config.warmupApiKey,
+      warmupBaseUrl: config.warmupBaseUrl
     });
     this.server = new Server(
       {
@@ -3029,8 +3833,9 @@ var ZeroBounceMCPServer = class {
     this.setupHandlers();
   }
   setupHandlers() {
-    const allTools = getAllTools();
-    const toolRegistry = getToolRegistry();
+    const availability = { warmupConfigured: this.client.hasWarmup };
+    const allTools = getAllTools(availability);
+    const toolRegistry = getToolRegistry(availability);
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: allTools.map((tool) => tool.definition)
     }));
@@ -3071,7 +3876,9 @@ var ZeroBounceMCPServer = class {
               text: JSON.stringify(
                 {
                   baseUrl: this.config.baseUrl,
-                  apiKeyConfigured: !!this.config.apiKey
+                  apiKeyConfigured: !!this.config.apiKey,
+                  warmupBaseUrl: this.config.warmupBaseUrl,
+                  warmupApiKeyConfigured: !!this.config.warmupApiKey
                 },
                 null,
                 2
@@ -3090,10 +3897,12 @@ var ZeroBounceMCPServer = class {
     await this.server.close();
   }
 };
-async function runStdio(apiKey, baseUrl) {
-  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
+async function runStdio(config) {
+  const server = new ZeroBounceMCPServer(config);
   await server.connect(new StdioServerTransport());
-  console.error("ZeroBounce MCP server running on stdio");
+  console.error(
+    `ZeroBounce MCP server running on stdio${config.warmupApiKey ? " (Warmup tools enabled)" : ""}`
+  );
 }
 function isHttpWhitespace(char) {
   const code = char.charCodeAt(0);
@@ -3111,14 +3920,21 @@ function bearerToken(authorization) {
   if (index >= authorization.length) return "";
   return authorization.slice(index).trim();
 }
-function getRequestApiKey(req) {
-  const header = req.headers[API_KEY_HEADER];
+function headerValue(req, name) {
+  const header = req.headers[name];
   const value = Array.isArray(header) ? header[0] : header;
-  if (value?.trim()) {
-    return value.trim();
+  return value?.trim() ?? "";
+}
+function getRequestApiKey(req) {
+  const value = headerValue(req, API_KEY_HEADER);
+  if (value) {
+    return value;
   }
   const authorization = req.headers.authorization;
   return typeof authorization === "string" ? bearerToken(authorization) : "";
+}
+function getRequestWarmupApiKey(req) {
+  return headerValue(req, WARMUP_API_KEY_HEADER);
 }
 function sendJsonRpcError(res, status, message) {
   res.writeHead(status, { "Content-Type": "application/json" }).end(
@@ -3129,7 +3945,7 @@ function sendJsonRpcError(res, status, message) {
     })
   );
 }
-async function handleMcpRequest(req, res, baseUrl) {
+async function handleMcpRequest(req, res, baseUrl, warmupBaseUrl) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     sendJsonRpcError(res, 405, "Method not allowed.");
@@ -3144,7 +3960,12 @@ async function handleMcpRequest(req, res, baseUrl) {
     );
     return;
   }
-  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
+  const server = new ZeroBounceMCPServer({
+    apiKey,
+    baseUrl,
+    warmupApiKey: getRequestWarmupApiKey(req) || void 0,
+    warmupBaseUrl
+  });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: void 0,
     maxRequestBodySize: HTTP_MAX_REQUEST_BODY_BYTES
@@ -3156,7 +3977,7 @@ async function handleMcpRequest(req, res, baseUrl) {
   await server.connect(transport);
   await transport.handleRequest(req, res);
 }
-async function runHttp(host, port, baseUrl) {
+async function runHttp(host, port, baseUrl, warmupBaseUrl) {
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
     if (pathname === "/health") {
@@ -3167,7 +3988,7 @@ async function runHttp(host, port, baseUrl) {
       res.writeHead(404).end();
       return;
     }
-    handleMcpRequest(req, res, baseUrl).catch((error) => {
+    handleMcpRequest(req, res, baseUrl, warmupBaseUrl).catch((error) => {
       console.error("Error handling MCP request:", error);
       if (!res.headersSent) {
         sendJsonRpcError(res, 500, "Internal server error.");
@@ -3184,11 +4005,13 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
     apiKey: "",
+    warmupApiKey: "",
     transport: process.env.MCP_TRANSPORT?.trim() === "http" ? "http" : "stdio",
     // Loopback by default; hosted deployments must opt in to 0.0.0.0 explicitly.
     host: process.env.MCP_HOST?.trim() || "127.0.0.1",
     port: Number(process.env.PORT) || 3e3,
-    baseUrl: resolveApiBaseUrl(process.env.ZEROBOUNCE_API_URL)
+    baseUrl: resolveApiBaseUrl(process.env.ZEROBOUNCE_API_URL),
+    warmupBaseUrl: resolveWarmupBaseUrl(process.env.ZEROBOUNCE_WARMUP_API_URL)
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -3202,6 +4025,24 @@ function parseArgs() {
       }
     } else if (arg.startsWith("--api-key=")) {
       config.apiKey = arg.slice("--api-key=".length);
+    } else if (arg === "--warmup-api-key") {
+      if (nextArg) {
+        config.warmupApiKey = nextArg;
+        i++;
+      } else {
+        throw new Error("--warmup-api-key requires a value");
+      }
+    } else if (arg.startsWith("--warmup-api-key=")) {
+      config.warmupApiKey = arg.slice("--warmup-api-key=".length);
+    } else if (arg === "--warmup-url") {
+      if (nextArg) {
+        config.warmupBaseUrl = resolveWarmupBaseUrl(nextArg);
+        i++;
+      } else {
+        throw new Error("--warmup-url requires a value");
+      }
+    } else if (arg.startsWith("--warmup-url=")) {
+      config.warmupBaseUrl = resolveWarmupBaseUrl(arg.slice("--warmup-url=".length));
     } else if (arg === "--http") {
       config.transport = "http";
     } else if (arg === "--port") {
@@ -3246,6 +4087,9 @@ function parseArgs() {
   if (!config.apiKey) {
     config.apiKey = process.env.ZEROBOUNCE_API_KEY?.trim() ?? "";
   }
+  if (!config.warmupApiKey) {
+    config.warmupApiKey = process.env.ZEROBOUNCE_WARMUP_API_KEY?.trim() ?? "";
+  }
   if (!config.apiKey) {
     throw new Error(
       "ZeroBounce API key is required. Provide it via the --api-key flag or the ZEROBOUNCE_API_KEY environment variable."
@@ -3257,9 +4101,14 @@ async function main() {
   try {
     const config = parseArgs();
     if (config.transport === "http") {
-      await runHttp(config.host, config.port, config.baseUrl);
+      await runHttp(config.host, config.port, config.baseUrl, config.warmupBaseUrl);
     } else {
-      await runStdio(config.apiKey, config.baseUrl);
+      await runStdio({
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        warmupApiKey: config.warmupApiKey || void 0,
+        warmupBaseUrl: config.warmupBaseUrl
+      });
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

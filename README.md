@@ -14,6 +14,7 @@ A comprehensive Model Context Protocol (MCP) server that provides full-featured 
 - **Inbox Placement Testing**: See whether a campaign lands in the inbox or in spam at each mailbox provider
 - **Credit Management**: Monitor remaining credits in your ZeroBounce account
 - **Usage Analytics**: Get detailed API usage reports for any date range
+- **Warmup**: Manage warmup sending accounts, engagement rules, seeds, statistics and SPF/DKIM/DMARC checks (needs a separate [Warmup API key](#warmup-api-key))
 
 ### Key Benefits
 - 🚀 **Fast Integration**: Quick setup with MCP-compatible clients
@@ -62,6 +63,38 @@ Your ZeroBounce API key is available in the ZeroBounce dashboard:
 - **Use different keys** for development, staging, and production when possible
 
 > **Note:** Treat your API key like a password. Do not share it or commit it to version control.
+
+## Warmup API key
+
+Warmup is a separate ZeroBounce product with its **own API key and its own host**
+(`https://warmup-api.zerobounce.net`). The validation key above is not accepted there, so
+the Warmup tools need a second key:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "command": "zerobounce-mcp",
+      "args": ["--api-key=YOUR_API_KEY", "--warmup-api-key=YOUR_WARMUP_API_KEY"]
+    }
+  }
+}
+```
+
+`ZEROBOUNCE_WARMUP_API_KEY` works in place of the flag, the same way `ZEROBOUNCE_API_KEY`
+does, and the flag wins when both are set.
+
+The Warmup key is **optional**. Leave it out and the 26 `warmup_*` tools are not advertised
+at all, so a client never sees a tool that cannot work. Supply it and the server exposes 59
+tools instead of 33.
+
+In HTTP mode the Warmup key is a per-request header, `X-ZeroBounce-Warmup-Api-Key` — see
+[Remote (HTTP) Mode](#remote-http-mode).
+
+`--warmup-url` (or `ZEROBOUNCE_WARMUP_API_URL`) points the Warmup client at a different
+host, which is how the test suite reaches a stub. There is **no regional Warmup host**:
+`warmup-api-us` and `warmup-api-eu` do not resolve, so only an explicit `https://` URL is
+accepted and shorthands such as `us` are refused.
 
 ## MCP Client Configuration
 
@@ -194,12 +227,21 @@ In HTTP mode **each caller supplies their own ZeroBounce API key** on every requ
 `--api-key` are ignored, so a hosted deployment never spends a shared key's credits. A request
 without a key is rejected with `401`.
 
+A caller who also wants the Warmup tools adds `X-ZeroBounce-Warmup-Api-Key: <warmup key>`.
+That key is a credential in its own right, so it travels per request exactly like the
+validation key: `ZEROBOUNCE_WARMUP_API_KEY` and `--warmup-api-key` are ignored in HTTP mode,
+and a key is never carried over from one request to the next. A request that omits it simply
+gets a server with no `warmup_*` tools; the validation tools still work.
+
 ```json
 {
   "mcpServers": {
     "zerobounce": {
       "url": "https://your-host.example.com/mcp",
-      "headers": { "X-ZeroBounce-Api-Key": "your_api_key_here" }
+      "headers": {
+        "X-ZeroBounce-Api-Key": "your_api_key_here",
+        "X-ZeroBounce-Warmup-Api-Key": "your_warmup_api_key_here"
+      }
     }
   }
 }
@@ -303,6 +345,139 @@ Search for email addresses in a domain.
 
 Get activity data for an email address to see if it has been active recently.
 
+### Warmup Tools
+
+These 26 tools cover every documented operation of the [Warmup API](https://www.zerobounce.net/docs/warmup-api).
+They are only advertised when a **Warmup API key** is configured — see
+[Warmup API key](#warmup-api-key). They never use the validation key.
+
+**Sending accounts**
+
+#### `warmup_list_sending_accounts`
+
+List every sending account belonging to the Warmup key's team.
+
+#### `warmup_get_sending_account`
+
+Get one sending account by `fromAddress`.
+
+#### `warmup_add_sending_account`
+
+Add a from-address to warmup. `onboardingModel: "self_managed"` runs your own mailbox and
+requires `engagementRuleId` (0-4). `"zb_managed"` has ZeroBounce provision the mailbox and
+takes `emailContent` and `managedSending` instead; it rejects `engagementRuleId`.
+
+#### `warmup_update_sending_account`
+
+Change an account's `engagementRuleId` (0-4), `statusId` (0-8; 4 Paused, 5 Disabled) and
+`autoEnable` flag. `autoEnable: true` is accepted only for an account that is not active.
+
+#### `warmup_delete_sending_account`
+
+Remove a sending account. **Destructive**: the account and its warmup history go with it.
+
+#### `warmup_change_from_address`
+
+Move an account and its history from `oldFromAddress` to `newFromAddress`. Despite the
+`/smtp-credentials` path it uses, no SMTP credentials are stored.
+
+#### `warmup_list_from_addresses`
+
+List the registered from-addresses. Optional `searchFrom` (letters, digits and `. - _ @ +`
+only), `offset` and `limit`.
+
+**Engagement rules**
+
+#### `warmup_get_engagement_rules`
+
+The rule catalogue: -1 Custom, 0 Default, 1 Slow Pace, 2 Repair, 3 Boost, 4 Protect.
+
+#### `warmup_set_engagement_rule`
+
+Set a standard rule (`ruleId` 0-4) on an address (`cFrom`).
+
+#### `warmup_get_custom_engagement`
+
+An address's custom rule, including `can_update` and the `remaining_seconds` of the cooldown.
+
+#### `warmup_create_custom_engagement`
+
+Create a custom rule from `replyPct` (5-45), `importantPct` (5-40) and `clickPct` (0-70, and
+at most `importantPct` x 1.75). Starts a 7-day cooldown before the rule can be updated.
+
+#### `warmup_update_custom_engagement`
+
+Update a custom rule. During the 7-day cooldown the API answers with HTTP 429.
+
+#### `warmup_delete_custom_engagement`
+
+Delete a custom rule and fall back to a standard rule (`engagementRuleId` 1-4).
+
+**Seeds, progress and statistics**
+
+#### `warmup_get_seeds`
+
+The seed list.
+
+#### `warmup_download_seeds`
+
+The seed list as **CSV text** (columns `seed,provider`), returned as-is rather than wrapped
+in JSON.
+
+#### `warmup_get_seed_count`
+
+The number of seeds.
+
+#### `warmup_get_progress_today`
+
+Today's warmup progress.
+
+#### `warmup_get_sent_today`
+
+Messages sent today.
+
+#### `warmup_get_emails_per_day`
+
+The current daily sending volume.
+
+#### `warmup_get_statistics`
+
+Statistics for a `fromAddress`. An address with no history returns zeros.
+
+#### `warmup_get_statistics_per_day`
+
+Daily statistics between `startDate` and `endDate` (`YYYY-MM-DD`), inclusive.
+
+#### `warmup_get_statistics_detailed`
+
+Detailed statistics for an address (`cFrom`).
+
+#### `warmup_download_statistics`
+
+An address's statistics as **CSV text**, returned as-is rather than wrapped in JSON.
+
+#### `warmup_get_from_address_statistics`
+
+Statistics for one from-address.
+
+**Diagnostics**
+
+#### `warmup_check_domain_dmarc`
+
+SPF, DKIM and DMARC status of a from-address's domain, with an optional `dkimSelector`.
+
+> `fromAddress` must be a full **email address** such as `sender@example.com`. The live API
+> answers `Please provide a valid email address` for a bare domain, although the public docs
+> describe a domain. A bare domain is rejected before the call is made.
+
+#### `warmup_test_smtp_configuration`
+
+Check that SMTP credentials connect and hand off a message. Nothing is stored, and the test
+message goes to a ZeroBounce test recipient rather than to `fromAddress`. The username and
+password are masked in every error from this call.
+
+> The live API answers any failed SMTP login with HTTP 500 rather than a 4xx. That is an API
+> bug, not a transport failure.
 ### Inbox Placement Tester Tools
 
 The Inbox Placement Tester (`bulkapi.zerobounce.net/api/ipt`) reports where a campaign
@@ -416,7 +591,9 @@ The server provides the following resources:
 
 ### `zerobounce://config`
 
-Current ZeroBounce API configuration (base URL and whether API key is configured).
+Current ZeroBounce API configuration: the main API base URL and whether a validation key is
+configured, plus the Warmup base URL and whether a Warmup key is configured. Keys themselves
+are never included.
 
 ## Usage Examples
 
