@@ -32,6 +32,34 @@ npm run build
 npm test            # stdio test (live API, TEST_KEY by default), then the offline HTTP test
 ```
 
+**Do not run the live tests with an invalid or placeholder API key.** ZeroBounce
+sits behind Cloudflare, which answers a request carrying a bogus key (`TEST_KEY`
+and the like) with a 403 `error code: 1020` "Access denied" page instead of the
+API's own `api_key is invalid` JSON. The suite then fails on the block rather
+than testing anything, and the failures look like SDK bugs when they are not.
+Pass a real key:
+
+```bash
+npm test -- --api-key="$ZEROBOUNCE_API_KEY"
+```
+
+Two things this does **not** fix, so do not chase them as regressions:
+
+- Some bulk endpoints answer `403 error code: 1020` even with a valid key.
+  Verified with plain `curl`, no SDK involved: `/v2/filestatus` returns JSON,
+  while `/v2/deletefile`, `/v2/scoring/filestatus` and `/v2/scoring/deletefile`
+  are blocked. That is ZeroBounce's WAF, not this repo.
+- `Find Email (by company)` fails on `"firstName" is required`, and the bulk
+  send-file cases fail on the fixture CSV being rejected. Both are test inputs.
+
+The Warmup client needs its own key (`ZEROBOUNCE_WARMUP_API_KEY`, against
+`warmup-api.zerobounce.net`); the main `ZEROBOUNCE_API_KEY` is not valid there
+and trips the same block.
+
+CI has no real key, so it runs with `TEST_KEY` and the live stdio test fails on
+the Cloudflare block. Give the workflow a real key as a secret, or keep the live
+test out of CI -- the offline `test-http.js` is the part that gates meaningfully.
+
 ## Conventions
 
 - **Only endpoints documented at https://www.zerobounce.net/docs/.** Do not add a tool for an
