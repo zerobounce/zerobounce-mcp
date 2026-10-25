@@ -926,7 +926,10 @@ async function testWarmup(origin) {
   check(
     getAccount?.apiKey === 'w-get-account',
     'the Warmup key travels in the API-Key header',
-    JSON.stringify(getAccount?.apiKey)
+    // Report whether it matched, never the value. The fixtures use fake keys,
+    // but a harness that prints a key on failure is one real key away from
+    // putting it in a CI log.
+    getAccount?.apiKey === undefined ? 'no API-Key header' : 'unexpected key value'
   );
   check(
     getAccount?.accept === 'application/json' && getAccount?.contentType == null,
