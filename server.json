@@ -7,12 +7,12 @@
     "url": "https://github.com/zerobounce/zerobounce-mcp",
     "source": "github"
   },
-  "version": "0.1.12",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@zerobounce/mcp",
-      "version": "0.1.12",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },

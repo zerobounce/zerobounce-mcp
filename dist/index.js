@@ -32,9 +32,14 @@ var require_zeroBounceSDK = __commonJS({
       "object" == typeof exports && "object" == typeof module ? module.exports = i() : "function" == typeof define && define.amd ? define([], i) : "object" == typeof exports ? exports.ZeroBounceSDK = i() : e.ZeroBounceSDK = i();
     })(exports, () => (() => {
       "use strict";
-      var e = { d: (i2, a2) => {
-        for (var t2 in a2) e.o(a2, t2) && !e.o(i2, t2) && Object.defineProperty(i2, t2, { enumerable: true, get: a2[t2] });
-      }, o: (e2, i2) => Object.prototype.hasOwnProperty.call(e2, i2) }, i = {};
+      const e = { d: (i2, a2) => {
+        if (Array.isArray(a2)) for (var t2 = 0; t2 < a2.length; ) {
+          var n2 = a2[t2++], r2 = a2[t2++];
+          e.o(i2, n2) ? 0 === r2 && t2++ : 0 === r2 ? Object.defineProperty(i2, n2, { enumerable: true, value: a2[t2++] }) : Object.defineProperty(i2, n2, { enumerable: true, get: r2 });
+        }
+        else for (var n2 in a2) e.o(a2, n2) && !e.o(i2, n2) && Object.defineProperty(i2, n2, { enumerable: true, get: a2[n2] });
+      }, o: (e2, i2) => Object.prototype.hasOwnProperty.call(e2, i2) };
+      let i = {};
       e.d(i, { default: () => m });
       const a = { Accept: "*/*", "Accept-Encoding": "gzip, deflate, br", Connection: "keep-alive" };
       function t(e2, i2) {
@@ -233,7 +238,7 @@ var require_zeroBounceSDK = __commonJS({
         }
       }
       const m = u;
-      return i.default;
+      return i = i.default, i;
     })());
   }
 });
@@ -252,6 +257,60 @@ import {
 
 // src/zerobounce-client.ts
 var import_zero_bounce_sdk = __toESM(require_zeroBounceSDK(), 1);
+
+// src/errors.ts
+var MAX_ERROR_MESSAGE_LENGTH = 1e3;
+function looksLikeHtml(text) {
+  return /<(?:!doctype\s+html|html|head|body)\b/i.test(text.slice(0, 2e3));
+}
+function formatErrorMessage(error) {
+  let message = (error instanceof Error ? error.message : String(error)).trim();
+  message = message.replace(/^(?:(?:Error|\[Error\]):\s*)+/i, "");
+  if (looksLikeHtml(message)) {
+    const title = message.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+    return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ""} instead of an API response. Check the API key and request parameters.`;
+  }
+  if (message.length > MAX_ERROR_MESSAGE_LENGTH) {
+    return `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}\u2026 (truncated)`;
+  }
+  return message || "Unknown error";
+}
+
+// src/zerobounce-client.ts
+function readCsvColumn(row, column, rowIndex) {
+  const fields = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < row.length; i++) {
+    const ch = row[i];
+    if (quoted) {
+      if (ch === '"' && row[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (ch === '"') {
+        quoted = false;
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ",") {
+      fields.push(field);
+      field = "";
+    } else {
+      field += ch;
+    }
+  }
+  fields.push(field);
+  const value = fields[column]?.trim();
+  if (!value) {
+    throw new Error(`emails[${rowIndex}] has no value in column ${column}`);
+  }
+  return value;
+}
+function isSdkMethodAvailable(name) {
+  return typeof import_zero_bounce_sdk.default.prototype?.[name] === "function";
+}
 var ZeroBounceClient = class {
   apiKey;
   baseUrl;
@@ -280,8 +339,16 @@ var ZeroBounceClient = class {
   /**
    * Validate a single email address
    */
-  async validateEmail(email, ipAddress) {
-    const result = await this.sdk.validateEmail(email, ipAddress ?? null);
+  async validateEmail(email, options) {
+    const hasExtended = options && (options.timeout != null || options.activityData != null || options.verifyPlus != null || options.usePost);
+    const sdkArg = hasExtended ? {
+      ip_address: options?.ipAddress,
+      timeout: options?.timeout,
+      activityData: options?.activityData,
+      verifyPlus: options?.verifyPlus,
+      ...options?.usePost ? { method: "POST" } : {}
+    } : options?.ipAddress ?? null;
+    const result = await this.sdk.validateEmail(email, sdkArg);
     return result;
   }
   /**
@@ -289,11 +356,24 @@ var ZeroBounceClient = class {
    * Note: ZeroBounce batch API typically requires file upload, but this implementation
    * uses the real-time batch API on the bulk endpoint
    */
-  async validateBatch(emails, _emailAddressColumn) {
-    const emailBatch = emails.map((email) => ({
-      email_address: email
+  async validateBatch(emails, options) {
+    const column = options?.emailAddressColumn;
+    const emailBatch = emails.map((entry, row) => ({
+      email_address: column == null ? entry : readCsvColumn(entry, column, row)
     }));
-    const result = await this.sdk.validateBatch(emailBatch);
+    const batchOptions = options && (options.timeout != null || options.activityData != null || options.verifyPlus != null) ? {
+      timeout: options.timeout,
+      activityData: options.activityData,
+      verifyPlus: options.verifyPlus
+    } : null;
+    const result = this.requireSdkResult(
+      await this.sdk.validateBatch(emailBatch, batchOptions),
+      "batch validation"
+    );
+    const accountError = result.errors?.find((e) => e.email_address === "all");
+    if (accountError) {
+      throw new Error(accountError.error);
+    }
     return result;
   }
   /**
@@ -380,6 +460,9 @@ var ZeroBounceClient = class {
       throw new Error("ZeroBounce SDK returned no result");
     }
     if (typeof result === "string") {
+      if (looksLikeHtml(result)) {
+        throw new Error(result);
+      }
       return { success: true, csv: result };
     }
     if (result instanceof Blob) {
@@ -448,14 +531,141 @@ var ZeroBounceClient = class {
     const result = await this.sdk.getEmailActivity(email);
     return result;
   }
+  /**
+   * Real-time AI scoring for a single email (GET or POST /v2/scoring).
+   */
+  async scoreEmail(email, options) {
+    const sdk = this.sdk;
+    if (typeof sdk.scoreEmail !== "function") {
+      throw new Error(
+        "scoreEmail requires @zerobounce/zero-bounce-sdk with /v2/scoring support (upgrade SDK)."
+      );
+    }
+    const method = options?.usePost ? { method: "POST" } : void 0;
+    const result = await sdk.scoreEmail(email, method);
+    return result;
+  }
   // ========== List Evaluator Operations ==========
   /**
    * Evaluate the quality of an email list
    * Requires file upload (multipart/form-data) with CSV file containing emails
    */
-  async evaluateList(_fileContent, _fileName, _emailAddressColumn) {
+  async bulkEmailFinderSendFile(fileContent, fileName, domainColumn, options) {
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendEmailFinderFileStream(blob, fileName, {
+        domain_column: this.toSdkColumnIndex(domainColumn),
+        first_name_column: options?.firstNameColumn != null ? this.toSdkColumnIndex(options.firstNameColumn) : false,
+        last_name_column: options?.lastNameColumn != null ? this.toSdkColumnIndex(options.lastNameColumn) : false,
+        middle_name_column: options?.middleNameColumn != null ? this.toSdkColumnIndex(options.middleNameColumn) : false,
+        full_name_column: options?.fullNameColumn != null ? this.toSdkColumnIndex(options.fullNameColumn) : false,
+        has_header_row: options?.hasHeaderRow ?? false
+      }),
+      "bulk email finder send file"
+    );
+    return result;
+  }
+  async bulkEmailFinderFileStatus(fileId) {
+    const result = await this.sdk.getEmailFinderFileStatus(fileId);
+    return result;
+  }
+  async bulkEmailFinderGetFile(fileId) {
+    const result = await this.sdk.getEmailFinderFile(fileId);
+    return this.normalizeBulkFileResult(result);
+  }
+  async bulkEmailFinderDeleteFile(fileId) {
+    const result = await this.sdk.deleteEmailFinderFile(fileId);
+    return result;
+  }
+  async bulkDomainSearchSendFile(fileContent, fileName, domainColumn, hasHeaderRow) {
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendDomainSearchFileStream(blob, fileName, {
+        domain_column: this.toSdkColumnIndex(domainColumn),
+        has_header_row: hasHeaderRow ?? false
+      }),
+      "bulk domain search send file"
+    );
+    return result;
+  }
+  async bulkDomainSearchFileStatus(fileId) {
+    const result = await this.sdk.getDomainSearchFileStatus(fileId);
+    return result;
+  }
+  async bulkDomainSearchGetFile(fileId) {
+    const result = await this.sdk.getDomainSearchFile(fileId);
+    return this.normalizeBulkFileResult(result);
+  }
+  async bulkDomainSearchDeleteFile(fileId) {
+    const result = await this.sdk.deleteDomainSearchFile(fileId);
+    return result;
+  }
+  async sendListEvaluatorFile(fileContent, fileName, emailAddressColumn) {
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendListEvaluatorFileStream(blob, fileName, {
+        email_address_column: this.toSdkColumnIndex(emailAddressColumn)
+      }),
+      "list evaluator send file"
+    );
+    return result;
+  }
+  async getListEvaluatorResult(fileId) {
+    const result = await this.sdk.getListEvaluatorResult(fileId);
+    return result;
+  }
+  async sendEvaluatedFile(fileContent, fileName) {
+    const blob = this.toCsvBlob(fileContent);
+    const result = this.requireSdkResult(
+      await this.sdk.sendEvaluatedFileStream(blob, fileName),
+      "send evaluated file"
+    );
+    return result;
+  }
+  async addFilter(rule, target, value) {
+    return this.requireSdkResult(await this.sdk.addFilter({ rule, target, value }), "add filter");
+  }
+  async listFilters(usePost = false) {
+    return this.requireSdkResult(
+      await this.sdk.listFilters(usePost ? { method: "POST" } : null),
+      "list filters"
+    );
+  }
+  async deleteFilter(rule, target, value) {
+    return this.requireSdkResult(
+      await this.sdk.deleteFilter({ rule, target, value }),
+      "delete filter"
+    );
+  }
+  async listS3Files(options) {
+    return this.requireSdkResult(
+      await this.sdk.listS3files({
+        bucket: options?.bucket ?? null,
+        search: options?.search ?? null
+      }),
+      "list S3 files"
+    );
+  }
+  async validateS3File(fields) {
+    const result = this.requireSdkResult(await this.sdk.validateS3file(fields), "validate S3 file");
+    return result;
+  }
+  async scoreS3File(fields) {
+    const result = this.requireSdkResult(await this.sdk.scoreS3file(fields), "score S3 file");
+    return result;
+  }
+  async exportS3File(fileId, exportBucket) {
+    const result = this.requireSdkResult(
+      await this.sdk.exportS3file({ file_id: fileId, export_bucket: exportBucket }),
+      "export S3 file"
+    );
+    return result;
+  }
+  /** @deprecated Use sendListEvaluatorFile */
+  async evaluateList(fileContent, fileName, emailAddressColumn) {
+    await this.sendListEvaluatorFile(fileContent, fileName, emailAddressColumn ?? 0);
     throw new Error(
-      "List Evaluator is not available via the official ZeroBounce Node SDK."
+      "List evaluator is asynchronous; use get_list_evaluator_result with the returned file_id."
     );
   }
 };
@@ -472,7 +682,7 @@ function createSuccessResponse(data) {
   };
 }
 function createErrorResponse(error) {
-  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorMessage = formatErrorMessage(error);
   return {
     content: [
       {
@@ -505,6 +715,15 @@ function optionalNumber(value) {
   const num = typeof value === "number" ? value : Number(value);
   return isNaN(num) ? void 0 : num;
 }
+function optionalBoolean(value) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  return void 0;
+}
 
 // src/tools/validate-email.ts
 var validateEmailTool = {
@@ -521,6 +740,22 @@ var validateEmailTool = {
         ipAddress: {
           type: "string",
           description: "Optional IP address of the user (helps improve accuracy)"
+        },
+        timeout: {
+          type: "number",
+          description: "Validation timeout in seconds (3\u201360)"
+        },
+        activityData: {
+          type: "boolean",
+          description: "Include activity data on the validation result"
+        },
+        verifyPlus: {
+          type: "boolean",
+          description: "Use Verify+ validation for this request"
+        },
+        usePost: {
+          type: "boolean",
+          description: "When true, uses POST /validate with form-encoded body (same parameters as GET)"
         }
       },
       required: ["email"]
@@ -530,7 +765,17 @@ var validateEmailTool = {
     try {
       const email = requireString(args.email, "email");
       const ipAddress = optionalString(args.ipAddress);
-      const result = await client.validateEmail(email, ipAddress);
+      const timeout = optionalNumber(args.timeout);
+      const activityData = optionalBoolean(args.activityData);
+      const verifyPlus = optionalBoolean(args.verifyPlus);
+      const usePost = optionalBoolean(args.usePost) ?? false;
+      const result = await client.validateEmail(email, {
+        ipAddress,
+        timeout,
+        activityData,
+        verifyPlus,
+        usePost
+      });
       return createSuccessResponse(result);
     } catch (error) {
       return createErrorResponse(error);
@@ -555,7 +800,19 @@ var validateBatchTool = {
         },
         emailAddressColumn: {
           type: "number",
-          description: "Optional column index if emails are in CSV format (default: 0)"
+          description: "Optional 0-based column index when each entry is a CSV row; the email is read from that column. Omit when entries are plain email addresses."
+        },
+        timeout: {
+          type: "number",
+          description: "Batch validation timeout in seconds (10\u2013120)"
+        },
+        activityData: {
+          type: "boolean",
+          description: "Include activity data on each validation result"
+        },
+        verifyPlus: {
+          type: "boolean",
+          description: "Use Verify+ validation for this batch"
         }
       },
       required: ["emails"]
@@ -565,7 +822,15 @@ var validateBatchTool = {
     try {
       const emails = requireArray(args.emails, "emails");
       const emailAddressColumn = optionalNumber(args.emailAddressColumn);
-      const result = await client.validateBatch(emails, emailAddressColumn);
+      const timeout = optionalNumber(args.timeout);
+      const activityData = optionalBoolean(args.activityData);
+      const verifyPlus = optionalBoolean(args.verifyPlus);
+      const result = await client.validateBatch(emails, {
+        emailAddressColumn,
+        timeout,
+        activityData,
+        verifyPlus
+      });
       return createSuccessResponse(result);
     } catch (error) {
       return createErrorResponse(error);
@@ -624,6 +889,80 @@ var getApiUsageTool = {
     }
   }
 };
+
+// src/security/bulk-input.ts
+import { isIP } from "node:net";
+var MAX_BULK_FILE_CONTENT_BYTES = 32 * 1024 * 1024;
+function isPrivateOrLocalHost(hostname) {
+  const host = hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) {
+    return true;
+  }
+  const ipVersion = isIP(host);
+  if (ipVersion === 4) {
+    const parts = host.split(".").map((p) => Number(p));
+    if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) {
+      return true;
+    }
+    const [a, b] = parts;
+    if (a === 10 || a === 127 || a === 0) {
+      return true;
+    }
+    if (a === 169 && b === 254) {
+      return true;
+    }
+    if (a === 172 && b >= 16 && b <= 31) {
+      return true;
+    }
+    if (a === 192 && b === 168) {
+      return true;
+    }
+    return false;
+  }
+  if (ipVersion === 6) {
+    if (host === "::1") {
+      return true;
+    }
+    if (host.startsWith("fe80:") || host.startsWith("fe80%")) {
+      return true;
+    }
+    const first = host.split(":")[0];
+    if (first.length >= 2 && (first.startsWith("fc") || first.startsWith("fd"))) {
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+function validateBulkReturnUrl(returnUrl) {
+  let parsed;
+  try {
+    parsed = new URL(returnUrl);
+  } catch {
+    throw new Error("returnUrl must be a valid URL");
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error("returnUrl must use HTTPS");
+  }
+  const hostname = parsed.hostname;
+  if (!hostname) {
+    throw new Error("returnUrl must include a hostname");
+  }
+  if (isPrivateOrLocalHost(hostname)) {
+    throw new Error("returnUrl must not target private, link-local, or loopback addresses");
+  }
+  if (isIP(hostname) === 0 && !hostname.includes(".")) {
+    throw new Error("returnUrl hostname must be a fully qualified domain name");
+  }
+}
+function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent") {
+  const bytes = Buffer.byteLength(fileContent, "utf8");
+  if (bytes > MAX_BULK_FILE_CONTENT_BYTES) {
+    throw new Error(
+      `${fieldName} exceeds maximum size of ${MAX_BULK_FILE_CONTENT_BYTES} bytes`
+    );
+  }
+}
 
 // src/tools/bulk-file-helpers.ts
 function createBulkFileTools(config) {
@@ -684,6 +1023,7 @@ function createBulkFileTools(config) {
     };
   }
   const sendFileTool = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_send_file`,
       description: `Send a CSV file for bulk ${config.description}. Returns a file ID for tracking.`,
@@ -696,8 +1036,12 @@ function createBulkFileTools(config) {
     handler: async (client, args) => {
       try {
         const fileContent = requireString(args.fileContent, "fileContent");
+        assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, "fileName");
         const returnUrl = optionalString(args.returnUrl);
+        if (returnUrl) {
+          validateBulkReturnUrl(returnUrl);
+        }
         const emailAddressColumn = config.supportsEmailAddressColumn ? optionalNumber(args.emailAddressColumn) : void 0;
         const domainColumn = config.supportsDomainColumn ? optionalNumber(args.domainColumn) : void 0;
         const companyNameColumn = config.supportsCompanyNameColumn ? optionalNumber(args.companyNameColumn) : void 0;
@@ -725,6 +1069,7 @@ function createBulkFileTools(config) {
     }
   };
   const fileStatusTool = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_file_status`,
       description: `Get the status of a bulk ${config.description} file upload.`,
@@ -750,6 +1095,7 @@ function createBulkFileTools(config) {
     }
   };
   const getFileTool = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_get_file`,
       description: `Get the results of a completed bulk ${config.description} file.`,
@@ -775,6 +1121,7 @@ function createBulkFileTools(config) {
     }
   };
   const deleteFileTool = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_delete_file`,
       description: `Delete a bulk ${config.description} file from your account.`,
@@ -829,6 +1176,39 @@ var bulkAIScoringTools = createBulkFileTools({
   deleteFileMethod: (client, fileId) => client.bulkAIScoringDeleteFile(fileId),
   supportsEmailAddressColumn: true
 });
+
+// src/tools/score-email.ts
+var scoreEmailTool = {
+  sdkMethods: ["scoreEmail"],
+  definition: {
+    name: "score_email",
+    description: "Real-time AI scoring for a single email address (ZeroBounce GET or POST /v2/scoring). Returns email and numeric score.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: {
+          type: "string",
+          description: "Email address to score"
+        },
+        usePost: {
+          type: "boolean",
+          description: "When true, uses POST with form-encoded api_key and email"
+        }
+      },
+      required: ["email"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const email = requireString(args.email, "email");
+      const usePost = optionalBoolean(args.usePost) ?? false;
+      const result = await client.scoreEmail(email, { usePost });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
 
 // src/tools/find-email.ts
 var findEmailTool = {
@@ -951,8 +1331,286 @@ var getActivityDataTool = {
   }
 };
 
+// src/tools/bulk-email-finder.ts
+var bulkEmailFinderTools = createBulkFileTools({
+  name: "bulk_email_finder",
+  description: "bulk email finder",
+  sendFileMethod: (client, fileContent, fileName, _returnUrl, _emailCol, domainColumn, _c, _f, first, middle, last) => client.bulkEmailFinderSendFile(fileContent, fileName, domainColumn ?? 0, {
+    firstNameColumn: first,
+    middleNameColumn: middle,
+    lastNameColumn: last
+  }),
+  getStatusMethod: (client, fileId) => client.bulkEmailFinderFileStatus(fileId),
+  getFileMethod: (client, fileId) => client.bulkEmailFinderGetFile(fileId),
+  deleteFileMethod: (client, fileId) => client.bulkEmailFinderDeleteFile(fileId),
+  sdkMethods: [
+    "sendEmailFinderFileStream",
+    "getEmailFinderFileStatus",
+    "getEmailFinderFile",
+    "deleteEmailFinderFile"
+  ],
+  supportsDomainColumn: true,
+  supportsFirstNameColumn: true,
+  supportsMiddleNameColumn: true,
+  supportsLastNameColumn: true
+});
+
+// src/tools/bulk-domain-search.ts
+var bulkDomainSearchTools = createBulkFileTools({
+  name: "bulk_domain_search",
+  description: "bulk domain search",
+  sendFileMethod: (client, fileContent, fileName, _returnUrl, _emailCol, domainColumn) => client.bulkDomainSearchSendFile(fileContent, fileName, domainColumn ?? 0),
+  getStatusMethod: (client, fileId) => client.bulkDomainSearchFileStatus(fileId),
+  getFileMethod: (client, fileId) => client.bulkDomainSearchGetFile(fileId),
+  deleteFileMethod: (client, fileId) => client.bulkDomainSearchDeleteFile(fileId),
+  sdkMethods: [
+    "sendDomainSearchFileStream",
+    "getDomainSearchFileStatus",
+    "getDomainSearchFile",
+    "deleteDomainSearchFile"
+  ],
+  supportsDomainColumn: true
+});
+
+// src/tools/list-evaluator.ts
+var listEvaluatorSendFileTool = {
+  sdkMethods: ["sendListEvaluatorFileStream"],
+  definition: {
+    name: "list_evaluator_send_file",
+    description: "Upload a CSV for list evaluator (bulkapi listevaluator)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileContent: { type: "string", description: "CSV file content" },
+        fileName: { type: "string", description: "File name" },
+        emailAddressColumn: {
+          type: "number",
+          description: "0-based column index for email addresses"
+        }
+      },
+      required: ["fileContent", "fileName"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const fileContent = requireString(args.fileContent, "fileContent");
+      assertBulkFileContentWithinLimit(fileContent);
+      const fileName = requireString(args.fileName, "fileName");
+      const emailAddressColumn = optionalNumber(args.emailAddressColumn) ?? 0;
+      const result = await client.sendListEvaluatorFile(fileContent, fileName, emailAddressColumn);
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var listEvaluatorResultTool = {
+  sdkMethods: ["getListEvaluatorResult"],
+  definition: {
+    name: "list_evaluator_result",
+    description: "Get list evaluator job status/result by file_id",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "File ID from send_file" }
+      },
+      required: ["fileId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const fileId = requireString(args.fileId, "fileId");
+      const result = await client.getListEvaluatorResult(fileId);
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/filters.ts
+var addFilterTool = {
+  sdkMethods: ["addFilter"],
+  definition: {
+    name: "add_filter",
+    description: "Add a custom allow/block list filter",
+    inputSchema: {
+      type: "object",
+      properties: {
+        rule: { type: "string" },
+        target: { type: "string" },
+        value: { type: "string" }
+      },
+      required: ["rule", "target", "value"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.addFilter(
+        requireString(args.rule, "rule"),
+        requireString(args.target, "target"),
+        requireString(args.value, "value")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var listFiltersTool = {
+  sdkMethods: ["listFilters"],
+  definition: {
+    name: "list_filters",
+    description: "List custom filters (GET by default; set usePost for POST)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        usePost: { type: "boolean" }
+      }
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const usePost = Boolean(args.usePost);
+      const result = await client.listFilters(usePost);
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var deleteFilterTool = {
+  sdkMethods: ["deleteFilter"],
+  definition: {
+    name: "delete_filter",
+    description: "Delete a custom filter",
+    inputSchema: {
+      type: "object",
+      properties: {
+        rule: { type: "string" },
+        target: { type: "string" },
+        value: { type: "string" }
+      },
+      required: ["rule", "target", "value"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.deleteFilter(
+        requireString(args.rule, "rule"),
+        requireString(args.target, "target"),
+        requireString(args.value, "value")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/s3-bulk.ts
+var listS3FilesTool = {
+  sdkMethods: ["listS3files"],
+  definition: {
+    name: "list_s3_files",
+    description: "List S3 bucket files available for validation or scoring (GET /listS3files)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        bucket: { type: "string", description: "Input bucket (optional if configured in UI)" },
+        search: { type: "string", description: "Filter results by file name" }
+      }
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.listS3Files({
+        bucket: optionalString(args.bucket),
+        search: optionalString(args.search)
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var validateS3FileTool = {
+  sdkMethods: ["validateS3file"],
+  definition: {
+    name: "validate_s3_file",
+    description: "Submit an S3 object for bulk validation (validateS3file)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileName: { type: "string", description: "S3 object key/path" }
+      },
+      required: ["fileName"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.validateS3File({
+        file_name: requireString(args.fileName, "fileName")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var scoreS3FileTool = {
+  sdkMethods: ["scoreS3file"],
+  definition: {
+    name: "score_s3_file",
+    description: "Submit an S3 object for bulk AI scoring (scoreS3file)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileName: { type: "string" }
+      },
+      required: ["fileName"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.scoreS3File({
+        file_name: requireString(args.fileName, "fileName")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var exportS3FileTool = {
+  sdkMethods: ["exportS3file"],
+  definition: {
+    name: "export_s3_file",
+    description: "Export a completed bulk job to an S3 bucket (exportS3file)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string" },
+        exportBucket: { type: "string" }
+      },
+      required: ["fileId", "exportBucket"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.exportS3File(
+        requireString(args.fileId, "fileId"),
+        requireString(args.exportBucket, "exportBucket")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
 // src/tools/index.ts
-function getAllTools() {
+function listTools() {
   return [
     // Validation
     validateEmailTool,
@@ -970,13 +1628,34 @@ function getAllTools() {
     bulkAIScoringTools.fileStatus,
     bulkAIScoringTools.getFile,
     bulkAIScoringTools.deleteFile,
+    scoreEmailTool,
     // Email Finder
     findEmailTool,
     // Domain Search
     domainSearchTool,
     // Activity Data
-    getActivityDataTool
+    getActivityDataTool,
+    bulkEmailFinderTools.sendFile,
+    bulkEmailFinderTools.fileStatus,
+    bulkEmailFinderTools.getFile,
+    bulkEmailFinderTools.deleteFile,
+    bulkDomainSearchTools.sendFile,
+    bulkDomainSearchTools.fileStatus,
+    bulkDomainSearchTools.getFile,
+    bulkDomainSearchTools.deleteFile,
+    listEvaluatorSendFileTool,
+    listEvaluatorResultTool,
+    addFilterTool,
+    listFiltersTool,
+    deleteFilterTool,
+    listS3FilesTool,
+    validateS3FileTool,
+    scoreS3FileTool,
+    exportS3FileTool
   ];
+}
+function getAllTools() {
+  return listTools().filter((tool) => (tool.sdkMethods ?? []).every(isSdkMethodAvailable));
 }
 function getToolRegistry() {
   const registry = /* @__PURE__ */ new Map();
@@ -989,6 +1668,7 @@ function getToolRegistry() {
 
 // src/index.ts
 var API_KEY_HEADER = "x-zerobounce-api-key";
+var SERVER_VERSION = true ? "0.2.0" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
   client;
@@ -1001,7 +1681,7 @@ var ZeroBounceMCPServer = class {
     this.server = new Server(
       {
         name: "zerobounce-mcp",
-        version: "0.1.0"
+        version: SERVER_VERSION
       },
       {
         capabilities: {
@@ -1121,7 +1801,7 @@ async function handleMcpRequest(req, res) {
   await server.connect(transport);
   await transport.handleRequest(req, res);
 }
-async function runHttp(port) {
+async function runHttp(host, port) {
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
     if (pathname === "/health") {
@@ -1141,15 +1821,17 @@ async function runHttp(port) {
   });
   await new Promise((resolve, reject) => {
     httpServer.once("error", reject);
-    httpServer.listen(port, resolve);
+    httpServer.listen(port, host, resolve);
   });
-  console.error(`ZeroBounce MCP server listening on http://0.0.0.0:${port}/mcp`);
+  console.error(`ZeroBounce MCP server listening on http://${host}:${port}/mcp`);
 }
 function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
     apiKey: "",
     transport: process.env.MCP_TRANSPORT?.trim() === "http" ? "http" : "stdio",
+    // Loopback by default; hosted deployments must opt in to 0.0.0.0 explicitly.
+    host: process.env.MCP_HOST?.trim() || "127.0.0.1",
     port: Number(process.env.PORT) || 3e3
   };
   for (let i = 0; i < args.length; i++) {
@@ -1175,6 +1857,15 @@ function parseArgs() {
       }
     } else if (arg.startsWith("--port=")) {
       config.port = Number(arg.slice("--port=".length));
+    } else if (arg === "--host") {
+      if (nextArg) {
+        config.host = nextArg;
+        i++;
+      } else {
+        throw new Error("--host requires a value");
+      }
+    } else if (arg.startsWith("--host=")) {
+      config.host = arg.slice("--host=".length);
     }
   }
   if (!Number.isInteger(config.port) || config.port <= 0) {
@@ -1197,7 +1888,7 @@ async function main() {
   try {
     const config = parseArgs();
     if (config.transport === "http") {
-      await runHttp(config.port);
+      await runHttp(config.host, config.port);
     } else {
       await runStdio(config.apiKey);
     }

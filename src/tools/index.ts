@@ -4,6 +4,7 @@
  */
 
 import { ToolHandler } from './types.js';
+import { isSdkMethodAvailable } from '../zerobounce-client.js';
 
 // Validation tools
 import { validateEmailTool } from './validate-email.js';
@@ -18,6 +19,7 @@ import { bulkValidateTools } from './bulk-validate.js';
 
 // AI Scoring tools
 import { bulkAIScoringTools } from './bulk-ai-scoring.js';
+import { scoreEmailTool } from './score-email.js';
 
 // Email Finder tools
 import { findEmailTool } from './find-email.js';
@@ -28,6 +30,18 @@ import { domainSearchTool } from './domain-search.js';
 // Activity Data tools
 import { getActivityDataTool } from './activity-data.js';
 
+// Priority 3 tools
+import { bulkEmailFinderTools } from './bulk-email-finder.js';
+import { bulkDomainSearchTools } from './bulk-domain-search.js';
+import { listEvaluatorSendFileTool, listEvaluatorResultTool } from './list-evaluator.js';
+import { addFilterTool, listFiltersTool, deleteFilterTool } from './filters.js';
+import {
+  listS3FilesTool,
+  validateS3FileTool,
+  scoreS3FileTool,
+  exportS3FileTool,
+} from './s3-bulk.js';
+
 // Re-export all tools
 export {
   validateEmailTool,
@@ -36,6 +50,7 @@ export {
   getApiUsageTool,
   bulkValidateTools,
   bulkAIScoringTools,
+  scoreEmailTool,
   findEmailTool,
   domainSearchTool,
   getActivityDataTool,
@@ -44,7 +59,7 @@ export {
 /**
  * Get all tools as an array
  */
-export function getAllTools(): ToolHandler[] {
+function listTools(): ToolHandler[] {
   return [
     // Validation
     validateEmailTool,
@@ -62,13 +77,38 @@ export function getAllTools(): ToolHandler[] {
     bulkAIScoringTools.fileStatus,
     bulkAIScoringTools.getFile,
     bulkAIScoringTools.deleteFile,
+    scoreEmailTool,
     // Email Finder
     findEmailTool,
     // Domain Search
     domainSearchTool,
     // Activity Data
     getActivityDataTool,
+    bulkEmailFinderTools.sendFile,
+    bulkEmailFinderTools.fileStatus,
+    bulkEmailFinderTools.getFile,
+    bulkEmailFinderTools.deleteFile,
+    bulkDomainSearchTools.sendFile,
+    bulkDomainSearchTools.fileStatus,
+    bulkDomainSearchTools.getFile,
+    bulkDomainSearchTools.deleteFile,
+    listEvaluatorSendFileTool,
+    listEvaluatorResultTool,
+    addFilterTool,
+    listFiltersTool,
+    deleteFilterTool,
+    listS3FilesTool,
+    validateS3FileTool,
+    scoreS3FileTool,
+    exportS3FileTool,
   ];
+}
+
+/**
+ * Get every tool the installed ZeroBounce SDK can serve
+ */
+export function getAllTools(): ToolHandler[] {
+  return listTools().filter((tool) => (tool.sdkMethods ?? []).every(isSdkMethodAvailable));
 }
 
 /**

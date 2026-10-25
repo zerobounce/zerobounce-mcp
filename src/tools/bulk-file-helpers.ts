@@ -12,6 +12,10 @@ import {
   optionalString,
   optionalNumber,
 } from './types.js';
+import {
+  assertBulkFileContentWithinLimit,
+  validateBulkReturnUrl,
+} from '../security/bulk-input.js';
 
 export interface BulkFileToolConfig {
   name: string;
@@ -32,6 +36,8 @@ export interface BulkFileToolConfig {
   getStatusMethod: (client: ZeroBounceClient, fileId: string) => Promise<unknown>;
   getFileMethod: (client: ZeroBounceClient, fileId: string) => Promise<unknown>;
   deleteFileMethod: (client: ZeroBounceClient, fileId: string) => Promise<unknown>;
+  /** SDK methods the four tools need; see ToolHandler.sdkMethods. */
+  sdkMethods?: string[];
   supportsEmailAddressColumn?: boolean;
   supportsDomainColumn?: boolean;
   supportsCompanyNameColumn?: boolean;
@@ -47,7 +53,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   getFile: ToolHandler;
   deleteFile: ToolHandler;
 } {
-  const sendFileProperties: Record<string, unknown> = {
+  const sendFileProperties: Record<string, object> = {
     fileContent: {
       type: 'string',
       description: 'CSV file content as a string',
@@ -107,6 +113,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   }
 
   const sendFileTool: ToolHandler = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_send_file`,
       description: `Send a CSV file for bulk ${config.description}. Returns a file ID for tracking.`,
@@ -119,8 +126,12 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
     handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
       try {
         const fileContent = requireString(args.fileContent, 'fileContent');
+        assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, 'fileName');
         const returnUrl = optionalString(args.returnUrl);
+        if (returnUrl) {
+          validateBulkReturnUrl(returnUrl);
+        }
         const emailAddressColumn = config.supportsEmailAddressColumn ? optionalNumber(args.emailAddressColumn) : undefined;
         const domainColumn = config.supportsDomainColumn ? optionalNumber(args.domainColumn) : undefined;
         const companyNameColumn = config.supportsCompanyNameColumn ? optionalNumber(args.companyNameColumn) : undefined;
@@ -150,6 +161,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   };
 
   const fileStatusTool: ToolHandler = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_file_status`,
       description: `Get the status of a bulk ${config.description} file upload.`,
@@ -177,6 +189,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   };
 
   const getFileTool: ToolHandler = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_get_file`,
       description: `Get the results of a completed bulk ${config.description} file.`,
@@ -204,6 +217,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   };
 
   const deleteFileTool: ToolHandler = {
+    sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_delete_file`,
       description: `Delete a bulk ${config.description} file from your account.`,
