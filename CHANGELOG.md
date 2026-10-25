@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- HTTP mode accepts a bulk `fileContent` up to 32 MiB. The transport previously stopped at 4 MiB, so a larger file never reached the file-size check.
+
 ### Security
 
 - HTTP mode requires `MCP_TLS_TERMINATED=true` before binding outside loopback, making the trusted TLS proxy requirement explicit.

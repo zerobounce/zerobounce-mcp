@@ -14,6 +14,7 @@ import {
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { HTTP_MAX_REQUEST_BODY_BYTES } from './security/bulk-input.js';
 import { ZeroBounceClient } from './zerobounce-client.js';
 import { getAllTools, getToolRegistry } from './tools/index.js';
 
@@ -220,7 +221,10 @@ async function handleMcpRequest(req: IncomingMessage, res: ServerResponse): Prom
   // can only be connected to one transport at a time, and sharing one instance
   // across concurrent requests would mix up which key a tool call runs with.
   const server = new ZeroBounceMCPServer({ apiKey });
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    maxRequestBodySize: HTTP_MAX_REQUEST_BODY_BYTES,
+  });
   res.on('close', () => {
     void transport.close();
     void server.close();

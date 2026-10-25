@@ -334,6 +334,30 @@ async function testArgumentHandling(origin, names) {
     toolText(publicV6).slice(0, 180)
   );
 
+  const midSize = `email\n${'a'.repeat(5 * 1024 * 1024)}@example.com\n`;
+  const midFile = await callTool(origin, 'mid-file', 'bulk_validate_send_file', {
+    fileContent: midSize,
+    fileName: 'mid.csv',
+  });
+  check(
+    midFile.status === 200 &&
+      !/Payload Too Large/.test(`${midFile.text}\n${toolText(midFile)}`) &&
+      loggedRequests('mid-file').length === 1,
+    'fileContent larger than 4 MiB reaches the API',
+    toolText(midFile).slice(0, 180)
+  );
+
+  const overCap = 'x'.repeat(32 * 1024 * 1024 + 1);
+  const hugeFile = await callTool(origin, 'huge-file', 'bulk_validate_send_file', {
+    fileContent: overCap,
+    fileName: 'huge.csv',
+  });
+  check(
+    /exceeds maximum size of \d+ bytes/.test(toolText(hugeFile)) && loggedRequests('huge-file').length === 0,
+    'fileContent over 32 MiB is rejected by the file limit',
+    toolText(hugeFile).slice(0, 180)
+  );
+
   if (has('add_filter')) {
     await callTool(origin, 'filter-fields', 'add_filter', TOOL_ARGS.add_filter);
     const [req] = loggedRequests('filter-fields');

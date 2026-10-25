@@ -3,6 +3,13 @@ import { isIP } from 'node:net';
 /** Maximum UTF-8 byte length for bulk MCP fileContent (CSV upload). */
 export const MAX_BULK_FILE_CONTENT_BYTES = 32 * 1024 * 1024;
 
+/**
+ * HTTP must be able to deliver a fileContent of {@link MAX_BULK_FILE_CONTENT_BYTES}.
+ * JSON encoding can double a string of quotes, and the JSON-RPC envelope adds a
+ * little more, so the transport limit is twice the file cap plus 64 KiB.
+ */
+export const HTTP_MAX_REQUEST_BODY_BYTES = MAX_BULK_FILE_CONTENT_BYTES * 2 + 64 * 1024;
+
 /** `URL.hostname` keeps the brackets on an IPv6 literal (`[::1]`). */
 function normalizeHost(hostname: string): string {
   const host = hostname.trim().toLowerCase();
