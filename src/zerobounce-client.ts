@@ -244,6 +244,58 @@ export interface ListEvaluatorResult {
   processed_at: string;
 }
 
+// Inbox Placement Tester interfaces (bulkapi.zerobounce.net/api/ipt)
+
+/** Per-provider seed cap for create_inbox_placement_test. */
+export interface InboxPlacementProviderSelection {
+  id: number;
+  /** At least 1 when given. */
+  maxSeeds?: number;
+}
+
+export interface CreateInboxPlacementTestOptions {
+  /** Unique test name, at most 64 characters. */
+  name: string;
+  /** 1 (Email, needs senderEmail), 2 (Unique ID) or 3 (Auto Alias). */
+  testType?: 1 | 2 | 3;
+  /** The From address to match. Required when testType is 1. */
+  senderEmail?: string;
+  providerIds?: number[];
+  seedIds?: number[];
+  providers?: InboxPlacementProviderSelection[];
+  webhookUrl?: string;
+}
+
+export interface ListInboxPlacementTestsOptions {
+  status?: 'running' | 'finished';
+  /** ISO 8601 date or datetime. The API spells these two camelCase. */
+  createdAfter?: string;
+  createdBefore?: string;
+  /** From 1. */
+  page?: number;
+  /** 1 to 100. The SDK sends it as the API's snake_case `page_size`. */
+  pageSize?: number;
+}
+
+export interface InboxPlacementDeleteResponse {
+  success: boolean;
+  message?: string;
+}
+
+/**
+ * DELETE /api/ipt/test/{id} answers with an empty body on success. Every other
+ * ZeroBounce endpoint returns JSON, so the SDK treats an empty body as a failure
+ * and throws. An empty body with a 2xx status is a completed delete, not an error.
+ */
+function isEmptySuccessBody(error: unknown): boolean {
+  const status = (error as { statusCode?: unknown })?.statusCode;
+  if (typeof status !== 'number' || status < 200 || status >= 300) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /^Empty response from ZeroBounce/.test(message.trim());
+}
+
 /** Reads a 0-based column from one CSV row, honouring double-quoted fields. */
 function readCsvColumn(row: string, column: number, rowIndex: number): string {
   const fields: string[] = [];
@@ -789,6 +841,83 @@ export class ZeroBounceClient {
       'export S3 file'
     );
     return result as BulkFileSendResponse;
+  }
+
+  // ========== Inbox Placement Tester Operations ==========
+  //
+  // This API authenticates with `Authorization: Bearer`; the key never goes on the
+  // query string. The SDK builds the requests, so the key stays out of URLs here too.
+
+  /** Seed providers available for new tests. GET /api/ipt/providers */
+  async getInboxPlacementProviders(): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementProviders(),
+      'inbox placement providers'
+    );
+  }
+
+  /** Supported test types and the default one. GET /api/ipt/test-types */
+  async getInboxPlacementTestTypes(): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementTestTypes(),
+      'inbox placement test types'
+    );
+  }
+
+  /** Create an inbox placement test. POST /api/ipt/test */
+  async createInboxPlacementTest(options: CreateInboxPlacementTestOptions): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.createInboxPlacementTest(options),
+      'create inbox placement test'
+    );
+  }
+
+  /** A test and its placement results. GET /api/ipt/test/{id} */
+  async getInboxPlacementTest(testId: string): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementTest(testId),
+      'inbox placement test'
+    );
+  }
+
+  /** List tests, newest first. GET /api/ipt/tests */
+  async listInboxPlacementTests(options: ListInboxPlacementTestsOptions): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.listInboxPlacementTests(options),
+      'list inbox placement tests'
+    );
+  }
+
+  /** Delete a finished test. DELETE /api/ipt/test/{id}, which answers with no body. */
+  async deleteInboxPlacementTest(testId: string): Promise<InboxPlacementDeleteResponse> {
+    try {
+      const result = await this.sdk.deleteInboxPlacementTest(testId);
+      if (result == null) {
+        return { success: true, message: `Inbox placement test ${testId} deleted` };
+      }
+      return result as InboxPlacementDeleteResponse;
+    } catch (error) {
+      if (isEmptySuccessBody(error)) {
+        return { success: true, message: `Inbox placement test ${testId} deleted` };
+      }
+      throw error;
+    }
+  }
+
+  /** The webhook URL saved on this API key. GET /api/ipt/webhook */
+  async getInboxPlacementWebhook(): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementWebhook(),
+      'inbox placement webhook'
+    );
+  }
+
+  /** Save the URL finished results are posted to. PUT /api/ipt/webhook */
+  async setInboxPlacementWebhook(webhookUrl: string): Promise<unknown> {
+    return this.requireSdkResult(
+      await this.sdk.setInboxPlacementWebhook(webhookUrl),
+      'set inbox placement webhook'
+    );
   }
 
   /** @deprecated Use sendListEvaluatorFile */

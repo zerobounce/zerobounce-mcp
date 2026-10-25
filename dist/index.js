@@ -960,25 +960,25 @@ function isPrivateOrLocalHost(hostname) {
   }
   return false;
 }
-function validateBulkReturnUrl(returnUrl) {
+function validateBulkReturnUrl(returnUrl, fieldName = "returnUrl") {
   let parsed;
   try {
     parsed = new URL(returnUrl);
   } catch {
-    throw new Error("returnUrl must be a valid URL");
+    throw new Error(`${fieldName} must be a valid URL`);
   }
   if (parsed.protocol !== "https:") {
-    throw new Error("returnUrl must use HTTPS");
+    throw new Error(`${fieldName} must use HTTPS`);
   }
   const hostname = normalizeHost(parsed.hostname);
   if (!hostname) {
-    throw new Error("returnUrl must include a hostname");
+    throw new Error(`${fieldName} must include a hostname`);
   }
   if (isPrivateOrLocalHost(hostname)) {
-    throw new Error("returnUrl must not target private, link-local, or loopback addresses");
+    throw new Error(`${fieldName} must not target private, link-local, or loopback addresses`);
   }
   if (isIP(hostname) === 0 && !hostname.includes(".")) {
-    throw new Error("returnUrl hostname must be a fully qualified domain name");
+    throw new Error(`${fieldName} hostname must be a fully qualified domain name`);
   }
 }
 function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent") {
@@ -1012,6 +1012,14 @@ function formatErrorMessage(error) {
 }
 
 // src/zerobounce-client.ts
+function isEmptySuccessBody(error) {
+  const status = error?.statusCode;
+  if (typeof status !== "number" || status < 200 || status >= 300) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /^Empty response from ZeroBounce/.test(message.trim());
+}
 function readCsvColumn(row, column, rowIndex) {
   const fields = [];
   let field = "";
@@ -1395,6 +1403,74 @@ var ZeroBounceClient = class {
       "export S3 file"
     );
     return result;
+  }
+  // ========== Inbox Placement Tester Operations ==========
+  //
+  // This API authenticates with `Authorization: Bearer`; the key never goes on the
+  // query string. The SDK builds the requests, so the key stays out of URLs here too.
+  /** Seed providers available for new tests. GET /api/ipt/providers */
+  async getInboxPlacementProviders() {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementProviders(),
+      "inbox placement providers"
+    );
+  }
+  /** Supported test types and the default one. GET /api/ipt/test-types */
+  async getInboxPlacementTestTypes() {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementTestTypes(),
+      "inbox placement test types"
+    );
+  }
+  /** Create an inbox placement test. POST /api/ipt/test */
+  async createInboxPlacementTest(options) {
+    return this.requireSdkResult(
+      await this.sdk.createInboxPlacementTest(options),
+      "create inbox placement test"
+    );
+  }
+  /** A test and its placement results. GET /api/ipt/test/{id} */
+  async getInboxPlacementTest(testId) {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementTest(testId),
+      "inbox placement test"
+    );
+  }
+  /** List tests, newest first. GET /api/ipt/tests */
+  async listInboxPlacementTests(options) {
+    return this.requireSdkResult(
+      await this.sdk.listInboxPlacementTests(options),
+      "list inbox placement tests"
+    );
+  }
+  /** Delete a finished test. DELETE /api/ipt/test/{id}, which answers with no body. */
+  async deleteInboxPlacementTest(testId) {
+    try {
+      const result = await this.sdk.deleteInboxPlacementTest(testId);
+      if (result == null) {
+        return { success: true, message: `Inbox placement test ${testId} deleted` };
+      }
+      return result;
+    } catch (error) {
+      if (isEmptySuccessBody(error)) {
+        return { success: true, message: `Inbox placement test ${testId} deleted` };
+      }
+      throw error;
+    }
+  }
+  /** The webhook URL saved on this API key. GET /api/ipt/webhook */
+  async getInboxPlacementWebhook() {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementWebhook(),
+      "inbox placement webhook"
+    );
+  }
+  /** Save the URL finished results are posted to. PUT /api/ipt/webhook */
+  async setInboxPlacementWebhook(webhookUrl) {
+    return this.requireSdkResult(
+      await this.sdk.setInboxPlacementWebhook(webhookUrl),
+      "set inbox placement webhook"
+    );
   }
   /** @deprecated Use sendListEvaluatorFile */
   async evaluateList(fileContent, fileName, emailAddressColumn) {
@@ -2270,6 +2346,359 @@ var exportS3FileTool = {
   }
 };
 
+// src/tools/inbox-placement.ts
+var MAX_TEST_NAME_LENGTH = 64;
+var TEST_TYPES = [1, 2, 3];
+var TEST_STATUSES = ["running", "finished"];
+var MIN_PAGE_SIZE = 1;
+var MAX_PAGE_SIZE = 100;
+function requireTestId(value, fieldName = "testId") {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return requireString(value, fieldName).trim();
+}
+function optionalIdArray(value, fieldName) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array of ids`);
+  }
+  return value.map((item, index) => {
+    const id = optionalNumber(item);
+    if (id === void 0 || !Number.isInteger(id)) {
+      throw new Error(`${fieldName}[${index}] must be an integer id`);
+    }
+    return id;
+  });
+}
+function optionalProviderSelections(value) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("providers must be an array of { id, maxSeeds } objects");
+  }
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`providers[${index}] must be an object with an id`);
+    }
+    const entry = item;
+    const id = optionalNumber(entry.id);
+    if (id === void 0 || !Number.isInteger(id)) {
+      throw new Error(`providers[${index}].id must be an integer id`);
+    }
+    const maxSeeds = optionalNumber(entry.maxSeeds);
+    if (maxSeeds !== void 0 && (!Number.isInteger(maxSeeds) || maxSeeds < 1)) {
+      throw new Error(`providers[${index}].maxSeeds must be an integer of at least 1`);
+    }
+    return maxSeeds === void 0 ? { id } : { id, maxSeeds };
+  });
+}
+function requireWebhookUrl(value, fieldName = "webhookUrl") {
+  const webhookUrl = requireString(value, fieldName);
+  validateBulkReturnUrl(webhookUrl, fieldName);
+  return webhookUrl;
+}
+var getInboxPlacementProvidersTool = {
+  sdkMethods: ["getInboxPlacementProviders"],
+  definition: {
+    name: "get_inbox_placement_providers",
+    description: "List the seed providers (mailbox providers and their seed addresses) available for inbox placement tests (GET /api/ipt/providers)",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      const result = await client.getInboxPlacementProviders();
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var getInboxPlacementTestTypesTool = {
+  sdkMethods: ["getInboxPlacementTestTypes"],
+  definition: {
+    name: "get_inbox_placement_test_types",
+    description: "List the supported inbox placement test types and which one is the default (GET /api/ipt/test-types)",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      const result = await client.getInboxPlacementTestTypes();
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var createInboxPlacementTestTool = {
+  sdkMethods: ["createInboxPlacementTest"],
+  definition: {
+    name: "create_inbox_placement_test",
+    description: "Start an inbox placement test: ZeroBounce returns seed addresses to send your campaign to, then reports where each copy landed (POST /api/ipt/test)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: `Unique test name, at most ${MAX_TEST_NAME_LENGTH} characters`
+        },
+        testType: {
+          type: "number",
+          enum: [1, 2, 3],
+          description: "1 = Email (requires senderEmail), 2 = Unique ID, 3 = Auto Alias"
+        },
+        senderEmail: {
+          type: "string",
+          description: "The From address to match. Required when testType is 1."
+        },
+        providerIds: {
+          type: "array",
+          items: { type: "number" },
+          description: "Use every active seed of these providers (ids from get_inbox_placement_providers)"
+        },
+        seedIds: {
+          type: "array",
+          items: { type: "number" },
+          description: "Use these specific seed mailboxes"
+        },
+        providers: {
+          type: "array",
+          description: "Per-provider seed caps",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "number", description: "Provider id" },
+              maxSeeds: { type: "number", description: "Seed cap for this provider, at least 1" }
+            },
+            required: ["id"]
+          }
+        },
+        webhookUrl: {
+          type: "string",
+          description: "HTTPS URL the finished result is posted to"
+        }
+      },
+      required: ["name"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const name = requireString(args.name, "name");
+      if (name.length > MAX_TEST_NAME_LENGTH) {
+        throw new Error(`name must be at most ${MAX_TEST_NAME_LENGTH} characters`);
+      }
+      const testType = optionalNumber(args.testType);
+      if (testType !== void 0 && !TEST_TYPES.includes(testType)) {
+        throw new Error(`testType must be one of ${TEST_TYPES.join(", ")}`);
+      }
+      const senderEmail = optionalString(args.senderEmail);
+      if (testType === 1 && !senderEmail) {
+        throw new Error("senderEmail is required when testType is 1");
+      }
+      const options = { name };
+      if (testType !== void 0) {
+        options.testType = testType;
+      }
+      if (senderEmail) {
+        options.senderEmail = senderEmail;
+      }
+      const providerIds = optionalIdArray(args.providerIds, "providerIds");
+      if (providerIds) {
+        options.providerIds = providerIds;
+      }
+      const seedIds = optionalIdArray(args.seedIds, "seedIds");
+      if (seedIds) {
+        options.seedIds = seedIds;
+      }
+      const providers = optionalProviderSelections(args.providers);
+      if (providers) {
+        options.providers = providers;
+      }
+      if (args.webhookUrl !== null && args.webhookUrl !== void 0) {
+        options.webhookUrl = requireWebhookUrl(args.webhookUrl);
+      }
+      const result = await client.createInboxPlacementTest(options);
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var getInboxPlacementTestTool = {
+  sdkMethods: ["getInboxPlacementTest"],
+  definition: {
+    name: "get_inbox_placement_test",
+    description: "Get one inbox placement test and its results: inbox, spam, and missing counts per provider (GET /api/ipt/test/{id})",
+    inputSchema: {
+      type: "object",
+      properties: {
+        testId: { type: "string", description: "Test id from create_inbox_placement_test" }
+      },
+      required: ["testId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.getInboxPlacementTest(requireTestId(args.testId, "testId"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var listInboxPlacementTestsTool = {
+  sdkMethods: ["listInboxPlacementTests"],
+  definition: {
+    name: "list_inbox_placement_tests",
+    description: "List inbox placement tests, newest first (GET /api/ipt/tests)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["running", "finished"],
+          description: "Only tests in this state"
+        },
+        createdAfter: {
+          type: "string",
+          description: "ISO 8601 date or datetime; only tests created at or after it"
+        },
+        createdBefore: {
+          type: "string",
+          description: "ISO 8601 date or datetime; only tests created at or before it"
+        },
+        page: { type: "number", description: "Page number, from 1" },
+        pageSize: {
+          type: "number",
+          description: `Tests per page, ${MIN_PAGE_SIZE} to ${MAX_PAGE_SIZE} (sent as page_size)`
+        }
+      }
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const options = {};
+      const status = optionalString(args.status);
+      if (status !== void 0) {
+        if (!TEST_STATUSES.includes(status)) {
+          throw new Error(`status must be one of ${TEST_STATUSES.join(", ")}`);
+        }
+        options.status = status;
+      }
+      const createdAfter = optionalString(args.createdAfter);
+      if (createdAfter !== void 0) {
+        options.createdAfter = createdAfter;
+      }
+      const createdBefore = optionalString(args.createdBefore);
+      if (createdBefore !== void 0) {
+        options.createdBefore = createdBefore;
+      }
+      const page = optionalNumber(args.page);
+      if (page !== void 0) {
+        if (!Number.isInteger(page) || page < 1) {
+          throw new Error("page must be an integer of at least 1");
+        }
+        options.page = page;
+      }
+      const pageSize = optionalNumber(args.pageSize);
+      if (pageSize !== void 0) {
+        if (!Number.isInteger(pageSize) || pageSize < MIN_PAGE_SIZE || pageSize > MAX_PAGE_SIZE) {
+          throw new Error(
+            `pageSize must be an integer between ${MIN_PAGE_SIZE} and ${MAX_PAGE_SIZE}`
+          );
+        }
+        options.pageSize = pageSize;
+      }
+      const result = await client.listInboxPlacementTests(options);
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var deleteInboxPlacementTestTool = {
+  sdkMethods: ["deleteInboxPlacementTest"],
+  definition: {
+    name: "delete_inbox_placement_test",
+    description: "Delete a finished inbox placement test. A running test cannot be deleted. (DELETE /api/ipt/test/{id})",
+    inputSchema: {
+      type: "object",
+      properties: {
+        testId: { type: "string", description: "Test id to delete" }
+      },
+      required: ["testId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.deleteInboxPlacementTest(requireTestId(args.testId, "testId"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var getInboxPlacementWebhookTool = {
+  sdkMethods: ["getInboxPlacementWebhook"],
+  definition: {
+    name: "get_inbox_placement_webhook",
+    description: "Get the webhook URL finished inbox placement results are posted to for this API key (GET /api/ipt/webhook)",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      const result = await client.getInboxPlacementWebhook();
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var setInboxPlacementWebhookTool = {
+  sdkMethods: ["setInboxPlacementWebhook"],
+  definition: {
+    name: "set_inbox_placement_webhook",
+    description: "Save the webhook URL finished inbox placement results are posted to for this API key (PUT /api/ipt/webhook)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        webhookUrl: { type: "string", description: "HTTPS URL to post finished results to" }
+      },
+      required: ["webhookUrl"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.setInboxPlacementWebhook(requireWebhookUrl(args.webhookUrl));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var inboxPlacementTools = {
+  providers: getInboxPlacementProvidersTool,
+  testTypes: getInboxPlacementTestTypesTool,
+  createTest: createInboxPlacementTestTool,
+  getTest: getInboxPlacementTestTool,
+  listTests: listInboxPlacementTestsTool,
+  deleteTest: deleteInboxPlacementTestTool,
+  getWebhook: getInboxPlacementWebhookTool,
+  setWebhook: setInboxPlacementWebhookTool
+};
+
 // src/tools/index.ts
 function listTools() {
   return [
@@ -2312,7 +2741,16 @@ function listTools() {
     listS3FilesTool,
     validateS3FileTool,
     scoreS3FileTool,
-    exportS3FileTool
+    exportS3FileTool,
+    // Inbox Placement Tester
+    inboxPlacementTools.providers,
+    inboxPlacementTools.testTypes,
+    inboxPlacementTools.createTest,
+    inboxPlacementTools.getTest,
+    inboxPlacementTools.listTests,
+    inboxPlacementTools.deleteTest,
+    inboxPlacementTools.getWebhook,
+    inboxPlacementTools.setWebhook
   ];
 }
 function getAllTools() {

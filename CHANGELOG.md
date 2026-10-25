@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Inbox Placement Tester tools, covering all eight documented operations: `get_inbox_placement_providers`, `get_inbox_placement_test_types`, `create_inbox_placement_test`, `get_inbox_placement_test`, `list_inbox_placement_tests`, `delete_inbox_placement_test`, `get_inbox_placement_webhook`, and `set_inbox_placement_webhook`. This API tells you where a campaign actually landed -- inbox, spam, or nowhere -- per mailbox provider, and the server previously exposed none of it.
+- `set_inbox_placement_webhook` and the `webhookUrl` argument of `create_inbox_placement_test` hold a callback URL to the same bar as a bulk `returnUrl`: HTTPS only, and never a private, link-local, or loopback address.
 - `--url` and `ZEROBOUNCE_API_URL` select the main API host: `us`, `eu`, or an explicit `https://` URL for a test server. ZeroBounce serves the main API from `api`, `api-us` and `api-eu`; the SDK has always supported all three, but this server had no way to reach anything but the default. There is no regional bulk or warmup host, so those calls are unaffected.
 - The `zerobounce://config` resource now reports the base URL actually in use. It previously returned a hard-coded `https://api.zerobounce.net/v2` whatever the server was pointed at.
 
