@@ -146,6 +146,30 @@ Select your client below for detailed, client-specific setup steps:
 - **[Other / generic clients](docs/configuration-other.md)** – Configure ZeroBounce MCP for Claude Desktop, Continue, Zed, and others
 
 
+## Regional API hosts
+
+ZeroBounce serves the main API from three hosts. Pick one with `--url`, or with
+the `ZEROBOUNCE_API_URL` environment variable:
+
+```bash
+zerobounce-mcp --url us      # https://api-us.zerobounce.net/v2
+zerobounce-mcp --url eu      # https://api-eu.zerobounce.net/v2
+zerobounce-mcp               # https://api.zerobounce.net/v2 (default)
+```
+
+An explicit `https://` URL is also accepted, which is how you point the server
+at a test double. A non-https or malformed URL is refused outright rather than
+quietly replaced with production, so the server never sends your key to a host
+you did not choose.
+
+This setting applies to the **main API only**. There is no regional bulk or
+warmup host, so the bulk file jobs, the List Evaluator, the Inbox Placement
+Tester and the Warmup API are unaffected by it.
+
+In HTTP mode the host is fixed when the server starts and cannot be set
+per request: the API key arrives from the caller, so a request that could also
+choose the host could point that key at a server of its own choosing.
+
 ## Remote (HTTP) Mode
 
 The server can also run as a stateless [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http)

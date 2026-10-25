@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--url` and `ZEROBOUNCE_API_URL` select the main API host: `us`, `eu`, or an explicit `https://` URL for a test server. ZeroBounce serves the main API from `api`, `api-us` and `api-eu`; the SDK has always supported all three, but this server had no way to reach anything but the default. There is no regional bulk or warmup host, so those calls are unaffected.
+- The `zerobounce://config` resource now reports the base URL actually in use. It previously returned a hard-coded `https://api.zerobounce.net/v2` whatever the server was pointed at.
+
 ### Fixed
 
 - HTTP mode accepts a bulk `fileContent` up to 32 MiB. The transport previously stopped at 4 MiB, so a larger file never reached the file-size check.
