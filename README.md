@@ -7,10 +7,13 @@ A comprehensive Model Context Protocol (MCP) server that provides full-featured 
 ### Core Capabilities
 - **Email Validation**: Validate single or multiple email addresses with detailed results
 - **Batch Processing**: Efficiently process large volumes of emails via CSV upload
-- **AI Scoring**: Evaluate email quality and deliverability using AI via bulk CSV file uploads
+- **AI Scoring**: Evaluate email quality and deliverability using AI, for a single address or a bulk CSV file
 - **Email Finder**: Find email addresses based on name and company/domain
 - **Domain Search**: Search for all email addresses in a domain
 - **Activity Data**: Check if an email address has been recently active
+- **List Evaluator**: Get a quality assessment of a list before you validate it
+- **Custom Filters**: Manage the allow and block list rules on your account
+- **Storage Bulk**: Run and export bulk jobs over files already in S3 or on an SFTP/FTP server
 - **Inbox Placement Testing**: See whether a campaign lands in the inbox or in spam at each mailbox provider
 - **Credit Management**: Monitor remaining credits in your ZeroBounce account
 - **Usage Analytics**: Get detailed API usage reports for any date range
@@ -323,13 +326,35 @@ Get the results of a completed bulk AI scoring file.
 
 Delete a bulk AI scoring file from your account.
 
+#### `score_email`
+
+Score a single email address in real time (`/v2/scoring`). Returns the address and its
+numeric score. Set `usePost` to send the key and address form-encoded over POST instead
+of in the query string.
+
 ### Email Finder Tools
 
 #### `find_email`
 
 Find an email address based on domain, name, and/or company.
 
-> **Note:** Bulk Email Finder file operations are not available via the official Node SDK and are not exposed as MCP tools.
+#### `bulk_email_finder_send_file`
+
+Send a CSV file for bulk email finding. Takes `fileContent` and `fileName`, plus the 0-based
+column indexes `domainColumn`, `firstNameColumn`, `middleNameColumn`, and `lastNameColumn`.
+Returns a file ID for tracking.
+
+#### `bulk_email_finder_file_status`
+
+Get the status of a bulk email finder file upload.
+
+#### `bulk_email_finder_get_file`
+
+Get the results of a completed bulk email finder file.
+
+#### `bulk_email_finder_delete_file`
+
+Delete a bulk email finder file from your account.
 
 ### Domain Search Tools
 
@@ -337,7 +362,22 @@ Find an email address based on domain, name, and/or company.
 
 Search for email addresses in a domain.
 
-> **Note:** Bulk Domain Search file operations are not available via the official Node SDK and are not exposed as MCP tools.
+#### `bulk_domain_search_send_file`
+
+Send a CSV file for bulk domain search. Takes `fileContent` and `fileName`, plus the 0-based
+`domainColumn`. Returns a file ID for tracking.
+
+#### `bulk_domain_search_file_status`
+
+Get the status of a bulk domain search file upload.
+
+#### `bulk_domain_search_get_file`
+
+Get the results of a completed bulk domain search file.
+
+#### `bulk_domain_search_delete_file`
+
+Delete a bulk domain search file from your account.
 
 ### Activity Data Tools
 
@@ -580,10 +620,25 @@ Export a completed bulk job back to your SFTP/FTP server. Takes `fileId` and an
 optional `exportPath` -- a path, not a bucket; without it the API uses the
 export path configured on your account.
 
-### Limitations and Non-Supported Endpoints
+### Filter Tools
 
-- **Custom filters / filter management**: Not available via the official ZeroBounce Node SDK and therefore not exposed as MCP tools.
-- **Per-email AI scoring tool**: AI scoring is currently supported only via bulk CSV file operations, not as a single-email scoring tool.
+#### `add_filter`
+
+Add a custom allow or block list filter. Takes `rule`, `target`, and `value`.
+
+#### `list_filters`
+
+List the custom filters on the account. Uses GET by default; set `usePost` to send POST.
+
+#### `delete_filter`
+
+Delete a custom filter. Takes the same `rule`, `target`, and `value` that created it.
+
+### Tool Availability
+
+Tools that need a newer `@zerobounce/zero-bounce-sdk` method are hidden when the installed
+SDK does not provide it, so the server never advertises a tool it cannot run. Call the MCP
+`tools/list` method to see exactly what your installation exposes.
 
 ## Resources
 
