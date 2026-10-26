@@ -103,30 +103,34 @@ function isPrivateOrLocalHost(hostname: string): boolean {
   return false;
 }
 
-/** Validates optional bulk callback URLs (HTTPS, no private/link-local targets). */
-export function validateBulkReturnUrl(returnUrl: string): void {
+/**
+ * Validates a caller-supplied callback URL (HTTPS, no private/link-local targets).
+ * Used for bulk `returnUrl` and for the Inbox Placement Tester's `webhookUrl`, which
+ * ZeroBounce posts finished results to; `fieldName` only names the field in errors.
+ */
+export function validateBulkReturnUrl(returnUrl: string, fieldName = 'returnUrl'): void {
   let parsed: URL;
   try {
     parsed = new URL(returnUrl);
   } catch {
-    throw new Error('returnUrl must be a valid URL');
+    throw new Error(`${fieldName} must be a valid URL`);
   }
 
   if (parsed.protocol !== 'https:') {
-    throw new Error('returnUrl must use HTTPS');
+    throw new Error(`${fieldName} must use HTTPS`);
   }
 
   const hostname = normalizeHost(parsed.hostname);
   if (!hostname) {
-    throw new Error('returnUrl must include a hostname');
+    throw new Error(`${fieldName} must include a hostname`);
   }
 
   if (isPrivateOrLocalHost(hostname)) {
-    throw new Error('returnUrl must not target private, link-local, or loopback addresses');
+    throw new Error(`${fieldName} must not target private, link-local, or loopback addresses`);
   }
 
   if (isIP(hostname) === 0 && !hostname.includes('.')) {
-    throw new Error('returnUrl hostname must be a fully qualified domain name');
+    throw new Error(`${fieldName} hostname must be a fully qualified domain name`);
   }
 }
 

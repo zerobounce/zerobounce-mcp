@@ -960,25 +960,25 @@ function isPrivateOrLocalHost(hostname) {
   }
   return false;
 }
-function validateBulkReturnUrl(returnUrl) {
+function validateBulkReturnUrl(returnUrl, fieldName = "returnUrl") {
   let parsed;
   try {
     parsed = new URL(returnUrl);
   } catch {
-    throw new Error("returnUrl must be a valid URL");
+    throw new Error(`${fieldName} must be a valid URL`);
   }
   if (parsed.protocol !== "https:") {
-    throw new Error("returnUrl must use HTTPS");
+    throw new Error(`${fieldName} must use HTTPS`);
   }
   const hostname = normalizeHost(parsed.hostname);
   if (!hostname) {
-    throw new Error("returnUrl must include a hostname");
+    throw new Error(`${fieldName} must include a hostname`);
   }
   if (isPrivateOrLocalHost(hostname)) {
-    throw new Error("returnUrl must not target private, link-local, or loopback addresses");
+    throw new Error(`${fieldName} must not target private, link-local, or loopback addresses`);
   }
   if (isIP(hostname) === 0 && !hostname.includes(".")) {
-    throw new Error("returnUrl hostname must be a fully qualified domain name");
+    throw new Error(`${fieldName} hostname must be a fully qualified domain name`);
   }
 }
 function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent") {
@@ -991,7 +991,7 @@ function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent"
 }
 
 // src/zerobounce-client.ts
-var import_zero_bounce_sdk = __toESM(require_zeroBounceSDK(), 1);
+var import_zero_bounce_sdk2 = __toESM(require_zeroBounceSDK(), 1);
 
 // src/errors.ts
 var MAX_ERROR_MESSAGE_LENGTH = 1e3;
@@ -1011,7 +1011,36 @@ function formatErrorMessage(error) {
   return message || "Unknown error";
 }
 
+// src/warmup-client.ts
+var import_zero_bounce_sdk = __toESM(require_zeroBounceSDK(), 1);
+var DEFAULT_WARMUP_BASE_URL = "https://warmup-api.zerobounce.net";
+function warmupConstructor() {
+  const sdk = import_zero_bounce_sdk.default;
+  return typeof sdk.Warmup === "function" ? sdk.Warmup : void 0;
+}
+function isWarmupMethodAvailable(name) {
+  const ctor = warmupConstructor();
+  return ctor !== void 0 && typeof ctor.prototype?.[name] === "function";
+}
+function createWarmupClient(apiKey, baseUrl) {
+  const Warmup = warmupConstructor();
+  if (!Warmup) {
+    throw new Error(
+      "The Warmup API requires @zerobounce/zero-bounce-sdk with Warmup support (upgrade SDK)."
+    );
+  }
+  return new Warmup(apiKey, baseUrl || DEFAULT_WARMUP_BASE_URL);
+}
+
 // src/zerobounce-client.ts
+function isEmptySuccessBody(error) {
+  const status = error?.statusCode;
+  if (typeof status !== "number" || status < 200 || status >= 300) {
+    return false;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /^Empty response from ZeroBounce/.test(message.trim());
+}
 function readCsvColumn(row, column, rowIndex) {
   const fields = [];
   let field = "";
@@ -1044,7 +1073,7 @@ function readCsvColumn(row, column, rowIndex) {
   return value;
 }
 function isSdkMethodAvailable(name) {
-  return typeof import_zero_bounce_sdk.default.prototype?.[name] === "function";
+  return typeof import_zero_bounce_sdk2.default.prototype?.[name] === "function";
 }
 var ZeroBounceClient = class {
   apiKey;
@@ -1052,11 +1081,31 @@ var ZeroBounceClient = class {
   // Use official ZeroBounce SDK for core endpoints
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sdk;
+  warmupClient;
   constructor(config) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || "https://api.zerobounce.net/v2";
-    this.sdk = new import_zero_bounce_sdk.default();
+    this.sdk = new import_zero_bounce_sdk2.default();
     this.sdk.init(this.apiKey, this.baseUrl);
+    if (config.warmupApiKey) {
+      this.warmupClient = createWarmupClient(config.warmupApiKey, config.warmupBaseUrl);
+    }
+  }
+  /**
+   * The Warmup API client. Warmup tools are only registered when a Warmup key is
+   * configured, so reaching this without one means a stale tool registry.
+   */
+  get warmup() {
+    if (!this.warmupClient) {
+      throw new Error(
+        "A ZeroBounce Warmup API key is required. Provide it via --warmup-api-key, the ZEROBOUNCE_WARMUP_API_KEY environment variable, or the X-ZeroBounce-Warmup-Api-Key header in HTTP mode."
+      );
+    }
+    return this.warmupClient;
+  }
+  /** Whether this client can serve Warmup calls. */
+  get hasWarmup() {
+    return this.warmupClient !== void 0;
   }
   /** SDK bulk APIs use 1-based column indexes; MCP tools accept 0-based. */
   toSdkColumnIndex(column) {
@@ -1349,10 +1398,16 @@ var ZeroBounceClient = class {
     const result = await this.sdk.getListEvaluatorResult(fileId);
     return result;
   }
-  async sendEvaluatedFile(fileContent, fileName) {
-    const blob = this.toCsvBlob(fileContent);
+  /**
+   * Submit a finished list evaluation for validation (POST /v2/send-evaluated-file/).
+   *
+   * This takes the List Evaluator's `file_id` as a form field. It is not a file
+   * upload, whatever the public docs say: an upload comes back as
+   * "file_id: This field is required".
+   */
+  async sendEvaluatedFile(fileId) {
     const result = this.requireSdkResult(
-      await this.sdk.sendEvaluatedFileStream(blob, fileName),
+      await this.sdk.sendEvaluatedFile(fileId),
       "send evaluated file"
     );
     return result;
@@ -1381,20 +1436,163 @@ var ZeroBounceClient = class {
       "list S3 files"
     );
   }
-  async validateS3File(fields) {
-    const result = this.requireSdkResult(await this.sdk.validateS3file(fields), "validate S3 file");
+  /**
+   * One of the eight S3 / SFTP file jobs on the bulkapi root.
+   *
+   * `return_url` is sent on every call: the live API refuses a job without one
+   * ("Provided return URL is not permitted: None"), although the docs mark it
+   * optional. `file_name` is likewise required for all eight, SFTP included.
+   */
+  async bulkRootFileJob(sdkMethod, context, request, path) {
+    const fields = {
+      file_name: request.fileName,
+      has_header_row: request.hasHeaderRow,
+      return_url: request.returnUrl
+    };
+    if (request.removeDuplicates != null) {
+      fields.remove_duplicates = request.removeDuplicates;
+    }
+    const result = this.requireSdkResult(
+      path ? await this.sdk[sdkMethod](path, fields) : await this.sdk[sdkMethod](fields),
+      context
+    );
     return result;
   }
-  async scoreS3File(fields) {
-    const result = this.requireSdkResult(await this.sdk.scoreS3file(fields), "score S3 file");
-    return result;
+  async validateS3File(request) {
+    return this.bulkRootFileJob("validateS3file", "validate S3 file", request);
   }
+  /**
+   * scoreS3file is the one job the SDK's public method cannot send correctly.
+   * In @zerobounce/zero-bounce-sdk 3.0.0 it kept an older signature that has no
+   * `return_url` parameter at all, so the field is dropped and the API answers
+   * "Provided return URL is not permitted: None". The other seven jobs already
+   * go through the SDK's own `_bulkRootFileJob`, which sends all four
+   * documented fields, so this calls that helper directly for this one path.
+   *
+   * `_bulkRootFileJob` is listed in the tool's `sdkMethods`, so the tool hides
+   * itself rather than breaking if a future SDK drops it. Once the SDK routes
+   * scoreS3file through the shared helper, this can go back to the public
+   * method like its siblings.
+   */
+  async scoreS3File(request) {
+    return this.bulkRootFileJob("_bulkRootFileJob", "score S3 file", request, "/scoreS3file");
+  }
+  async emailFinderS3File(request) {
+    return this.bulkRootFileJob("emailFinderS3file", "email finder S3 file", request);
+  }
+  async domainSearchS3File(request) {
+    return this.bulkRootFileJob("domainSearchS3file", "domain search S3 file", request);
+  }
+  async validateSftpFile(request) {
+    return this.bulkRootFileJob("validateSFTPfile", "validate SFTP file", request);
+  }
+  async scoreSftpFile(request) {
+    return this.bulkRootFileJob("scoreSFTPfile", "score SFTP file", request);
+  }
+  async emailFinderSftpFile(request) {
+    return this.bulkRootFileJob("emailFinderSFTPfile", "email finder SFTP file", request);
+  }
+  async domainSearchSftpFile(request) {
+    return this.bulkRootFileJob("domainSearchSFTPfile", "domain search SFTP file", request);
+  }
+  /**
+   * Without an export bucket the API uses the one configured on the account.
+   *
+   * The SDK's public `exportS3file` refuses to send the request at all without
+   * an `export_bucket` ("export_bucket parameter is missing"), a requirement the
+   * API itself does not impose, so this posts the documented fields through the
+   * SDK's own form-post helper instead. That keeps the SDK's base URL, HTTPS
+   * enforcement, key redaction and error handling; only the surplus check is
+   * skipped. `_sendBulkRootFormPost` is gated in the tool's `sdkMethods`.
+   */
   async exportS3File(fileId, exportBucket) {
     const result = this.requireSdkResult(
-      await this.sdk.exportS3file({ file_id: fileId, export_bucket: exportBucket }),
+      await this.sdk._sendBulkRootFormPost("/exportS3file", {
+        file_id: fileId,
+        ...exportBucket != null ? { export_bucket: exportBucket } : {}
+      }),
       "export S3 file"
     );
     return result;
+  }
+  /** Without an export path the API uses the one configured on the account. */
+  async exportSftpFile(fileId, exportPath) {
+    const result = this.requireSdkResult(
+      await this.sdk.exportSFTPfile({
+        file_id: fileId,
+        ...exportPath != null ? { export_path: exportPath } : {}
+      }),
+      "export SFTP file"
+    );
+    return result;
+  }
+  // ========== Inbox Placement Tester Operations ==========
+  //
+  // This API authenticates with `Authorization: Bearer`; the key never goes on the
+  // query string. The SDK builds the requests, so the key stays out of URLs here too.
+  /** Seed providers available for new tests. GET /api/ipt/providers */
+  async getInboxPlacementProviders() {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementProviders(),
+      "inbox placement providers"
+    );
+  }
+  /** Supported test types and the default one. GET /api/ipt/test-types */
+  async getInboxPlacementTestTypes() {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementTestTypes(),
+      "inbox placement test types"
+    );
+  }
+  /** Create an inbox placement test. POST /api/ipt/test */
+  async createInboxPlacementTest(options) {
+    return this.requireSdkResult(
+      await this.sdk.createInboxPlacementTest(options),
+      "create inbox placement test"
+    );
+  }
+  /** A test and its placement results. GET /api/ipt/test/{id} */
+  async getInboxPlacementTest(testId) {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementTest(testId),
+      "inbox placement test"
+    );
+  }
+  /** List tests, newest first. GET /api/ipt/tests */
+  async listInboxPlacementTests(options) {
+    return this.requireSdkResult(
+      await this.sdk.listInboxPlacementTests(options),
+      "list inbox placement tests"
+    );
+  }
+  /** Delete a finished test. DELETE /api/ipt/test/{id}, which answers with no body. */
+  async deleteInboxPlacementTest(testId) {
+    try {
+      const result = await this.sdk.deleteInboxPlacementTest(testId);
+      if (result == null) {
+        return { success: true, message: `Inbox placement test ${testId} deleted` };
+      }
+      return result;
+    } catch (error) {
+      if (isEmptySuccessBody(error)) {
+        return { success: true, message: `Inbox placement test ${testId} deleted` };
+      }
+      throw error;
+    }
+  }
+  /** The webhook URL saved on this API key. GET /api/ipt/webhook */
+  async getInboxPlacementWebhook() {
+    return this.requireSdkResult(
+      await this.sdk.getInboxPlacementWebhook(),
+      "inbox placement webhook"
+    );
+  }
+  /** Save the URL finished results are posted to. PUT /api/ipt/webhook */
+  async setInboxPlacementWebhook(webhookUrl) {
+    return this.requireSdkResult(
+      await this.sdk.setInboxPlacementWebhook(webhookUrl),
+      "set inbox placement webhook"
+    );
   }
   /** @deprecated Use sendListEvaluatorFile */
   async evaluateList(fileContent, fileName, emailAddressColumn) {
@@ -1412,6 +1610,16 @@ function createSuccessResponse(data) {
       {
         type: "text",
         text: JSON.stringify(data, null, 2)
+      }
+    ]
+  };
+}
+function createTextResponse(text) {
+  return {
+    content: [
+      {
+        type: "text",
+        text
       }
     ]
   };
@@ -1437,6 +1645,31 @@ function requireString(value, fieldName) {
 function requireArray(value, fieldName) {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${fieldName} is required and must be a non-empty array`);
+  }
+  return value;
+}
+function requireNumber(value, fieldName) {
+  if (value === null || value === void 0 || value === "") {
+    throw new Error(`${fieldName} is required and must be a number`);
+  }
+  const num = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(num)) {
+    throw new Error(`${fieldName} is required and must be a number`);
+  }
+  return num;
+}
+function requireBoolean(value, fieldName) {
+  if (typeof value !== "boolean") {
+    throw new Error(`${fieldName} is required and must be true or false`);
+  }
+  return value;
+}
+function optionalObject(value, fieldName) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an object`);
   }
   return value;
 }
@@ -2088,6 +2321,31 @@ var listEvaluatorResultTool = {
     }
   }
 };
+var sendEvaluatedFileTool = {
+  sdkMethods: ["sendEvaluatedFile"],
+  definition: {
+    name: "send_evaluated_file",
+    description: "Submit a finished list evaluation for bulk validation (POST /send-evaluated-file/). Takes the List Evaluator file_id, not a file upload. Returns the new validation job.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: {
+          type: "string",
+          description: "file_id returned by list_evaluator_send_file"
+        }
+      },
+      required: ["fileId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.sendEvaluatedFile(requireString(args.fileId, "fileId"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
 
 // src/tools/filters.ts
 var addFilterTool = {
@@ -2169,6 +2427,53 @@ var deleteFilterTool = {
   }
 };
 
+// src/tools/bulk-root-job-helpers.ts
+function createBulkRootJobTool(config) {
+  const location = config.source === "S3" ? "Path/key of the object in your configured S3 bucket" : "Path of the file on your configured SFTP/FTP server";
+  return {
+    sdkMethods: config.sdkMethods,
+    definition: {
+      name: config.name,
+      description: `Submit a file from your ${config.source} storage for ${config.description} (POST /${config.endpoint}). The server and bucket come from your ZeroBounce settings.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          fileName: { type: "string", description: location },
+          returnUrl: {
+            type: "string",
+            description: "HTTPS callback URL notified when the job completes. Required: the API refuses a job without one. Only use trusted URLs you control; an attacker-controlled URL can receive bulk results."
+          },
+          hasHeaderRow: {
+            type: "boolean",
+            description: "Whether the first row is a header row. Defaults to false."
+          },
+          removeDuplicates: {
+            type: "boolean",
+            description: "Whether to drop duplicate rows before processing."
+          }
+        },
+        required: ["fileName", "returnUrl"]
+      }
+    },
+    handler: async (client, args) => {
+      try {
+        const fileName = requireString(args.fileName, "fileName");
+        const returnUrl = requireString(args.returnUrl, "returnUrl");
+        validateBulkReturnUrl(returnUrl);
+        const result = await config.jobMethod(client, {
+          fileName,
+          returnUrl,
+          hasHeaderRow: optionalBoolean(args.hasHeaderRow) ?? false,
+          removeDuplicates: optionalBoolean(args.removeDuplicates)
+        });
+        return createSuccessResponse(result);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  };
+}
+
 // src/tools/s3-bulk.ts
 var listS3FilesTool = {
   sdkMethods: ["listS3files"],
@@ -2195,73 +2500,60 @@ var listS3FilesTool = {
     }
   }
 };
-var validateS3FileTool = {
+var validateS3FileTool = createBulkRootJobTool({
+  name: "validate_s3_file",
+  endpoint: "validateS3file",
+  description: "bulk validation",
+  source: "S3",
   sdkMethods: ["validateS3file"],
-  definition: {
-    name: "validate_s3_file",
-    description: "Submit an S3 object for bulk validation (validateS3file)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fileName: { type: "string", description: "S3 object key/path" }
-      },
-      required: ["fileName"]
-    }
-  },
-  handler: async (client, args) => {
-    try {
-      const result = await client.validateS3File({
-        file_name: requireString(args.fileName, "fileName")
-      });
-      return createSuccessResponse(result);
-    } catch (error) {
-      return createErrorResponse(error);
-    }
-  }
-};
-var scoreS3FileTool = {
-  sdkMethods: ["scoreS3file"],
-  definition: {
-    name: "score_s3_file",
-    description: "Submit an S3 object for bulk AI scoring (scoreS3file)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fileName: { type: "string" }
-      },
-      required: ["fileName"]
-    }
-  },
-  handler: async (client, args) => {
-    try {
-      const result = await client.scoreS3File({
-        file_name: requireString(args.fileName, "fileName")
-      });
-      return createSuccessResponse(result);
-    } catch (error) {
-      return createErrorResponse(error);
-    }
-  }
-};
+  jobMethod: (client, request) => client.validateS3File(request)
+});
+var scoreS3FileTool = createBulkRootJobTool({
+  name: "score_s3_file",
+  endpoint: "scoreS3file",
+  description: "bulk AI scoring",
+  source: "S3",
+  sdkMethods: ["scoreS3file", "_bulkRootFileJob"],
+  jobMethod: (client, request) => client.scoreS3File(request)
+});
+var emailFinderS3FileTool = createBulkRootJobTool({
+  name: "email_finder_s3_file",
+  endpoint: "emailFinderS3file",
+  description: "bulk email finder",
+  source: "S3",
+  sdkMethods: ["emailFinderS3file"],
+  jobMethod: (client, request) => client.emailFinderS3File(request)
+});
+var domainSearchS3FileTool = createBulkRootJobTool({
+  name: "domain_search_s3_file",
+  endpoint: "domainSearchS3file",
+  description: "bulk domain search",
+  source: "S3",
+  sdkMethods: ["domainSearchS3file"],
+  jobMethod: (client, request) => client.domainSearchS3File(request)
+});
 var exportS3FileTool = {
-  sdkMethods: ["exportS3file"],
+  sdkMethods: ["exportS3file", "_sendBulkRootFormPost"],
   definition: {
     name: "export_s3_file",
-    description: "Export a completed bulk job to an S3 bucket (exportS3file)",
+    description: "Export a completed bulk job to an S3 bucket (POST /exportS3file)",
     inputSchema: {
       type: "object",
       properties: {
-        fileId: { type: "string" },
-        exportBucket: { type: "string" }
+        fileId: { type: "string", description: "File ID of the completed bulk job" },
+        exportBucket: {
+          type: "string",
+          description: "Destination bucket. Optional: without it the output bucket configured on your ZeroBounce account is used."
+        }
       },
-      required: ["fileId", "exportBucket"]
+      required: ["fileId"]
     }
   },
   handler: async (client, args) => {
     try {
       const result = await client.exportS3File(
         requireString(args.fileId, "fileId"),
-        requireString(args.exportBucket, "exportBucket")
+        optionalString(args.exportBucket)
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -2269,6 +2561,1127 @@ var exportS3FileTool = {
     }
   }
 };
+
+// src/tools/sftp-bulk.ts
+var validateSftpFileTool = createBulkRootJobTool({
+  name: "validate_sftp_file",
+  endpoint: "validateSFTPfile",
+  description: "bulk validation",
+  source: "SFTP/FTP",
+  sdkMethods: ["validateSFTPfile"],
+  jobMethod: (client, request) => client.validateSftpFile(request)
+});
+var scoreSftpFileTool = createBulkRootJobTool({
+  name: "score_sftp_file",
+  endpoint: "scoreSFTPfile",
+  description: "bulk AI scoring",
+  source: "SFTP/FTP",
+  sdkMethods: ["scoreSFTPfile"],
+  jobMethod: (client, request) => client.scoreSftpFile(request)
+});
+var emailFinderSftpFileTool = createBulkRootJobTool({
+  name: "email_finder_sftp_file",
+  endpoint: "emailFinderSFTPfile",
+  description: "bulk email finder",
+  source: "SFTP/FTP",
+  sdkMethods: ["emailFinderSFTPfile"],
+  jobMethod: (client, request) => client.emailFinderSftpFile(request)
+});
+var domainSearchSftpFileTool = createBulkRootJobTool({
+  name: "domain_search_sftp_file",
+  endpoint: "domainSearchSFTPfile",
+  description: "bulk domain search",
+  source: "SFTP/FTP",
+  sdkMethods: ["domainSearchSFTPfile"],
+  jobMethod: (client, request) => client.domainSearchSftpFile(request)
+});
+var exportSftpFileTool = {
+  sdkMethods: ["exportSFTPfile"],
+  definition: {
+    name: "export_sftp_file",
+    description: "Export a completed bulk job back to your SFTP/FTP server (POST /exportSFTPfile)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "File ID of the completed bulk job" },
+        exportPath: {
+          type: "string",
+          description: "Destination path on the server. Optional: without it the export path configured on your ZeroBounce account is used."
+        }
+      },
+      required: ["fileId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.exportSftpFile(
+        requireString(args.fileId, "fileId"),
+        optionalString(args.exportPath)
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/inbox-placement.ts
+var MAX_TEST_NAME_LENGTH = 64;
+var TEST_TYPES = [1, 2, 3];
+var TEST_STATUSES = ["running", "finished"];
+var MIN_PAGE_SIZE = 1;
+var MAX_PAGE_SIZE = 100;
+function requireTestId(value, fieldName = "testId") {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return requireString(value, fieldName).trim();
+}
+function optionalIdArray(value, fieldName) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array of ids`);
+  }
+  return value.map((item, index) => {
+    const id = optionalNumber(item);
+    if (id === void 0 || !Number.isInteger(id)) {
+      throw new Error(`${fieldName}[${index}] must be an integer id`);
+    }
+    return id;
+  });
+}
+function optionalProviderSelections(value) {
+  if (value === null || value === void 0) {
+    return void 0;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error("providers must be an array of { id, maxSeeds } objects");
+  }
+  return value.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`providers[${index}] must be an object with an id`);
+    }
+    const entry = item;
+    const id = optionalNumber(entry.id);
+    if (id === void 0 || !Number.isInteger(id)) {
+      throw new Error(`providers[${index}].id must be an integer id`);
+    }
+    const maxSeeds = optionalNumber(entry.maxSeeds);
+    if (maxSeeds !== void 0 && (!Number.isInteger(maxSeeds) || maxSeeds < 1)) {
+      throw new Error(`providers[${index}].maxSeeds must be an integer of at least 1`);
+    }
+    return maxSeeds === void 0 ? { id } : { id, maxSeeds };
+  });
+}
+function requireWebhookUrl(value, fieldName = "webhookUrl") {
+  const webhookUrl = requireString(value, fieldName);
+  validateBulkReturnUrl(webhookUrl, fieldName);
+  return webhookUrl;
+}
+var getInboxPlacementProvidersTool = {
+  sdkMethods: ["getInboxPlacementProviders"],
+  definition: {
+    name: "get_inbox_placement_providers",
+    description: "List the seed providers (mailbox providers and their seed addresses) available for inbox placement tests (GET /api/ipt/providers)",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      const result = await client.getInboxPlacementProviders();
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var getInboxPlacementTestTypesTool = {
+  sdkMethods: ["getInboxPlacementTestTypes"],
+  definition: {
+    name: "get_inbox_placement_test_types",
+    description: "List the supported inbox placement test types and which one is the default (GET /api/ipt/test-types)",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      const result = await client.getInboxPlacementTestTypes();
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var createInboxPlacementTestTool = {
+  sdkMethods: ["createInboxPlacementTest"],
+  definition: {
+    name: "create_inbox_placement_test",
+    description: "Start an inbox placement test: ZeroBounce returns seed addresses to send your campaign to, then reports where each copy landed (POST /api/ipt/test)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: `Unique test name, at most ${MAX_TEST_NAME_LENGTH} characters`
+        },
+        testType: {
+          type: "number",
+          enum: [1, 2, 3],
+          description: "1 = Email (requires senderEmail), 2 = Unique ID, 3 = Auto Alias"
+        },
+        senderEmail: {
+          type: "string",
+          description: "The From address to match. Required when testType is 1."
+        },
+        providerIds: {
+          type: "array",
+          items: { type: "number" },
+          description: "Use every active seed of these providers (ids from get_inbox_placement_providers)"
+        },
+        seedIds: {
+          type: "array",
+          items: { type: "number" },
+          description: "Use these specific seed mailboxes"
+        },
+        providers: {
+          type: "array",
+          description: "Per-provider seed caps",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "number", description: "Provider id" },
+              maxSeeds: { type: "number", description: "Seed cap for this provider, at least 1" }
+            },
+            required: ["id"]
+          }
+        },
+        webhookUrl: {
+          type: "string",
+          description: "HTTPS URL the finished result is posted to"
+        }
+      },
+      required: ["name"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const name = requireString(args.name, "name");
+      if (name.length > MAX_TEST_NAME_LENGTH) {
+        throw new Error(`name must be at most ${MAX_TEST_NAME_LENGTH} characters`);
+      }
+      const testType = optionalNumber(args.testType);
+      if (testType !== void 0 && !TEST_TYPES.includes(testType)) {
+        throw new Error(`testType must be one of ${TEST_TYPES.join(", ")}`);
+      }
+      const senderEmail = optionalString(args.senderEmail);
+      if (testType === 1 && !senderEmail) {
+        throw new Error("senderEmail is required when testType is 1");
+      }
+      const options = { name };
+      if (testType !== void 0) {
+        options.testType = testType;
+      }
+      if (senderEmail) {
+        options.senderEmail = senderEmail;
+      }
+      const providerIds = optionalIdArray(args.providerIds, "providerIds");
+      if (providerIds) {
+        options.providerIds = providerIds;
+      }
+      const seedIds = optionalIdArray(args.seedIds, "seedIds");
+      if (seedIds) {
+        options.seedIds = seedIds;
+      }
+      const providers = optionalProviderSelections(args.providers);
+      if (providers) {
+        options.providers = providers;
+      }
+      if (args.webhookUrl !== null && args.webhookUrl !== void 0) {
+        options.webhookUrl = requireWebhookUrl(args.webhookUrl);
+      }
+      const result = await client.createInboxPlacementTest(options);
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var getInboxPlacementTestTool = {
+  sdkMethods: ["getInboxPlacementTest"],
+  definition: {
+    name: "get_inbox_placement_test",
+    description: "Get one inbox placement test and its results: inbox, spam, and missing counts per provider (GET /api/ipt/test/{id})",
+    inputSchema: {
+      type: "object",
+      properties: {
+        testId: { type: "string", description: "Test id from create_inbox_placement_test" }
+      },
+      required: ["testId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.getInboxPlacementTest(requireTestId(args.testId, "testId"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var listInboxPlacementTestsTool = {
+  sdkMethods: ["listInboxPlacementTests"],
+  definition: {
+    name: "list_inbox_placement_tests",
+    description: "List inbox placement tests, newest first (GET /api/ipt/tests)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        status: {
+          type: "string",
+          enum: ["running", "finished"],
+          description: "Only tests in this state"
+        },
+        createdAfter: {
+          type: "string",
+          description: "ISO 8601 date or datetime; only tests created at or after it"
+        },
+        createdBefore: {
+          type: "string",
+          description: "ISO 8601 date or datetime; only tests created at or before it"
+        },
+        page: { type: "number", description: "Page number, from 1" },
+        pageSize: {
+          type: "number",
+          description: `Tests per page, ${MIN_PAGE_SIZE} to ${MAX_PAGE_SIZE} (sent as page_size)`
+        }
+      }
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const options = {};
+      const status = optionalString(args.status);
+      if (status !== void 0) {
+        if (!TEST_STATUSES.includes(status)) {
+          throw new Error(`status must be one of ${TEST_STATUSES.join(", ")}`);
+        }
+        options.status = status;
+      }
+      const createdAfter = optionalString(args.createdAfter);
+      if (createdAfter !== void 0) {
+        options.createdAfter = createdAfter;
+      }
+      const createdBefore = optionalString(args.createdBefore);
+      if (createdBefore !== void 0) {
+        options.createdBefore = createdBefore;
+      }
+      const page = optionalNumber(args.page);
+      if (page !== void 0) {
+        if (!Number.isInteger(page) || page < 1) {
+          throw new Error("page must be an integer of at least 1");
+        }
+        options.page = page;
+      }
+      const pageSize = optionalNumber(args.pageSize);
+      if (pageSize !== void 0) {
+        if (!Number.isInteger(pageSize) || pageSize < MIN_PAGE_SIZE || pageSize > MAX_PAGE_SIZE) {
+          throw new Error(
+            `pageSize must be an integer between ${MIN_PAGE_SIZE} and ${MAX_PAGE_SIZE}`
+          );
+        }
+        options.pageSize = pageSize;
+      }
+      const result = await client.listInboxPlacementTests(options);
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var deleteInboxPlacementTestTool = {
+  sdkMethods: ["deleteInboxPlacementTest"],
+  definition: {
+    name: "delete_inbox_placement_test",
+    description: "Delete a finished inbox placement test. A running test cannot be deleted. (DELETE /api/ipt/test/{id})",
+    inputSchema: {
+      type: "object",
+      properties: {
+        testId: { type: "string", description: "Test id to delete" }
+      },
+      required: ["testId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.deleteInboxPlacementTest(requireTestId(args.testId, "testId"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var getInboxPlacementWebhookTool = {
+  sdkMethods: ["getInboxPlacementWebhook"],
+  definition: {
+    name: "get_inbox_placement_webhook",
+    description: "Get the webhook URL finished inbox placement results are posted to for this API key (GET /api/ipt/webhook)",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      const result = await client.getInboxPlacementWebhook();
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var setInboxPlacementWebhookTool = {
+  sdkMethods: ["setInboxPlacementWebhook"],
+  definition: {
+    name: "set_inbox_placement_webhook",
+    description: "Save the webhook URL finished inbox placement results are posted to for this API key (PUT /api/ipt/webhook)",
+    inputSchema: {
+      type: "object",
+      properties: {
+        webhookUrl: { type: "string", description: "HTTPS URL to post finished results to" }
+      },
+      required: ["webhookUrl"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.setInboxPlacementWebhook(requireWebhookUrl(args.webhookUrl));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var inboxPlacementTools = {
+  providers: getInboxPlacementProvidersTool,
+  testTypes: getInboxPlacementTestTypesTool,
+  createTest: createInboxPlacementTestTool,
+  getTest: getInboxPlacementTestTool,
+  listTests: listInboxPlacementTestsTool,
+  deleteTest: deleteInboxPlacementTestTool,
+  getWebhook: getInboxPlacementWebhookTool,
+  setWebhook: setInboxPlacementWebhookTool
+};
+
+// src/tools/warmup/sending-accounts.ts
+var warmupListSendingAccountsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["listSendingAccounts"],
+  definition: {
+    name: "warmup_list_sending_accounts",
+    description: "List every ZeroBounce Warmup sending account belonging to the Warmup key's team.",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.listSendingAccounts());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetSendingAccountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getSendingAccount"],
+  definition: {
+    name: "warmup_get_sending_account",
+    description: "Get one ZeroBounce Warmup sending account by its from-address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getSendingAccount(
+        requireString(args.fromAddress, "fromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupAddSendingAccountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["addSendingAccount"],
+  definition: {
+    name: "warmup_add_sending_account",
+    description: 'Add a from-address to ZeroBounce Warmup. "self_managed" runs your own mailbox and requires engagementRuleId (0-4). "zb_managed" has ZeroBounce provision the mailbox and takes emailContent and managedSending instead; it rejects engagementRuleId.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The from-address to warm up" },
+        onboardingModel: {
+          type: "string",
+          enum: ["self_managed", "zb_managed"],
+          description: "Who runs the mailbox"
+        },
+        engagementRuleId: {
+          type: "number",
+          description: "Standard engagement rule, 0-4 (0 Default, 1 Slow Pace, 2 Repair, 3 Boost, 4 Protect). Required for self_managed."
+        },
+        ignoreConflict: {
+          type: "boolean",
+          description: "Accept the address even if it conflicts with an existing one"
+        },
+        emailContent: {
+          type: "object",
+          description: "zb_managed only: company_name, company_website, company_description, types_of_emails (transactional/newsletter/marketing), example_email"
+        },
+        managedSending: {
+          type: "object",
+          description: "zb_managed only: weekdays_only, timezone, timezone_offset (-11 to 14), warmup_start_date (YYYY-MM-DD)"
+        }
+      },
+      required: ["fromAddress", "onboardingModel"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.addSendingAccount({
+        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        onboardingModel: requireString(args.onboardingModel, "onboardingModel"),
+        engagementRuleId: optionalNumber(args.engagementRuleId) ?? null,
+        ignoreConflict: optionalBoolean(args.ignoreConflict) ?? null,
+        emailContent: optionalObject(args.emailContent, "emailContent") ?? null,
+        managedSending: optionalObject(args.managedSending, "managedSending") ?? null
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupUpdateSendingAccountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["updateSendingAccount"],
+  definition: {
+    name: "warmup_update_sending_account",
+    description: "Update a ZeroBounce Warmup sending account's engagement rule, status and auto-enable flag.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" },
+        engagementRuleId: { type: "number", description: "Standard engagement rule, 0-4" },
+        statusId: { type: "number", description: "Status, 0-8 (4 Paused, 5 Disabled)" },
+        autoEnable: {
+          type: "boolean",
+          description: "Accepted as true only for an account that is not active"
+        }
+      },
+      required: ["fromAddress", "engagementRuleId", "statusId", "autoEnable"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.updateSendingAccount({
+        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        engagementRuleId: requireNumber(args.engagementRuleId, "engagementRuleId"),
+        statusId: requireNumber(args.statusId, "statusId"),
+        autoEnable: requireBoolean(args.autoEnable, "autoEnable")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupDeleteSendingAccountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["deleteSendingAccount"],
+  definition: {
+    name: "warmup_delete_sending_account",
+    description: "Remove a sending account from ZeroBounce Warmup. Destructive: the account and its warmup history are deleted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.deleteSendingAccount(
+        requireString(args.fromAddress, "fromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupChangeFromAddressTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["changeFromAddress"],
+  definition: {
+    name: "warmup_change_from_address",
+    description: "Move a ZeroBounce Warmup account and its history to a new from-address. Despite the underlying /smtp-credentials path, no SMTP credentials are stored.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        oldFromAddress: { type: "string", description: "The current from-address" },
+        newFromAddress: { type: "string", description: "The replacement from-address" }
+      },
+      required: ["oldFromAddress", "newFromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.changeFromAddress(
+        requireString(args.oldFromAddress, "oldFromAddress"),
+        requireString(args.newFromAddress, "newFromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupListFromAddressesTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["listFromAddresses"],
+  definition: {
+    name: "warmup_list_from_addresses",
+    description: "List the from-addresses registered with ZeroBounce Warmup.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        searchFrom: {
+          type: "string",
+          description: "Filter text. Letters, digits and . - _ @ + only."
+        },
+        offset: { type: "number", description: "Non-negative offset; the API defaults to 0" },
+        limit: { type: "number", description: "Page size; the API defaults to 100" }
+      }
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.listFromAddresses({
+        searchFrom: optionalString(args.searchFrom) ?? null,
+        offset: optionalNumber(args.offset) ?? null,
+        limit: optionalNumber(args.limit) ?? null
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/warmup/engagement.ts
+var warmupGetEngagementRulesTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getEngagementRules"],
+  definition: {
+    name: "warmup_get_engagement_rules",
+    description: "List the ZeroBounce Warmup engagement rule catalogue: -1 Custom, 0 Default, 1 Slow Pace, 2 Repair, 3 Boost, 4 Protect.",
+    inputSchema: {
+      type: "object",
+      properties: {}
+    }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getEngagementRules());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupSetEngagementRuleTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["setEngagementRule"],
+  definition: {
+    name: "warmup_set_engagement_rule",
+    description: "Set a standard ZeroBounce Warmup engagement rule (0-4) on an address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" },
+        ruleId: { type: "number", description: "Standard engagement rule, 0-4" }
+      },
+      required: ["cFrom", "ruleId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.setEngagementRule(
+        requireString(args.cFrom, "cFrom"),
+        requireNumber(args.ruleId, "ruleId")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetCustomEngagementTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getCustomEngagement"],
+  definition: {
+    name: "warmup_get_custom_engagement",
+    description: "Get an address's custom ZeroBounce Warmup engagement rule, including can_update and remaining_seconds of the update cooldown.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" }
+      },
+      required: ["cFrom"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getCustomEngagement(requireString(args.cFrom, "cFrom"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupCreateCustomEngagementTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["createCustomEngagement"],
+  definition: {
+    name: "warmup_create_custom_engagement",
+    description: "Create a custom ZeroBounce Warmup engagement rule. Starts a 7-day cooldown before the rule can be updated again.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" },
+        replyPct: { type: "number", description: "Reply percentage, 5-45" },
+        importantPct: { type: "number", description: "Mark-as-important percentage, 5-40" },
+        clickPct: {
+          type: "number",
+          description: "Click percentage, 0-70 and at most importantPct x 1.75"
+        }
+      },
+      required: ["cFrom", "replyPct", "importantPct", "clickPct"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.createCustomEngagement({
+        cFrom: requireString(args.cFrom, "cFrom"),
+        replyPct: requireNumber(args.replyPct, "replyPct"),
+        importantPct: requireNumber(args.importantPct, "importantPct"),
+        clickPct: requireNumber(args.clickPct, "clickPct")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupUpdateCustomEngagementTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["updateCustomEngagement"],
+  definition: {
+    name: "warmup_update_custom_engagement",
+    description: "Update a custom ZeroBounce Warmup engagement rule. During the 7-day cooldown the API answers with HTTP 429.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" },
+        replyPct: { type: "number", description: "Reply percentage, 5-45" },
+        importantPct: { type: "number", description: "Mark-as-important percentage, 5-40" },
+        clickPct: {
+          type: "number",
+          description: "Click percentage, 0-70 and at most importantPct x 1.75"
+        }
+      },
+      required: ["cFrom", "replyPct", "importantPct", "clickPct"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.updateCustomEngagement({
+        cFrom: requireString(args.cFrom, "cFrom"),
+        replyPct: requireNumber(args.replyPct, "replyPct"),
+        importantPct: requireNumber(args.importantPct, "importantPct"),
+        clickPct: requireNumber(args.clickPct, "clickPct")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupDeleteCustomEngagementTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["deleteCustomEngagement"],
+  definition: {
+    name: "warmup_delete_custom_engagement",
+    description: "Delete a custom ZeroBounce Warmup engagement rule and fall back to a standard rule (1-4).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" },
+        engagementRuleId: {
+          type: "number",
+          description: "Standard rule to fall back to, 1-4"
+        }
+      },
+      required: ["cFrom", "engagementRuleId"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.deleteCustomEngagement(
+        requireString(args.cFrom, "cFrom"),
+        requireNumber(args.engagementRuleId, "engagementRuleId")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/warmup/insights.ts
+var warmupGetSeedsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getSeeds"],
+  definition: {
+    name: "warmup_get_seeds",
+    description: "List the ZeroBounce Warmup seed accounts.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getSeeds());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupDownloadSeedsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["downloadSeeds"],
+  definition: {
+    name: "warmup_download_seeds",
+    description: "Download the ZeroBounce Warmup seed list as CSV text (columns seed,provider). Returns the CSV itself, not JSON.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createTextResponse(await client.warmup.downloadSeeds());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetSeedCountTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getSeedCount"],
+  definition: {
+    name: "warmup_get_seed_count",
+    description: "Get the number of ZeroBounce Warmup seed accounts.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getSeedCount());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetProgressTodayTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getProgressToday"],
+  definition: {
+    name: "warmup_get_progress_today",
+    description: "Get today's ZeroBounce Warmup progress.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getProgressToday());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetSentTodayTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getSentToday"],
+  definition: {
+    name: "warmup_get_sent_today",
+    description: "Get the number of ZeroBounce Warmup messages sent today.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getSentToday());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetEmailsPerDayTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getEmailsPerDay"],
+  definition: {
+    name: "warmup_get_emails_per_day",
+    description: "Get the current ZeroBounce Warmup daily sending volume.",
+    inputSchema: { type: "object", properties: {} }
+  },
+  handler: async (client) => {
+    try {
+      return createSuccessResponse(await client.warmup.getEmailsPerDay());
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetStatisticsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getStatistics"],
+  definition: {
+    name: "warmup_get_statistics",
+    description: "Get ZeroBounce Warmup statistics for a from-address. An address with no history returns zeros.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getStatistics(
+        requireString(args.fromAddress, "fromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetStatisticsPerDayTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getStatisticsPerDay"],
+  definition: {
+    name: "warmup_get_statistics_per_day",
+    description: "Get daily ZeroBounce Warmup statistics between two dates, inclusive.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" },
+        startDate: { type: "string", description: "Start date, YYYY-MM-DD" },
+        endDate: { type: "string", description: "End date, YYYY-MM-DD" }
+      },
+      required: ["fromAddress", "startDate", "endDate"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getStatisticsPerDay({
+        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        startDate: requireString(args.startDate, "startDate"),
+        endDate: requireString(args.endDate, "endDate")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetStatisticsDetailedTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getStatisticsDetailed"],
+  definition: {
+    name: "warmup_get_statistics_detailed",
+    description: "Get detailed ZeroBounce Warmup statistics for an address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" }
+      },
+      required: ["cFrom"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getStatisticsDetailed(requireString(args.cFrom, "cFrom"));
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupDownloadStatisticsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["downloadStatistics"],
+  definition: {
+    name: "warmup_download_statistics",
+    description: "Download an address's ZeroBounce Warmup statistics as CSV text. Returns the CSV itself, not JSON.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cFrom: { type: "string", description: "The warmup address identifier (c_from)" }
+      },
+      required: ["cFrom"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const csv = await client.warmup.downloadStatistics(requireString(args.cFrom, "cFrom"));
+      return createTextResponse(csv);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupGetFromAddressStatisticsTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["getFromAddressStatistics"],
+  definition: {
+    name: "warmup_get_from_address_statistics",
+    description: "Get ZeroBounce Warmup statistics for one from-address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The account from-address" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.getFromAddressStatistics(
+        requireString(args.fromAddress, "fromAddress")
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/warmup/diagnostics.ts
+var warmupCheckDomainDmarcTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["checkDomainDmarc"],
+  definition: {
+    name: "warmup_check_domain_dmarc",
+    description: "Check the SPF, DKIM and DMARC records of a from-address's domain. fromAddress must be a full email address such as sender@example.com: the live API rejects a bare domain, although the public docs describe one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: {
+          type: "string",
+          description: "An email address, not a bare domain (e.g. sender@example.com)"
+        },
+        dkimSelector: { type: "string", description: "DKIM selector to look up" }
+      },
+      required: ["fromAddress"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.checkDomainDmarc(
+        requireString(args.fromAddress, "fromAddress"),
+        optionalString(args.dkimSelector) ?? null
+      );
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+var warmupTestSmtpConfigurationTool = {
+  requiresWarmupKey: true,
+  warmupMethods: ["testSmtpConfiguration"],
+  definition: {
+    name: "warmup_test_smtp_configuration",
+    description: "Check that SMTP credentials connect and hand off a message. Nothing is stored, and the test message goes to a ZeroBounce test recipient rather than fromAddress. The live API answers a failed SMTP login with HTTP 500; the username and password are masked in every error from this call.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fromAddress: { type: "string", description: "The from-address being configured" },
+        username: { type: "string", description: "SMTP username" },
+        password: { type: "string", description: "SMTP password" },
+        server: { type: "string", description: "SMTP server hostname" },
+        port: { type: "number", description: "SMTP port, 1-65535" }
+      },
+      required: ["fromAddress", "username", "password", "server", "port"]
+    }
+  },
+  handler: async (client, args) => {
+    try {
+      const result = await client.warmup.testSmtpConfiguration({
+        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        username: requireString(args.username, "username"),
+        password: requireString(args.password, "password"),
+        server: requireString(args.server, "server"),
+        port: requireNumber(args.port, "port")
+      });
+      return createSuccessResponse(result);
+    } catch (error) {
+      return createErrorResponse(error);
+    }
+  }
+};
+
+// src/tools/warmup/index.ts
+var warmupTools = [
+  // Sending accounts (49-55)
+  warmupListSendingAccountsTool,
+  warmupGetSendingAccountTool,
+  warmupAddSendingAccountTool,
+  warmupUpdateSendingAccountTool,
+  warmupDeleteSendingAccountTool,
+  warmupChangeFromAddressTool,
+  warmupListFromAddressesTool,
+  // Engagement rules (56-61)
+  warmupGetEngagementRulesTool,
+  warmupSetEngagementRuleTool,
+  warmupGetCustomEngagementTool,
+  warmupCreateCustomEngagementTool,
+  warmupUpdateCustomEngagementTool,
+  warmupDeleteCustomEngagementTool,
+  // Seeds, progress and statistics (62-72)
+  warmupGetSeedsTool,
+  warmupDownloadSeedsTool,
+  warmupGetSeedCountTool,
+  warmupGetProgressTodayTool,
+  warmupGetSentTodayTool,
+  warmupGetEmailsPerDayTool,
+  warmupGetStatisticsTool,
+  warmupGetStatisticsPerDayTool,
+  warmupGetStatisticsDetailedTool,
+  warmupDownloadStatisticsTool,
+  warmupGetFromAddressStatisticsTool,
+  // Diagnostics (73-74)
+  warmupCheckDomainDmarcTool,
+  warmupTestSmtpConfigurationTool
+];
 
 // src/tools/index.ts
 function listTools() {
@@ -2306,21 +3719,45 @@ function listTools() {
     bulkDomainSearchTools.deleteFile,
     listEvaluatorSendFileTool,
     listEvaluatorResultTool,
+    sendEvaluatedFileTool,
     addFilterTool,
     listFiltersTool,
     deleteFilterTool,
     listS3FilesTool,
     validateS3FileTool,
     scoreS3FileTool,
-    exportS3FileTool
+    emailFinderS3FileTool,
+    domainSearchS3FileTool,
+    exportS3FileTool,
+    ...warmupTools,
+    // Inbox Placement Tester
+    inboxPlacementTools.providers,
+    inboxPlacementTools.testTypes,
+    inboxPlacementTools.createTest,
+    inboxPlacementTools.getTest,
+    inboxPlacementTools.listTests,
+    inboxPlacementTools.deleteTest,
+    inboxPlacementTools.getWebhook,
+    inboxPlacementTools.setWebhook,
+    // SFTP/FTP bulk
+    validateSftpFileTool,
+    scoreSftpFileTool,
+    emailFinderSftpFileTool,
+    domainSearchSftpFileTool,
+    exportSftpFileTool
   ];
 }
-function getAllTools() {
-  return listTools().filter((tool) => (tool.sdkMethods ?? []).every(isSdkMethodAvailable));
+function getAllTools(availability = {}) {
+  return listTools().filter((tool) => {
+    if (!(tool.sdkMethods ?? []).every(isSdkMethodAvailable)) return false;
+    if (!(tool.warmupMethods ?? []).every(isWarmupMethodAvailable)) return false;
+    if (tool.requiresWarmupKey && !availability.warmupConfigured) return false;
+    return true;
+  });
 }
-function getToolRegistry() {
+function getToolRegistry(availability = {}) {
   const registry = /* @__PURE__ */ new Map();
-  const allTools = getAllTools();
+  const allTools = getAllTools(availability);
   for (const tool of allTools) {
     registry.set(tool.definition.name, tool.handler);
   }
@@ -2329,6 +3766,7 @@ function getToolRegistry() {
 
 // src/index.ts
 var API_KEY_HEADER = "x-zerobounce-api-key";
+var WARMUP_API_KEY_HEADER = "x-zerobounce-warmup-api-key";
 var DEFAULT_API_BASE_URL = "https://api.zerobounce.net/v2";
 var REGIONAL_API_BASE_URLS = {
   default: DEFAULT_API_BASE_URL,
@@ -2353,6 +3791,20 @@ function resolveApiBaseUrl(value) {
   }
   return raw.replace(/\/+$/, "");
 }
+function resolveWarmupBaseUrl(value) {
+  const raw = value?.trim();
+  if (!raw) return DEFAULT_WARMUP_BASE_URL;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid Warmup API URL: ${raw}. Use an https:// URL.`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`The Warmup API URL must use https, got: ${raw}`);
+  }
+  return raw.replace(/\/+$/, "");
+}
 var SERVER_VERSION = true ? "0.2.0" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
@@ -2362,7 +3814,9 @@ var ZeroBounceMCPServer = class {
     this.config = config;
     this.client = new ZeroBounceClient({
       apiKey: config.apiKey,
-      baseUrl: config.baseUrl
+      baseUrl: config.baseUrl,
+      warmupApiKey: config.warmupApiKey,
+      warmupBaseUrl: config.warmupBaseUrl
     });
     this.server = new Server(
       {
@@ -2379,8 +3833,9 @@ var ZeroBounceMCPServer = class {
     this.setupHandlers();
   }
   setupHandlers() {
-    const allTools = getAllTools();
-    const toolRegistry = getToolRegistry();
+    const availability = { warmupConfigured: this.client.hasWarmup };
+    const allTools = getAllTools(availability);
+    const toolRegistry = getToolRegistry(availability);
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: allTools.map((tool) => tool.definition)
     }));
@@ -2421,7 +3876,9 @@ var ZeroBounceMCPServer = class {
               text: JSON.stringify(
                 {
                   baseUrl: this.config.baseUrl,
-                  apiKeyConfigured: !!this.config.apiKey
+                  apiKeyConfigured: !!this.config.apiKey,
+                  warmupBaseUrl: this.config.warmupBaseUrl,
+                  warmupApiKeyConfigured: !!this.config.warmupApiKey
                 },
                 null,
                 2
@@ -2440,10 +3897,12 @@ var ZeroBounceMCPServer = class {
     await this.server.close();
   }
 };
-async function runStdio(apiKey, baseUrl) {
-  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
+async function runStdio(config) {
+  const server = new ZeroBounceMCPServer(config);
   await server.connect(new StdioServerTransport());
-  console.error("ZeroBounce MCP server running on stdio");
+  console.error(
+    `ZeroBounce MCP server running on stdio${config.warmupApiKey ? " (Warmup tools enabled)" : ""}`
+  );
 }
 function isHttpWhitespace(char) {
   const code = char.charCodeAt(0);
@@ -2461,14 +3920,21 @@ function bearerToken(authorization) {
   if (index >= authorization.length) return "";
   return authorization.slice(index).trim();
 }
-function getRequestApiKey(req) {
-  const header = req.headers[API_KEY_HEADER];
+function headerValue(req, name) {
+  const header = req.headers[name];
   const value = Array.isArray(header) ? header[0] : header;
-  if (value?.trim()) {
-    return value.trim();
+  return value?.trim() ?? "";
+}
+function getRequestApiKey(req) {
+  const value = headerValue(req, API_KEY_HEADER);
+  if (value) {
+    return value;
   }
   const authorization = req.headers.authorization;
   return typeof authorization === "string" ? bearerToken(authorization) : "";
+}
+function getRequestWarmupApiKey(req) {
+  return headerValue(req, WARMUP_API_KEY_HEADER);
 }
 function sendJsonRpcError(res, status, message) {
   res.writeHead(status, { "Content-Type": "application/json" }).end(
@@ -2479,7 +3945,7 @@ function sendJsonRpcError(res, status, message) {
     })
   );
 }
-async function handleMcpRequest(req, res, baseUrl) {
+async function handleMcpRequest(req, res, baseUrl, warmupBaseUrl) {
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     sendJsonRpcError(res, 405, "Method not allowed.");
@@ -2494,7 +3960,12 @@ async function handleMcpRequest(req, res, baseUrl) {
     );
     return;
   }
-  const server = new ZeroBounceMCPServer({ apiKey, baseUrl });
+  const server = new ZeroBounceMCPServer({
+    apiKey,
+    baseUrl,
+    warmupApiKey: getRequestWarmupApiKey(req) || void 0,
+    warmupBaseUrl
+  });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: void 0,
     maxRequestBodySize: HTTP_MAX_REQUEST_BODY_BYTES
@@ -2506,7 +3977,7 @@ async function handleMcpRequest(req, res, baseUrl) {
   await server.connect(transport);
   await transport.handleRequest(req, res);
 }
-async function runHttp(host, port, baseUrl) {
+async function runHttp(host, port, baseUrl, warmupBaseUrl) {
   const httpServer = createServer((req, res) => {
     const { pathname } = new URL(req.url ?? "/", "http://localhost");
     if (pathname === "/health") {
@@ -2517,7 +3988,7 @@ async function runHttp(host, port, baseUrl) {
       res.writeHead(404).end();
       return;
     }
-    handleMcpRequest(req, res, baseUrl).catch((error) => {
+    handleMcpRequest(req, res, baseUrl, warmupBaseUrl).catch((error) => {
       console.error("Error handling MCP request:", error);
       if (!res.headersSent) {
         sendJsonRpcError(res, 500, "Internal server error.");
@@ -2534,11 +4005,13 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const config = {
     apiKey: "",
+    warmupApiKey: "",
     transport: process.env.MCP_TRANSPORT?.trim() === "http" ? "http" : "stdio",
     // Loopback by default; hosted deployments must opt in to 0.0.0.0 explicitly.
     host: process.env.MCP_HOST?.trim() || "127.0.0.1",
     port: Number(process.env.PORT) || 3e3,
-    baseUrl: resolveApiBaseUrl(process.env.ZEROBOUNCE_API_URL)
+    baseUrl: resolveApiBaseUrl(process.env.ZEROBOUNCE_API_URL),
+    warmupBaseUrl: resolveWarmupBaseUrl(process.env.ZEROBOUNCE_WARMUP_API_URL)
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -2552,6 +4025,24 @@ function parseArgs() {
       }
     } else if (arg.startsWith("--api-key=")) {
       config.apiKey = arg.slice("--api-key=".length);
+    } else if (arg === "--warmup-api-key") {
+      if (nextArg) {
+        config.warmupApiKey = nextArg;
+        i++;
+      } else {
+        throw new Error("--warmup-api-key requires a value");
+      }
+    } else if (arg.startsWith("--warmup-api-key=")) {
+      config.warmupApiKey = arg.slice("--warmup-api-key=".length);
+    } else if (arg === "--warmup-url") {
+      if (nextArg) {
+        config.warmupBaseUrl = resolveWarmupBaseUrl(nextArg);
+        i++;
+      } else {
+        throw new Error("--warmup-url requires a value");
+      }
+    } else if (arg.startsWith("--warmup-url=")) {
+      config.warmupBaseUrl = resolveWarmupBaseUrl(arg.slice("--warmup-url=".length));
     } else if (arg === "--http") {
       config.transport = "http";
     } else if (arg === "--port") {
@@ -2596,6 +4087,9 @@ function parseArgs() {
   if (!config.apiKey) {
     config.apiKey = process.env.ZEROBOUNCE_API_KEY?.trim() ?? "";
   }
+  if (!config.warmupApiKey) {
+    config.warmupApiKey = process.env.ZEROBOUNCE_WARMUP_API_KEY?.trim() ?? "";
+  }
   if (!config.apiKey) {
     throw new Error(
       "ZeroBounce API key is required. Provide it via the --api-key flag or the ZEROBOUNCE_API_KEY environment variable."
@@ -2607,9 +4101,14 @@ async function main() {
   try {
     const config = parseArgs();
     if (config.transport === "http") {
-      await runHttp(config.host, config.port, config.baseUrl);
+      await runHttp(config.host, config.port, config.baseUrl, config.warmupBaseUrl);
     } else {
-      await runStdio(config.apiKey, config.baseUrl);
+      await runStdio({
+        apiKey: config.apiKey,
+        baseUrl: config.baseUrl,
+        warmupApiKey: config.warmupApiKey || void 0,
+        warmupBaseUrl: config.warmupBaseUrl
+      });
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
