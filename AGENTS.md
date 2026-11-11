@@ -29,7 +29,8 @@ npm ci
 npm run typecheck   # esbuild does not typecheck, so run this separately
 npm run lint
 npm run build
-npm test            # stdio test (live API, TEST_KEY by default), then the offline HTTP test
+npm test            # offline HTTP test against a fake API (test-http.js); no key needed
+npm run test:live   # stdio test against the live API (test-mcp.js); TEST_KEY by default
 ```
 
 **Do not run the live tests with an invalid or placeholder API key.** ZeroBounce
@@ -40,7 +41,7 @@ than testing anything, and the failures look like SDK bugs when they are not.
 Pass a real key:
 
 ```bash
-npm test -- --api-key="$ZEROBOUNCE_API_KEY"
+npm run test:live -- --api-key="$ZEROBOUNCE_API_KEY"
 ```
 
 **Use real values for the live tests, not just a real key.** A placeholder

@@ -6,7 +6,7 @@ Complete setup guide for using ZeroBounce MCP server in Cursor IDE.
 
 Before configuring Cursor, make sure you've completed the **Quick Start** steps in `README.md`:
 
-- Installed Node.js and the ZeroBounce MCP server
+- Installed Node.js 22 or later and the ZeroBounce MCP server
 - Obtained a ZeroBounce API key (see **Getting Your API Key** in `README.md`)
 - Verified your environment with `node --version` and `npm --version`
 
@@ -15,6 +15,8 @@ You only need the repository locally if you're developing the server itself—ot
 ## Installation & Configuration
 
 ### 1. Install the MCP server
+
+The server requires Node.js 22 or later; check with `node --version`.
 
 ```bash
 npm install -g @zerobounce/mcp
@@ -139,7 +141,7 @@ Show me my ZeroBounce account credits and recent usage
 
 **Solutions:**
 - Ensure you're using Cursor v1 or greater (check Help → About)
-- Verify Node.js is installed: run `node --version` in terminal
+- Verify Node.js 22 or later is installed: run `node --version` in terminal
 - Restart Cursor completely (quit and reopen)
 - Check the MCP configuration in Settings → Cursor Settings → MCP
 
