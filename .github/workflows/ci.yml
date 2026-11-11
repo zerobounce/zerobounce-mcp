@@ -16,8 +16,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The engines floor and the current LTS.
-        node: ["22", "24"]
+        # The engines floor (22), Maintenance LTS (24) and Active LTS (26, since 2026-10-28).
+        node: ["22", "24", "26"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
