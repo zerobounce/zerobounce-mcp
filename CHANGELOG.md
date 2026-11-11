@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Relicensed from Apache-2.0 to MIT, the license every ZeroBounce SDK uses. The `LICENSE` file and the `license` field in `package.json` both say MIT.
+- Requires Node.js 22 or later. `engines` previously allowed Node.js 20, which reached end of life on 2026-04-30. CI now tests on Node.js 22 and 24.
 - `validate_s3_file` and `score_s3_file` now require `returnUrl`. The API refuses a job without a callback URL, so a job submitted without one could never be created or reported back.
 - `export_s3_file` no longer requires `exportBucket`. The spec makes it optional: without a bucket the API exports to the output bucket configured on your account.
 

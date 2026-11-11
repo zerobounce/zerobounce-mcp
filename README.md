@@ -874,6 +874,10 @@ Errors are returned in a structured format:
 }
 ```
 
+## License
+
+MIT. See [LICENSE](LICENSE).
+
 ---
 
 **Made with ❤️ for the MCP community**

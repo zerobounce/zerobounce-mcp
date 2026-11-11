@@ -41,7 +41,7 @@
     "bulk-validation"
   ],
   "author": "ZeroBounce",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "homepage": "https://github.com/zerobounce/zerobounce-mcp#readme",
   "repository": {
     "type": "git",
@@ -70,7 +70,7 @@
     }
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.0.0"
   },
   "mcpName": "io.github.zerobounce/zerobounce-mcp"
 }
