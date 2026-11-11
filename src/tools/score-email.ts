@@ -36,7 +36,7 @@ export const scoreEmailTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
     try {
       const email = requireString(args.email, 'email');
-      const usePost = optionalBoolean(args.usePost) ?? false;
+      const usePost = optionalBoolean(args.usePost, 'usePost') ?? false;
 
       const result = await client.scoreEmail(email, { usePost });
       return createSuccessResponse(result);

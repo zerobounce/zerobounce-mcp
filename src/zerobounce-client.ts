@@ -746,6 +746,12 @@ export class ZeroBounceClient {
       hasHeaderRow?: boolean;
     }
   ): Promise<BulkFileSendResponse> {
+    // The API (and the SDK since 3.1.0) refuses a file with no name column.
+    if (options?.firstNameColumn == null && options?.fullNameColumn == null) {
+      throw new Error(
+        'firstNameColumn or fullNameColumn is required for the bulk email finder'
+      );
+    }
     const blob = this.toCsvBlob(fileContent);
     const result = this.requireSdkResult(
       await this.sdk.sendEmailFinderFileStream(blob, fileName, {

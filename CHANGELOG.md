@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking changes
+
+- Optional number and boolean tool arguments are parsed strictly instead of being dropped when
+  they are not the expected type. A number may be given as a number or a numeric string
+  (`"10"`); anything else, such as `timeout: "abc"`, is now an error ("timeout must be a
+  number") where 0.2.0 silently left the argument out. A boolean may be `true` / `false`,
+  `"true"` / `"false"` in any case, or `1` / `0`; anything else, such as
+  `activityData: "yes"`, is now an error ("activityData must be true or false"). In 0.2.0 every
+  string, including `"true"` and `"false"`, was dropped, so `activityData: "true"` sent no
+  `activity_data`; it is now sent as `true`. An empty string still counts as not set.
+- `bulk_email_finder_send_file` requires `firstNameColumn` or `fullNameColumn` and refuses a
+  call without either before any request ("firstNameColumn or fullNameColumn is required for
+  the bulk email finder"). The API already refused such a file.
+
+### Added
+
+- `bulk_email_finder_send_file` takes `fullNameColumn` (0-based, like the other columns) for a
+  file with one full-name column instead of first and last names.
+
+### Fixed
+
+- A dead or invalid API key is reported as an error (`isError: true`, "Invalid API key or your
+  account ran out of credits") by `find_email`, `domain_search`, `list_filters`, `add_filter`
+  and `delete_filter`. 0.2.0 bundled `@zerobounce/zero-bounce-sdk` 3.0.0, which resolved the
+  API's HTTP 200 answer for a dead key on these calls, so the tools reported it as a successful
+  result. The server now bundles 3.1.0 (`^3.1.0` in `package.json`, 3.1.0 in the lockfile).
+
 ## [0.2.0] - 2026-11-11
 
 This release adds 60 tools (49 are advertised without a Warmup key, 75 with one, up from 15
@@ -213,6 +242,7 @@ hosted HTTP deployments.
 - Initial release: stdio MCP server with email validation, batch validation, credits and API
   usage, bulk validation and AI scoring files, email finder, domain search, and activity data tools.
 
+[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.1.12...v0.2.0
 [0.1.12]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.1.11...v0.1.12
 [0.1.11]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.1.10...v0.1.11

@@ -52,10 +52,10 @@ export const validateBatchTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
     try {
       const emails = requireArray<string>(args.emails, 'emails');
-      const emailAddressColumn = optionalNumber(args.emailAddressColumn);
-      const timeout = optionalNumber(args.timeout);
-      const activityData = optionalBoolean(args.activityData);
-      const verifyPlus = optionalBoolean(args.verifyPlus);
+      const emailAddressColumn = optionalNumber(args.emailAddressColumn, 'emailAddressColumn');
+      const timeout = optionalNumber(args.timeout, 'timeout');
+      const activityData = optionalBoolean(args.activityData, 'activityData');
+      const verifyPlus = optionalBoolean(args.verifyPlus, 'verifyPlus');
 
       const result = await client.validateBatch(emails, {
         emailAddressColumn,

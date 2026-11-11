@@ -348,8 +348,9 @@ Find an email address based on domain, name, and/or company.
 #### `bulk_email_finder_send_file`
 
 Send a CSV file for bulk email finding. Takes `fileContent` and `fileName`, plus the 0-based
-column indexes `domainColumn`, `firstNameColumn`, `middleNameColumn`, and `lastNameColumn`.
-Returns a file ID for tracking.
+column indexes `domainColumn`, `firstNameColumn`, `middleNameColumn`, `lastNameColumn` and
+`fullNameColumn`. `firstNameColumn` or `fullNameColumn` is required: the API needs a name to
+work from. Returns a file ID for tracking.
 
 #### `bulk_email_finder_file_status`
 

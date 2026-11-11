@@ -52,7 +52,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@zerobounce/zero-bounce-sdk": "^3.0.0"
+    "@zerobounce/zero-bounce-sdk": "^3.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

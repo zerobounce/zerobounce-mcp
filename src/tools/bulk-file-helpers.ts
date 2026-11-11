@@ -90,13 +90,17 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   if (config.supportsFullNameColumn) {
     sendFileProperties.fullNameColumn = {
       type: 'number',
-      description: 'Column index (0-based) containing full name values.',
+      description:
+        'Column index (0-based) containing full name values.' +
+        (config.supportsFirstNameColumn ? ' Give this or firstNameColumn.' : ''),
     };
   }
   if (config.supportsFirstNameColumn) {
     sendFileProperties.firstNameColumn = {
       type: 'number',
-      description: 'Column index (0-based) containing first names.',
+      description:
+        'Column index (0-based) containing first names.' +
+        (config.supportsFullNameColumn ? ' Give this or fullNameColumn.' : ''),
     };
   }
   if (config.supportsMiddleNameColumn) {
@@ -132,13 +136,13 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
         if (returnUrl) {
           validateBulkReturnUrl(returnUrl);
         }
-        const emailAddressColumn = config.supportsEmailAddressColumn ? optionalNumber(args.emailAddressColumn) : undefined;
-        const domainColumn = config.supportsDomainColumn ? optionalNumber(args.domainColumn) : undefined;
-        const companyNameColumn = config.supportsCompanyNameColumn ? optionalNumber(args.companyNameColumn) : undefined;
-        const fullNameColumn = config.supportsFullNameColumn ? optionalNumber(args.fullNameColumn) : undefined;
-        const firstNameColumn = config.supportsFirstNameColumn ? optionalNumber(args.firstNameColumn) : undefined;
-        const middleNameColumn = config.supportsMiddleNameColumn ? optionalNumber(args.middleNameColumn) : undefined;
-        const lastNameColumn = config.supportsLastNameColumn ? optionalNumber(args.lastNameColumn) : undefined;
+        const emailAddressColumn = config.supportsEmailAddressColumn ? optionalNumber(args.emailAddressColumn, 'emailAddressColumn') : undefined;
+        const domainColumn = config.supportsDomainColumn ? optionalNumber(args.domainColumn, 'domainColumn') : undefined;
+        const companyNameColumn = config.supportsCompanyNameColumn ? optionalNumber(args.companyNameColumn, 'companyNameColumn') : undefined;
+        const fullNameColumn = config.supportsFullNameColumn ? optionalNumber(args.fullNameColumn, 'fullNameColumn') : undefined;
+        const firstNameColumn = config.supportsFirstNameColumn ? optionalNumber(args.firstNameColumn, 'firstNameColumn') : undefined;
+        const middleNameColumn = config.supportsMiddleNameColumn ? optionalNumber(args.middleNameColumn, 'middleNameColumn') : undefined;
+        const lastNameColumn = config.supportsLastNameColumn ? optionalNumber(args.lastNameColumn, 'lastNameColumn') : undefined;
 
         const result = await config.sendFileMethod(
           client,

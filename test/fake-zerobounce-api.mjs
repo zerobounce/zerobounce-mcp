@@ -19,6 +19,10 @@
  *   ipt-detail-     the Inbox Placement Tester answers 404 with a Django `detail` error
  *   ipt-conflict-   the Inbox Placement Tester answers 400 with a JSON list of messages
  *   returnurl-400- 400 with the live API's "Provided return URL is not permitted: None"
+ *   dead-key-      what an invalid or drained key gets from the live API: an HTTP 200
+ *                  with no "success" field, {"Message": ...} from guessformat,
+ *                  {"Error": ...} from the filters and {"error": ...} elsewhere
+ *   getfile-json-  every getfile answers 200 {"success": false, "message": "File not found"}
  *
  * The Warmup API (warmup-api.zerobounce.net) is served too. It carries its key in an
  * `API-Key` header rather than an `api_key` parameter, so warmup entries log that header
@@ -190,6 +194,16 @@ globalThis.fetch = async (input, init = {}) => {
       status: key.startsWith('html-403-') ? 403 : 200,
       headers: { 'Content-Type': 'text/html; charset=UTF-8' },
     });
+  }
+  if (key.startsWith('dead-key-')) {
+    const message = 'Invalid API key or your account ran out of credits';
+    let body = { error: message };
+    if (entry.path === '/guessformat') body = { Message: message };
+    else if (entry.path.startsWith('/filters')) body = { Error: message };
+    return Response.json(body);
+  }
+  if (key.startsWith('getfile-json-') && entry.path.endsWith('/getfile')) {
+    return Response.json({ success: false, message: 'File not found' });
   }
   if (key.startsWith('returnurl-400-')) {
     // Verbatim from the live API when an S3/SFTP job goes out without return_url.

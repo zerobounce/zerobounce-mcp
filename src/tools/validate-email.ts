@@ -54,10 +54,10 @@ export const validateEmailTool: ToolHandler = {
     try {
       const email = requireString(args.email, 'email');
       const ipAddress = optionalString(args.ipAddress);
-      const timeout = optionalNumber(args.timeout);
-      const activityData = optionalBoolean(args.activityData);
-      const verifyPlus = optionalBoolean(args.verifyPlus);
-      const usePost = optionalBoolean(args.usePost) ?? false;
+      const timeout = optionalNumber(args.timeout, 'timeout');
+      const activityData = optionalBoolean(args.activityData, 'activityData');
+      const verifyPlus = optionalBoolean(args.verifyPlus, 'verifyPlus');
+      const usePost = optionalBoolean(args.usePost, 'usePost') ?? false;
 
       const result = await client.validateEmail(email, {
         ipAddress,

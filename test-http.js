@@ -81,6 +81,21 @@ function stopServer(server) {
   });
 }
 
+/**
+ * Runs the server once and expects it to exit. A guard that stops refusing
+ * would leave the server listening, so the run is killed after a timeout and
+ * the check fails instead of the suite hanging.
+ */
+const CLI_TIMEOUT_MS = 15000;
+function runCli(args, options = {}) {
+  return spawnSync(process.execPath, args, {
+    encoding: 'utf8',
+    timeout: CLI_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+    ...options,
+  });
+}
+
 let nextId = 1;
 
 /** POSTs a JSON-RPC message and returns { status, message } with SSE unwrapped. */
@@ -198,7 +213,12 @@ const TOOL_ARGS = {
   find_email: { firstName: 'Alice', domain: 'example.com' },
   domain_search: { domain: 'example.com' },
   get_activity_data: { email: 'valid@example.com' },
-  bulk_email_finder_send_file: { fileContent: CSV, fileName: 'list.csv', domainColumn: 3 },
+  bulk_email_finder_send_file: {
+    fileContent: CSV,
+    fileName: 'list.csv',
+    domainColumn: 3,
+    firstNameColumn: 1,
+  },
   bulk_email_finder_file_status: { fileId: 'f1' },
   bulk_email_finder_get_file: { fileId: 'f1' },
   bulk_email_finder_delete_file: { fileId: 'f1' },
@@ -840,6 +860,115 @@ async function testErrorReporting(origin, names) {
   );
 }
 
+async function testParityGuards(origin, names) {
+  console.log('\nSDK parity: dead keys, getfile errors, finder name column, argument types');
+  const has = (n) => names.includes(n);
+  const isError = (result) => result.message?.result?.isError === true;
+
+  // LIVE: an invalid or drained key gets an HTTP 200 with no "success" field.
+  // SDK 3.0.0 resolved these three as results, so the tools reported success.
+  const deadKeyCalls = [
+    ['find_email', TOOL_ARGS.find_email],
+    ['domain_search', TOOL_ARGS.domain_search],
+    ['list_filters', TOOL_ARGS.list_filters],
+  ];
+  for (const [name, args] of deadKeyCalls) {
+    if (!has(name)) continue;
+    const result = await callTool(origin, `dead-key-${name}`, name, args);
+    check(
+      isError(result) &&
+        /Invalid API key or your account ran out of credits/.test(toolText(result)),
+      `${name} reports a dead key's 200 body as an error`,
+      toolText(result).slice(0, 160)
+    );
+  }
+
+  // A getfile JSON error body surfaces with the API's own message.
+  for (const name of [
+    'bulk_validate_get_file',
+    'bulk_ai_scoring_get_file',
+    'bulk_email_finder_get_file',
+    'bulk_domain_search_get_file',
+  ]) {
+    if (!has(name)) continue;
+    const result = await callTool(origin, `getfile-json-${name}`, name, { fileId: 'f1' });
+    check(
+      isError(result) && /File not found/.test(toolText(result)),
+      `${name} reports a JSON error body with its message`,
+      toolText(result).slice(0, 160)
+    );
+  }
+
+  if (has('bulk_email_finder_send_file')) {
+    await callTool(origin, 'finder-full-name', 'bulk_email_finder_send_file', {
+      fileContent: CSV,
+      fileName: 'list.csv',
+      domainColumn: 3,
+      fullNameColumn: 1,
+    });
+    const [req] = loggedRequests('finder-full-name');
+    check(
+      String(req?.fields.full_name_column) === '2' && req?.fields.first_name_column === undefined,
+      'bulk_email_finder_send_file sends fullNameColumn (0-based 1 -> API 2)',
+      JSON.stringify(req?.fields)
+    );
+
+    const noName = await callTool(origin, 'finder-no-name', 'bulk_email_finder_send_file', {
+      fileContent: CSV,
+      fileName: 'list.csv',
+      domainColumn: 3,
+    });
+    check(
+      isError(noName) &&
+        /firstNameColumn or fullNameColumn is required/.test(toolText(noName)) &&
+        loggedRequests('finder-no-name').length === 0,
+      'bulk_email_finder_send_file without a name column is refused before any request',
+      toolText(noName).slice(0, 160)
+    );
+  }
+
+  if (has('validate_email')) {
+    const badTimeout = await callTool(origin, 'types-timeout-abc', 'validate_email', {
+      email: 'valid@example.com',
+      timeout: 'abc',
+    });
+    check(
+      isError(badTimeout) &&
+        /timeout must be a number/.test(toolText(badTimeout)) &&
+        loggedRequests('types-timeout-abc').length === 0,
+      'validate_email refuses timeout "abc" instead of dropping it',
+      toolText(badTimeout).slice(0, 160)
+    );
+
+    await callTool(origin, 'types-strings', 'validate_email', {
+      email: 'valid@example.com',
+      timeout: '10',
+      activityData: 'false',
+      verifyPlus: 'TRUE',
+    });
+    const [req] = loggedRequests('types-strings');
+    check(
+      req?.fields.timeout === '10' &&
+        req?.fields.activity_data === 'false' &&
+        req?.fields.verify_plus === 'true',
+      'validate_email reads "10", "false" and "TRUE" as the number and booleans they spell',
+      JSON.stringify(req?.fields)
+    );
+
+    const badBoolean = await callTool(origin, 'types-bool-yes', 'validate_email', {
+      email: 'valid@example.com',
+      activityData: 'yes',
+    });
+    check(
+      isError(badBoolean) &&
+        /activityData must be true or false/.test(toolText(badBoolean)) &&
+        loggedRequests('types-bool-yes').length === 0,
+      'validate_email refuses activityData "yes" instead of dropping it',
+      toolText(badBoolean).slice(0, 160)
+    );
+  }
+}
+
 async function testBatchEmailColumn(origin) {
   console.log('\nvalidate_batch emailAddressColumn');
   await callTool(origin, 'batch-column', 'validate_batch', {
@@ -1473,7 +1602,7 @@ async function testKeyIsolation(origin, server) {
 
 async function testBindHost() {
   console.log('\nBind host');
-  const refused = spawnSync(process.execPath, [SERVER_PATH, '--http', '--host', '0.0.0.0'], {
+  const refused = runCli([SERVER_PATH, '--http', '--host', '0.0.0.0'], {
     encoding: 'utf8',
     env: { ...process.env, MCP_TLS_TERMINATED: '' },
   });
@@ -1558,10 +1687,17 @@ async function testBindHost() {
   );
   await stopServer(custom);
 
+  const slashPort = await freePort();
+  const slash = await startServer([`--port=${slashPort}`, '--url=https://stub.example.com/v2//']);
+  check(
+    (await readBaseUrl(slash.origin)) === 'https://stub.example.com/v2',
+    'trailing slashes are stripped from an explicit API URL'
+  );
+  await stopServer(slash);
+
   // Never silently fall back to production: a caller who asked for one host and
   // got another would send their key somewhere they did not choose.
-  const insecure = spawnSync(
-    process.execPath,
+  const insecure = runCli(
     [SERVER_PATH, '--http', '--url=http://api.zerobounce.net/v2'],
     {
       encoding: 'utf8',
@@ -1573,7 +1709,7 @@ async function testBindHost() {
     insecure.stderr.slice(0, 120)
   );
 
-  const bogus = spawnSync(process.execPath, [SERVER_PATH, '--http', '--url=not-a-url'], {
+  const bogus = runCli([SERVER_PATH, '--http', '--url=not-a-url'], {
     encoding: 'utf8',
   });
   check(bogus.status === 1 && /Invalid API URL/i.test(bogus.stderr),
@@ -1607,15 +1743,20 @@ async function testBindHost() {
     '--warmup-url accepts an explicit https URL for a test host');
   await stopServer(wCustom);
 
-  const wRegion = spawnSync(process.execPath, [SERVER_PATH, '--http', '--warmup-url=us'], {
+  const wSlashPort = await freePort();
+  const wSlash = await startServer([`--port=${wSlashPort}`, '--warmup-url=https://warmup.example.com/']);
+  check((await readWarmupConfig(wSlash.origin)).warmupBaseUrl === 'https://warmup.example.com',
+    'trailing slashes are stripped from an explicit Warmup URL');
+  await stopServer(wSlash);
+
+  const wRegion = runCli([SERVER_PATH, '--http', '--warmup-url=us'], {
     encoding: 'utf8',
   });
   check(wRegion.status === 1 && /Invalid Warmup API URL/i.test(wRegion.stderr),
     'a regional shorthand is refused: no regional Warmup host exists',
     wRegion.stderr.slice(0, 120));
 
-  const wInsecure = spawnSync(
-    process.execPath,
+  const wInsecure = runCli(
     [SERVER_PATH, '--http', '--warmup-url=http://warmup-api.zerobounce.net'],
     { encoding: 'utf8' }
   );
@@ -1626,7 +1767,7 @@ async function testBindHost() {
   console.log('\nWarmup key in stdio mode');
   // stdio takes the Warmup key from a flag or the environment, mirroring --api-key.
   const stdioTools = (args, env) => {
-    const result = spawnSync(process.execPath, ['--import', FAKE_API, SERVER_PATH, ...args], {
+    const result = runCli(['--import', FAKE_API, SERVER_PATH, ...args], {
       encoding: 'utf8',
       env: { ...process.env, FAKE_ZB_LOG: LOG_FILE, ...env },
       input:
@@ -1715,6 +1856,7 @@ async function main() {
     const { names } = await testTools(server.origin);
     await testArgumentHandling(server.origin, names);
     await testErrorReporting(server.origin, names);
+    await testParityGuards(server.origin, names);
     await testBatchEmailColumn(server.origin);
     await testWarmup(server.origin);
     await testInboxPlacement(server.origin, names);

@@ -11,12 +11,13 @@ export const bulkEmailFinderTools = createBulkFileTools({
     _emailCol,
     domainColumn,
     _c,
-    _f,
+    full,
     first,
     middle,
     last
   ) =>
     client.bulkEmailFinderSendFile(fileContent, fileName, domainColumn ?? 0, {
+      fullNameColumn: full,
       firstNameColumn: first,
       middleNameColumn: middle,
       lastNameColumn: last,
@@ -31,6 +32,8 @@ export const bulkEmailFinderTools = createBulkFileTools({
     'deleteEmailFinderFile',
   ],
   supportsDomainColumn: true,
+  // The API needs a name to work from: firstNameColumn or fullNameColumn.
+  supportsFullNameColumn: true,
   supportsFirstNameColumn: true,
   supportsMiddleNameColumn: true,
   supportsLastNameColumn: true,
