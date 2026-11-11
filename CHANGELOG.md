@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Bundles `@zerobounce/zero-bounce-sdk` 4.0.0 (was 3.1.0). Through it, the tools now treat any 2xx `error` / `error_message` / `Error` body as an error (not only key and credit messages), the bulk `*_get_file` tools reject JSON error bodies from the SDK itself, boolean options are sent strictly, and the API key is no longer enumerable on the SDK client. 0.3.0 was released with 3.1.0 because the two were published at the same time.
+
 ## [0.3.0] - 2026-11-12
 
 ### Breaking changes
