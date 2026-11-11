@@ -43,3 +43,16 @@ jobs:
 
       - name: Test
         run: npm test
+
+      - name: Check npm publishes package.json unchanged
+        # npm silently rewrites package.json entries it considers invalid at publish time,
+        # so fail when a dry run reports any auto-correction. The dry run itself exits 1
+        # once the version is on npm ("cannot publish over"), which is expected here, so
+        # only its auto-correction warning is checked; npm prints it before that error.
+        run: |
+          npm publish --dry-run --access public --ignore-scripts > "$RUNNER_TEMP/publish-dry-run.log" 2>&1 || true
+          cat "$RUNNER_TEMP/publish-dry-run.log"
+          if grep -q "auto-corrected" "$RUNNER_TEMP/publish-dry-run.log"; then
+            echo "::error::npm would rewrite package.json when publishing; fix the entries listed above."
+            exit 1
+          fi
