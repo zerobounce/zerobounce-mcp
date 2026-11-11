@@ -76,8 +76,8 @@ export function createBulkRootJobTool(config: BulkRootJobToolConfig): ToolHandle
         const result = await config.jobMethod(client, {
           fileName,
           returnUrl,
-          hasHeaderRow: optionalBoolean(args.hasHeaderRow) ?? false,
-          removeDuplicates: optionalBoolean(args.removeDuplicates),
+          hasHeaderRow: optionalBoolean(args.hasHeaderRow, 'hasHeaderRow') ?? false,
+          removeDuplicates: optionalBoolean(args.removeDuplicates, 'removeDuplicates'),
         });
         return createSuccessResponse(result);
       } catch (error) {

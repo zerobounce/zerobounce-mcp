@@ -51,7 +51,7 @@ function optionalIdArray(value: unknown, fieldName: string): number[] | undefine
     throw new Error(`${fieldName} must be an array of ids`);
   }
   return value.map((item, index) => {
-    const id = optionalNumber(item);
+    const id = optionalNumber(item, `${fieldName}[${index}]`);
     if (id === undefined || !Number.isInteger(id)) {
       throw new Error(`${fieldName}[${index}] must be an integer id`);
     }
@@ -71,11 +71,11 @@ function optionalProviderSelections(value: unknown): InboxPlacementProviderSelec
       throw new Error(`providers[${index}] must be an object with an id`);
     }
     const entry = item as Record<string, unknown>;
-    const id = optionalNumber(entry.id);
+    const id = optionalNumber(entry.id, `providers[${index}].id`);
     if (id === undefined || !Number.isInteger(id)) {
       throw new Error(`providers[${index}].id must be an integer id`);
     }
-    const maxSeeds = optionalNumber(entry.maxSeeds);
+    const maxSeeds = optionalNumber(entry.maxSeeds, `providers[${index}].maxSeeds`);
     if (maxSeeds !== undefined && (!Number.isInteger(maxSeeds) || maxSeeds < 1)) {
       throw new Error(`providers[${index}].maxSeeds must be an integer of at least 1`);
     }
@@ -193,7 +193,7 @@ export const createInboxPlacementTestTool: ToolHandler = {
         throw new Error(`name must be at most ${MAX_TEST_NAME_LENGTH} characters`);
       }
 
-      const testType = optionalNumber(args.testType);
+      const testType = optionalNumber(args.testType, 'testType');
       if (testType !== undefined && !TEST_TYPES.includes(testType as 1 | 2 | 3)) {
         throw new Error(`testType must be one of ${TEST_TYPES.join(', ')}`);
       }
@@ -308,7 +308,7 @@ export const listInboxPlacementTestsTool: ToolHandler = {
         options.createdBefore = createdBefore;
       }
 
-      const page = optionalNumber(args.page);
+      const page = optionalNumber(args.page, 'page');
       if (page !== undefined) {
         if (!Number.isInteger(page) || page < 1) {
           throw new Error('page must be an integer of at least 1');
@@ -316,7 +316,7 @@ export const listInboxPlacementTestsTool: ToolHandler = {
         options.page = page;
       }
 
-      const pageSize = optionalNumber(args.pageSize);
+      const pageSize = optionalNumber(args.pageSize, 'pageSize');
       if (pageSize !== undefined) {
         if (!Number.isInteger(pageSize) || pageSize < MIN_PAGE_SIZE || pageSize > MAX_PAGE_SIZE) {
           throw new Error(

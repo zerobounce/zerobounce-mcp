@@ -113,8 +113,8 @@ export const warmupAddSendingAccountTool: ToolHandler = {
         onboardingModel: requireString(args.onboardingModel, 'onboardingModel') as
           | 'self_managed'
           | 'zb_managed',
-        engagementRuleId: optionalNumber(args.engagementRuleId) ?? null,
-        ignoreConflict: optionalBoolean(args.ignoreConflict) ?? null,
+        engagementRuleId: optionalNumber(args.engagementRuleId, 'engagementRuleId') ?? null,
+        ignoreConflict: optionalBoolean(args.ignoreConflict, 'ignoreConflict') ?? null,
         emailContent: optionalObject(args.emailContent, 'emailContent') ?? null,
         managedSending: optionalObject(args.managedSending, 'managedSending') ?? null,
       });
@@ -241,8 +241,8 @@ export const warmupListFromAddressesTool: ToolHandler = {
     try {
       const result = await client.warmup.listFromAddresses({
         searchFrom: optionalString(args.searchFrom) ?? null,
-        offset: optionalNumber(args.offset) ?? null,
-        limit: optionalNumber(args.limit) ?? null,
+        offset: optionalNumber(args.offset, 'offset') ?? null,
+        limit: optionalNumber(args.limit, 'limit') ?? null,
       });
       return createSuccessResponse(result);
     } catch (error) {

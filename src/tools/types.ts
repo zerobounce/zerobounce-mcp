@@ -129,20 +129,48 @@ export function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value ? value : undefined;
 }
 
-export function optionalNumber(value: unknown): number | undefined {
-  if (value === null || value === undefined) {
+/**
+ * An optional number. MCP clients routinely send numbers as strings, so a
+ * numeric string is accepted; anything else that is set (a non-numeric string
+ * such as "abc", a boolean, an object) is an error rather than being dropped.
+ * An empty string counts as not set.
+ */
+export function optionalNumber(value: unknown, fieldName: string): number | undefined {
+  if (value === null || value === undefined || value === '') {
     return undefined;
   }
-  const num = typeof value === 'number' ? value : Number(value);
-  return isNaN(num) ? undefined : num;
+  const num =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && value.trim() !== ''
+        ? Number(value.trim())
+        : NaN;
+  if (!Number.isFinite(num)) {
+    throw new Error(`${fieldName} must be a number`);
+  }
+  return num;
 }
 
-export function optionalBoolean(value: unknown): boolean | undefined {
+/**
+ * An optional boolean, parsed strictly: true / false, the strings "true" /
+ * "false" in any case, or 1 / 0. Anything else is an error rather than being
+ * dropped, so `"false"` is never ignored and `"yes"` is never guessed at.
+ */
+export function optionalBoolean(value: unknown, fieldName: string): boolean | undefined {
   if (value === null || value === undefined) {
     return undefined;
   }
   if (typeof value === 'boolean') {
     return value;
   }
-  return undefined;
+  if (value === 1 || value === 0) {
+    return value === 1;
+  }
+  if (typeof value === 'string') {
+    const text = value.trim().toLowerCase();
+    if (text === 'true' || text === 'false') {
+      return text === 'true';
+    }
+  }
+  throw new Error(`${fieldName} must be true or false`);
 }
