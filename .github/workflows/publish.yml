@@ -100,8 +100,10 @@ jobs:
       - name: Test
         run: npm test
 
+      # Trusted publishing (OIDC) needs npm 11.5.1 or later. Pin the major so a new npm
+      # major (npm@latest is 12) is not picked up untested at release time.
       - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       - name: Publish to npm
         env:

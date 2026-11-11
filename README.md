@@ -28,6 +28,8 @@ A comprehensive Model Context Protocol (MCP) server that provides full-featured 
 
 ## Quick Start
 
+Requires **Node.js 22 or later** (check with `node --version`).
+
 1. **Install the MCP server globally**
 ```bash
 npm install -g @zerobounce/mcp
@@ -88,8 +90,8 @@ the Warmup tools need a second key:
 does, and the flag wins when both are set.
 
 The Warmup key is **optional**. Leave it out and the 26 `warmup_*` tools are not advertised
-at all, so a client never sees a tool that cannot work. Supply it and the server exposes 59
-tools instead of 33.
+at all, so a client never sees a tool that cannot work. Supply it and the server exposes 75
+tools instead of 49.
 
 In HTTP mode the Warmup key is a per-request header, `X-ZeroBounce-Warmup-Api-Key` — see
 [Remote (HTTP) Mode](#remote-http-mode).
@@ -262,7 +264,12 @@ Most hosted MCP platforms that build from a GitHub repository need these setting
 | Build Command | `npm ci && npm run build` |
 | Start Command | `node dist/index.js --http --host 0.0.0.0` |
 | Port | `3000` |
-| Environment Variables | none required (set `PORT` only if you change the port) |
+| Environment Variables | `MCP_TLS_TERMINATED=true` (required; set `PORT` only if you change the port) |
+
+The server refuses to bind anything but loopback (`127.0.0.1`, `::1` or `localhost`) unless
+`MCP_TLS_TERMINATED=true` is set, and exits with `Non-loopback HTTP binding requires
+MCP_TLS_TERMINATED=true and a trusted TLS-terminating proxy.` Set it only when the platform
+terminates HTTPS in front of the server, because every request carries a caller's API key.
 
 
 ## Tools
@@ -743,49 +750,33 @@ Get the results for my completed bulk validation file abc123
 
 ## Status Values
 
-ZeroBounce returns the following status values:
+`validate_email` and `validate_batch` return one of these `status` values, as listed in the
+ZeroBounce [status codes reference](https://www.zerobounce.net/docs/email-validation-api-quickstart/v2-status-codes):
 
-- **valid**: Email address is valid
-- **invalid**: Email address is invalid
-- **catchall**: Domain accepts all emails (catch-all)
-- **do_not_mail**: Email address is on a do-not-mail list
-- **spamtrap**: Email address is a spamtrap
-- **abuse**: Email address is associated with abuse
-- **unknown**: Unable to determine validity
+- **valid**: Email address is valid and safe to email
+- **invalid**: Email address is invalid; remove it from your list
+- **catch-all**: The domain accepts mail for any address, so the mailbox cannot be confirmed
+- **spamtrap**: Email address is believed to be a spam trap
+- **abuse**: Email address belongs to someone known to report mail as spam
+- **do_not_mail**: Email address you should avoid mailing (role-based, disposable, toxic, and so on)
+- **unknown**: The address could not be validated, for example because the mail server is offline
 
 ## Sub-Status Values
 
-Common sub-status values include:
+`sub_status` explains a result further. It is empty when there is nothing to add, and not every
+`invalid` or `unknown` result has one.
 
-- **toxic**: Email address contains toxic words
-- **disposable**: Email address is from a disposable email service
-- **role_based**: Email address is role-based (e.g., admin@, info@)
-- **possible_trap**: Email address might be a trap
-- **global_suppression**: Email address is on a global suppression list
-- **timeout_exceeded**: Validation timeout exceeded
-- **mail_server_temporary_error**: Temporary mail server error
-- **mail_server_did_not_respond**: Mail server did not respond
-- **greylisted**: Email address is greylisted
-- **antispam_system**: Blocked by antispam system
-- **does_not_accept_mail**: Domain does not accept mail
-- **exception_occurred**: Exception occurred during validation
-- **failed_syntax_check**: Email failed syntax check
-- **mailbox_quota_exceeded**: Mailbox quota exceeded
-- **possible_typo**: Possible typo in email address
-- **unroutable_ip_address**: Unroutable IP address
-- **leading_period_removed**: Leading period was removed
-- **does_not_accept_mail_from_mailer_daemon**: Does not accept mail from mailer daemon
-- **address_is_blocked**: Address is blocked
-- **failed_antispam_check**: Failed antispam check
-- **mailbox_not_found**: Mailbox not found
-- **unroutable_mail_server**: Unroutable mail server
-- **invalid**: Invalid email address
-- **mail_server_did_not_respond_within_timeout_period**: Mail server did not respond within timeout
-- **address_failed_validation**: Address failed validation
-- **mailbox_storage_exceeded**: Mailbox storage exceeded
-- **mailbox_administratively_disabled**: Mailbox administratively disabled
-- **domain_not_found**: Domain not found
-- **address_is_on_a_global_suppression_list**: Address is on a global suppression list
+| `status` | `sub_status` values |
+| --- | --- |
+| `valid` | `alias_address`, `leading_period_removed`, `alternate`, `gold`, `accept_all`, `role_based_accept_all`, `ai_agent_mailbox`, `allowed` |
+| `invalid` | `does_not_accept_mail`, `failed_syntax_check`, `possible_typo`, `mailbox_not_found`, `no_dns_entries`, `mailbox_quota_exceeded`, `unroutable_ip_address` |
+| `catch-all` | `ai_agent_mailbox` |
+| `do_not_mail` | `role_based`, `disposable`, `role_based_catch_all`, `mx_forward`, `global_suppression`, `possible_trap`, `toxic`, `blocked` |
+| `unknown` | `antispam_system`, `exception_occurred`, `failed_smtp_connection`, `forcible_disconnect`, `greylisted`, `mail_server_did_not_respond`, `mail_server_temporary_error`, `timeout_exceeded` |
+
+`allowed` and `blocked` come from your own [custom filters](#filter-tools): an address that
+matches an `allow` rule is returned as `valid` / `allowed`, and one that matches a `block` rule
+as `do_not_mail` / `blocked`.
 
 ## Security Best Practices
 
@@ -841,9 +832,14 @@ For local development on this MCP server:
   npm run typecheck && npm run build && npm test
   ```
 
-  `npm test` runs the stdio test, which calls the live ZeroBounce API (pass `--api-key=KEY` to
-  `node test-mcp.js` for full coverage), and then `test-http.js`. The HTTP test runs offline
-  against a fake API and checks routing, auth, every tool, and per-request API key isolation.
+  `npm test` runs `test-http.js` only. It runs offline against a fake API, needs no API key,
+  and checks routing, auth, every tool, and per-request API key isolation.
+
+  The stdio test against the live ZeroBounce API is separate and spends credits. Run it with a
+  real key (a placeholder key is blocked by Cloudflare rather than rejected by the API):
+  ```bash
+  npm run test:live -- --api-key="$ZEROBOUNCE_API_KEY"
+  ```
 
 ## Error Handling
 
@@ -865,14 +861,31 @@ The server handles errors gracefully and returns descriptive error messages:
 
 ### Error Response Format
 
-Errors are returned in a structured format:
+A tool that fails returns an ordinary MCP tool result with `isError` set, and the message as
+text prefixed with `Error: `:
 ```json
 {
-  "error": "Error type",
-  "message": "Detailed error description",
-  "details": "Additional context (if available)"
+  "content": [{ "type": "text", "text": "Error: api_key is invalid" }],
+  "isError": true
 }
 ```
+
+Messages longer than 1000 characters are truncated, and an HTML error page from the API is
+reported as a one-line summary instead of the page itself.
+
+In HTTP mode, a request rejected before it reaches a tool (a missing API key, or a method other
+than `POST`) gets a JSON-RPC error with the matching HTTP status (`401`, `405`):
+```json
+{
+  "jsonrpc": "2.0",
+  "error": { "code": -32000, "message": "Method not allowed." },
+  "id": null
+}
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 ---
 

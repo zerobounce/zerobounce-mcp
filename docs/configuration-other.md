@@ -15,7 +15,7 @@ This guide covers configuration for:
 
 Before configuring any other MCP client, make sure you've completed the **Quick Start** steps in `README.md`:
 
-- Installed Node.js and the ZeroBounce MCP server
+- Installed Node.js 22 or later and the ZeroBounce MCP server
 - Obtained a ZeroBounce API key (see **Getting Your API Key** in `README.md`)
 - Verified your environment with `node --version` and `npm --version`
 - Installed your MCP-compatible client

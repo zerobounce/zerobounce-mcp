@@ -6,7 +6,7 @@ Complete setup guide for using ZeroBounce MCP server in Visual Studio Code.
 
 Before configuring VS Code, make sure you've completed the **Quick Start** steps in `README.md`:
 
-- Installed Node.js and the ZeroBounce MCP server
+- Installed Node.js 22 or later and the ZeroBounce MCP server
 - Obtained a ZeroBounce API key (see **Getting Your API Key** in `README.md`)
 - Verified your environment with `node --version` and `npm --version`
 
@@ -24,6 +24,8 @@ If you haven't installed the MCP extension yet:
 ## Installation Steps
 
 ### 1. Install the MCP server
+
+The server requires Node.js 22 or later; check with `node --version`.
 
 ```bash
 npm install -g @zerobounce/mcp
@@ -160,7 +162,7 @@ Show me my ZeroBounce account status and usage for this month
 **Problem:** ZeroBounce tools don't show up
 
 **Solutions:**
-- Verify Node.js is installed: run `node --version` in integrated terminal
+- Verify Node.js 22 or later is installed: run `node --version` in integrated terminal
 - Check MCP extension is enabled (Extensions → MCP → Enabled)
 - Restart VS Code completely
 - View MCP logs via Command Palette → "MCP: Show Logs"
