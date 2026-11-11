@@ -24,8 +24,8 @@ export const listS3FilesTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.listS3Files({
-        bucket: optionalString(args.bucket),
-        search: optionalString(args.search),
+        bucket: optionalString(args.bucket, 'bucket'),
+        search: optionalString(args.search, 'search'),
       });
       return createSuccessResponse(result);
     } catch (error) {
@@ -93,7 +93,7 @@ export const exportS3FileTool: ToolHandler = {
     try {
       const result = await client.exportS3File(
         requireString(args.fileId, 'fileId'),
-        optionalString(args.exportBucket)
+        optionalString(args.exportBucket, 'exportBucket')
       );
       return createSuccessResponse(result);
     } catch (error) {

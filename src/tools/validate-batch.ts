@@ -8,7 +8,7 @@ import {
   ToolHandler,
   createSuccessResponse,
   createErrorResponse,
-  requireArray,
+  requireStringArray,
   optionalNumber,
   optionalBoolean,
 } from './types.js';
@@ -51,7 +51,7 @@ export const validateBatchTool: ToolHandler = {
   },
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
     try {
-      const emails = requireArray<string>(args.emails, 'emails');
+      const emails = requireStringArray(args.emails, 'emails');
       const emailAddressColumn = optionalNumber(args.emailAddressColumn, 'emailAddressColumn');
       const timeout = optionalNumber(args.timeout, 'timeout');
       const activityData = optionalBoolean(args.activityData, 'activityData');

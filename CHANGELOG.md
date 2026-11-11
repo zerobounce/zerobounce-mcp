@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking changes
+
+- Optional string arguments are type-checked like the number and boolean ones since 0.3.0. A
+  value that is set but is not a string, such as `ipAddress: 123` on `validate_email` or
+  `domain: 123` on `find_email`, is now an error ("ipAddress must be a string") where 0.3.1
+  silently left it out. `validate_batch` refuses an `emails` list with an item that is not a
+  non-empty string ("emails must contain only non-empty strings"); 0.3.1 sent `[1, 2]` to the
+  API as numbers. An empty string still counts as not set.
+
+### Changed
+
+- `@zerobounce/zero-bounce-sdk` is a development dependency. `dist/index.js` bundles it, and
+  nothing loads it at run time, so `npm install @zerobounce/mcp` no longer installs an unused
+  copy. Which SDK version a release carries is set by the lockfile when it is built.
+
+### Fixed
+
+- The `dist/index.js` committed at the v0.3.1 tag reported version 0.3.0 in `serverInfo`,
+  because the release commit did not rebuild it. The npm package was rebuilt at publish time
+  and reports 0.3.1. The test suite now checks both the built and the committed bundle.
+
 ## [0.3.1] - 2026-11-12
 
 ### Changed

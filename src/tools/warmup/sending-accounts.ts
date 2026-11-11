@@ -240,7 +240,7 @@ export const warmupListFromAddressesTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.listFromAddresses({
-        searchFrom: optionalString(args.searchFrom) ?? null,
+        searchFrom: optionalString(args.searchFrom, 'searchFrom') ?? null,
         offset: optionalNumber(args.offset, 'offset') ?? null,
         limit: optionalNumber(args.limit, 'limit') ?? null,
       });

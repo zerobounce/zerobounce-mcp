@@ -198,7 +198,7 @@ export const createInboxPlacementTestTool: ToolHandler = {
         throw new Error(`testType must be one of ${TEST_TYPES.join(', ')}`);
       }
 
-      const senderEmail = optionalString(args.senderEmail);
+      const senderEmail = optionalString(args.senderEmail, 'senderEmail');
       if (testType === 1 && !senderEmail) {
         throw new Error('senderEmail is required when testType is 1');
       }
@@ -291,7 +291,7 @@ export const listInboxPlacementTestsTool: ToolHandler = {
     try {
       const options: ListInboxPlacementTestsOptions = {};
 
-      const status = optionalString(args.status);
+      const status = optionalString(args.status, 'status');
       if (status !== undefined) {
         if (!TEST_STATUSES.includes(status as 'running' | 'finished')) {
           throw new Error(`status must be one of ${TEST_STATUSES.join(', ')}`);
@@ -299,11 +299,11 @@ export const listInboxPlacementTestsTool: ToolHandler = {
         options.status = status as 'running' | 'finished';
       }
 
-      const createdAfter = optionalString(args.createdAfter);
+      const createdAfter = optionalString(args.createdAfter, 'createdAfter');
       if (createdAfter !== undefined) {
         options.createdAfter = createdAfter;
       }
-      const createdBefore = optionalString(args.createdBefore);
+      const createdBefore = optionalString(args.createdBefore, 'createdBefore');
       if (createdBefore !== undefined) {
         options.createdBefore = createdBefore;
       }

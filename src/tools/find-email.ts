@@ -44,11 +44,11 @@ export const findEmailTool: ToolHandler = {
   },
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
     try {
-      const domain = optionalString(args.domain);
-      const firstName = optionalString(args.firstName);
-      const middleName = optionalString(args.middleName);
-      const lastName = optionalString(args.lastName);
-      const company = optionalString(args.company);
+      const domain = optionalString(args.domain, 'domain');
+      const firstName = optionalString(args.firstName, 'firstName');
+      const middleName = optionalString(args.middleName, 'middleName');
+      const lastName = optionalString(args.lastName, 'lastName');
+      const company = optionalString(args.company, 'company');
 
       if (!firstName) {
         throw new Error('"firstName" is required');
