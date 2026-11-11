@@ -90,6 +90,15 @@ export function requireArray<T>(value: unknown, fieldName: string): T[] {
   return value as T[];
 }
 
+/** A required, non-empty array whose items are all non-empty strings. */
+export function requireStringArray(value: unknown, fieldName: string): string[] {
+  const items = requireArray<unknown>(value, fieldName);
+  if (!items.every((item) => typeof item === 'string' && item !== '')) {
+    throw new Error(`${fieldName} must contain only non-empty strings`);
+  }
+  return items as string[];
+}
+
 /**
  * A required integer. MCP clients routinely send numbers as strings, so coerce
  * first and leave the range checks to the SDK, which carries the real limits.
@@ -125,8 +134,19 @@ export function optionalObject(
   return value as Record<string, unknown>;
 }
 
-export function optionalString(value: unknown): string | undefined {
-  return typeof value === 'string' && value ? value : undefined;
+/**
+ * An optional string. An empty string counts as not set; anything else that is
+ * set but is not a string (a number, a boolean, an object) is an error rather
+ * than being dropped, as for optionalNumber and optionalBoolean.
+ */
+export function optionalString(value: unknown, fieldName: string): string | undefined {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldName} must be a string`);
+  }
+  return value;
 }
 
 /**

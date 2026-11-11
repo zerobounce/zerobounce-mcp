@@ -74,9 +74,15 @@ test out of CI -- the offline `test-http.js` is the part that gates meaningfully
   endpoint that the public docs do not describe, even if the SDK or the server has it. Integration
   pages count: the S3 bulk API is documented at
   https://www.zerobounce.net/docs/api-integrations/amazon-s3-bulk-api.
-- **Rebuild and commit `dist/index.js`** with every source change. The repository ships the bundle.
+- **Rebuild and commit `dist/index.js`** with every source change, and in the release commit. The
+  repository ships the bundle, and `npm test` fails when the committed bundle's version differs
+  from the committed `package.json`. `@zerobounce/zero-bounce-sdk` is bundled into it, so it is a
+  devDependency; `dist/index.js` must never import it at run time.
 - **Tool argument helpers take a value, not the args object.** Write `requireString(args.email, 'email')`,
   never `requireString(args, 'email')`. The wrong form compiles but rejects every call.
+- **A set argument of the wrong type is an error, never dropped.** `optionalString`, `optionalNumber`
+  and `optionalBoolean` treat only `null` and `undefined` (and, for strings and numbers, `''`) as
+  not set; `requireStringArray` checks every item.
 - **Tools that need newer SDK methods** must list them in `sdkMethods`. `getAllTools()` hides a
   tool when the installed SDK lacks any of them, so a release never advertises broken tools.
 - **Never share API keys or server state across HTTP requests.** `handleMcpRequest` creates a

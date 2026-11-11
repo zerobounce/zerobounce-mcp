@@ -132,7 +132,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
         const fileContent = requireString(args.fileContent, 'fileContent');
         assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, 'fileName');
-        const returnUrl = optionalString(args.returnUrl);
+        const returnUrl = optionalString(args.returnUrl, 'returnUrl');
         if (returnUrl) {
           validateBulkReturnUrl(returnUrl);
         }

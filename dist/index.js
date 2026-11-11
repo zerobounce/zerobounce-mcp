@@ -1690,6 +1690,13 @@ function requireArray(value, fieldName) {
   }
   return value;
 }
+function requireStringArray(value, fieldName) {
+  const items = requireArray(value, fieldName);
+  if (!items.every((item) => typeof item === "string" && item !== "")) {
+    throw new Error(`${fieldName} must contain only non-empty strings`);
+  }
+  return items;
+}
 function requireNumber(value, fieldName) {
   if (value === null || value === void 0 || value === "") {
     throw new Error(`${fieldName} is required and must be a number`);
@@ -1715,8 +1722,14 @@ function optionalObject(value, fieldName) {
   }
   return value;
 }
-function optionalString(value) {
-  return typeof value === "string" && value ? value : void 0;
+function optionalString(value, fieldName) {
+  if (value === null || value === void 0 || value === "") {
+    return void 0;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${fieldName} must be a string`);
+  }
+  return value;
 }
 function optionalNumber(value, fieldName) {
   if (value === null || value === void 0 || value === "") {
@@ -1786,7 +1799,7 @@ var validateEmailTool = {
   handler: async (client, args) => {
     try {
       const email = requireString(args.email, "email");
-      const ipAddress = optionalString(args.ipAddress);
+      const ipAddress = optionalString(args.ipAddress, "ipAddress");
       const timeout = optionalNumber(args.timeout, "timeout");
       const activityData = optionalBoolean(args.activityData, "activityData");
       const verifyPlus = optionalBoolean(args.verifyPlus, "verifyPlus");
@@ -1842,7 +1855,7 @@ var validateBatchTool = {
   },
   handler: async (client, args) => {
     try {
-      const emails = requireArray(args.emails, "emails");
+      const emails = requireStringArray(args.emails, "emails");
       const emailAddressColumn = optionalNumber(args.emailAddressColumn, "emailAddressColumn");
       const timeout = optionalNumber(args.timeout, "timeout");
       const activityData = optionalBoolean(args.activityData, "activityData");
@@ -1986,7 +1999,7 @@ function createBulkFileTools(config) {
         const fileContent = requireString(args.fileContent, "fileContent");
         assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, "fileName");
-        const returnUrl = optionalString(args.returnUrl);
+        const returnUrl = optionalString(args.returnUrl, "returnUrl");
         if (returnUrl) {
           validateBulkReturnUrl(returnUrl);
         }
@@ -2192,11 +2205,11 @@ var findEmailTool = {
   },
   handler: async (client, args) => {
     try {
-      const domain = optionalString(args.domain);
-      const firstName = optionalString(args.firstName);
-      const middleName = optionalString(args.middleName);
-      const lastName = optionalString(args.lastName);
-      const company = optionalString(args.company);
+      const domain = optionalString(args.domain, "domain");
+      const firstName = optionalString(args.firstName, "firstName");
+      const middleName = optionalString(args.middleName, "middleName");
+      const lastName = optionalString(args.lastName, "lastName");
+      const company = optionalString(args.company, "company");
       if (!firstName) {
         throw new Error('"firstName" is required');
       }
@@ -2239,8 +2252,8 @@ var domainSearchTool = {
   },
   handler: async (client, args) => {
     try {
-      const domain = optionalString(args.domain);
-      const company = optionalString(args.company);
+      const domain = optionalString(args.domain, "domain");
+      const company = optionalString(args.company, "company");
       if (!domain && !company) {
         throw new Error('Either "domain" or "company" is required');
       }
@@ -2548,8 +2561,8 @@ var listS3FilesTool = {
   handler: async (client, args) => {
     try {
       const result = await client.listS3Files({
-        bucket: optionalString(args.bucket),
-        search: optionalString(args.search)
+        bucket: optionalString(args.bucket, "bucket"),
+        search: optionalString(args.search, "search")
       });
       return createSuccessResponse(result);
     } catch (error) {
@@ -2610,7 +2623,7 @@ var exportS3FileTool = {
     try {
       const result = await client.exportS3File(
         requireString(args.fileId, "fileId"),
-        optionalString(args.exportBucket)
+        optionalString(args.exportBucket, "exportBucket")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -2673,7 +2686,7 @@ var exportSftpFileTool = {
     try {
       const result = await client.exportSftpFile(
         requireString(args.fileId, "fileId"),
-        optionalString(args.exportPath)
+        optionalString(args.exportPath, "exportPath")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -2836,7 +2849,7 @@ var createInboxPlacementTestTool = {
       if (testType !== void 0 && !TEST_TYPES.includes(testType)) {
         throw new Error(`testType must be one of ${TEST_TYPES.join(", ")}`);
       }
-      const senderEmail = optionalString(args.senderEmail);
+      const senderEmail = optionalString(args.senderEmail, "senderEmail");
       if (testType === 1 && !senderEmail) {
         throw new Error("senderEmail is required when testType is 1");
       }
@@ -2923,18 +2936,18 @@ var listInboxPlacementTestsTool = {
   handler: async (client, args) => {
     try {
       const options = {};
-      const status = optionalString(args.status);
+      const status = optionalString(args.status, "status");
       if (status !== void 0) {
         if (!TEST_STATUSES.includes(status)) {
           throw new Error(`status must be one of ${TEST_STATUSES.join(", ")}`);
         }
         options.status = status;
       }
-      const createdAfter = optionalString(args.createdAfter);
+      const createdAfter = optionalString(args.createdAfter, "createdAfter");
       if (createdAfter !== void 0) {
         options.createdAfter = createdAfter;
       }
-      const createdBefore = optionalString(args.createdBefore);
+      const createdBefore = optionalString(args.createdBefore, "createdBefore");
       if (createdBefore !== void 0) {
         options.createdBefore = createdBefore;
       }
@@ -3238,7 +3251,7 @@ var warmupListFromAddressesTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.listFromAddresses({
-        searchFrom: optionalString(args.searchFrom) ?? null,
+        searchFrom: optionalString(args.searchFrom, "searchFrom") ?? null,
         offset: optionalNumber(args.offset, "offset") ?? null,
         limit: optionalNumber(args.limit, "limit") ?? null
       });
@@ -3664,7 +3677,7 @@ var warmupCheckDomainDmarcTool = {
     try {
       const result = await client.warmup.checkDomainDmarc(
         requireString(args.fromAddress, "fromAddress"),
-        optionalString(args.dkimSelector) ?? null
+        optionalString(args.dkimSelector, "dkimSelector") ?? null
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -3862,7 +3875,7 @@ function resolveWarmupBaseUrl(value) {
   }
   return raw.replace(/\/+$/, "");
 }
-var SERVER_VERSION = true ? "0.3.0" : "0.0.0-dev";
+var SERVER_VERSION = true ? "0.3.1" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
   client;

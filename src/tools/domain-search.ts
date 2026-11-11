@@ -33,8 +33,8 @@ export const domainSearchTool: ToolHandler = {
   },
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
     try {
-      const domain = optionalString(args.domain);
-      const company = optionalString(args.company);
+      const domain = optionalString(args.domain, 'domain');
+      const company = optionalString(args.company, 'company');
 
       if (!domain && !company) {
         throw new Error('Either "domain" or "company" is required');

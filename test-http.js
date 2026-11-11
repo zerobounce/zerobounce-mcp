@@ -927,6 +927,49 @@ async function testParityGuards(origin, names) {
     );
   }
 
+  // SDK 4.0.0 behaviour, which the bundled SDK must have. 3.1.0 resolved a 2xx
+  // error_message body that does not mention the key or credits, and returned an
+  // application/json getfile answer as if it were the file, so each of these
+  // tools reported success. 0.3.0 shipped with 3.1.0 and nothing failed.
+  for (const name of ['validate_email', 'score_email', 'get_activity_data', 'get_api_usage', 'get_credits']) {
+    if (!has(name)) continue;
+    const result = await callTool(origin, `error-message-200-${name}`, name, TOOL_ARGS[name]);
+    check(
+      isError(result) && /The request was refused/.test(toolText(result)),
+      `${name} reports a 2xx error_message body as an error (bundled SDK >= 4.0.0)`,
+      toolText(result).slice(0, 160)
+    );
+  }
+  if (has('bulk_validate_get_file')) {
+    const result = await callTool(origin, 'getfile-jsontype-validate', 'bulk_validate_get_file', { fileId: 'f1' });
+    check(
+      isError(result) && !/list\.csv/.test(toolText(result)),
+      'bulk_validate_get_file reports an application/json answer as an error, not as the file (bundled SDK >= 4.0.0)',
+      toolText(result).slice(0, 160)
+    );
+  }
+
+  // A string or string-array argument of the wrong type is refused, as a
+  // number or boolean of the wrong type is, instead of being dropped or sent.
+  const wrongTypes = [
+    ['validate_email', { email: 'valid@example.com', ipAddress: 123 }, /ipAddress must be a string/],
+    ['validate_batch', { emails: [1, 2] }, /emails must contain only non-empty strings/],
+    ['validate_batch', { emails: ['a@example.com', null] }, /emails must contain only non-empty strings/],
+    ['find_email', { domain: 123, firstName: 'Alice' }, /domain must be a string/],
+    ['domain_search', { domain: 'example.com', company: { name: 'x' } }, /company must be a string/],
+  ];
+  let wrongIndex = 0;
+  for (const [name, args, expected] of wrongTypes) {
+    if (!has(name)) continue;
+    const key = `types-wrong-${wrongIndex++}`;
+    const result = await callTool(origin, key, name, args);
+    check(
+      isError(result) && expected.test(toolText(result)) && loggedRequests(key).length === 0,
+      `${name} refuses ${JSON.stringify(args)} before any request`,
+      toolText(result).slice(0, 160)
+    );
+  }
+
   if (has('validate_email')) {
     const badTimeout = await callTool(origin, 'types-timeout-abc', 'validate_email', {
       email: 'valid@example.com',
@@ -1842,12 +1885,57 @@ async function testBindHost() {
   );
 }
 
+/** The version esbuild baked into a bundle, or null. */
+function bundledVersion(source) {
+  const match = /\bSERVER_VERSION = (?:true \? )?"([^"]+)"/.exec(source);
+  return match ? match[1] : null;
+}
+
+/**
+ * The bundle must carry the package.json version. CI and Publish rebuild dist/
+ * before testing, so the committed bundle is checked as well, from the git index
+ * (what a checkout or a git install ships): the v0.3.1 release commit kept a
+ * dist/index.js that still reported 0.3.0.
+ */
+function testBundleVersion() {
+  console.log('\nBundle version');
+  if (!process.env.ZB_MCP_SERVER) {
+    const { version } = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8'));
+    const built = bundledVersion(readFileSync(SERVER_PATH, 'utf8'));
+    check(built === version, `dist/index.js carries the package.json version ${version}`, `bundle says ${built}`);
+  }
+
+  // The SDK is bundled and is only a devDependency, so an installed server has no copy of
+  // it: the bundle must not load it at run time.
+  const bundle = readFileSync(SERVER_PATH, 'utf8');
+  check(
+    !/\b(?:from|import|require)\s*\(?\s*['"]@zerobounce\/zero-bounce-sdk/.test(bundle),
+    'dist/index.js bundles @zerobounce/zero-bounce-sdk instead of importing it'
+  );
+
+  const git = (...args) => spawnSync('git', ['-C', __dirname, ...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  if (git('ls-files', '--error-unmatch', 'dist/index.js').status !== 0) {
+    console.log('  (not a git checkout with a committed dist/index.js; committed-bundle check skipped)');
+    return;
+  }
+  const committedPackage = git('show', ':package.json');
+  const committedBundle = git('show', ':dist/index.js');
+  const committedVersion = committedPackage.status === 0 ? JSON.parse(committedPackage.stdout).version : null;
+  const committedBuilt = committedBundle.status === 0 ? bundledVersion(committedBundle.stdout) : null;
+  check(
+    committedVersion !== null && committedBuilt === committedVersion,
+    `the committed dist/index.js carries the committed package.json version ${committedVersion}`,
+    `committed bundle says ${committedBuilt}; rebuild and commit dist/index.js`
+  );
+}
+
 async function main() {
   if (!existsSync(SERVER_PATH)) {
     console.error(`Server not found at ${SERVER_PATH}. Run npm run build first.`);
     process.exit(1);
   }
   console.log(`Testing HTTP mode of ${SERVER_PATH}`);
+  testBundleVersion();
 
   const port = await freePort();
   const server = await startServer(['--port', String(port)]);

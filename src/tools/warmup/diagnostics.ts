@@ -37,7 +37,7 @@ export const warmupCheckDomainDmarcTool: ToolHandler = {
     try {
       const result = await client.warmup.checkDomainDmarc(
         requireString(args.fromAddress, 'fromAddress'),
-        optionalString(args.dkimSelector) ?? null
+        optionalString(args.dkimSelector, 'dkimSelector') ?? null
       );
       return createSuccessResponse(result);
     } catch (error) {

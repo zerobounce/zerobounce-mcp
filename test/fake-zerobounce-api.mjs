@@ -23,6 +23,9 @@
  *                  with no "success" field, {"Message": ...} from guessformat,
  *                  {"Error": ...} from the filters and {"error": ...} elsewhere
  *   getfile-json-  every getfile answers 200 {"success": false, "message": "File not found"}
+ *   getfile-jsontype- every getfile answers 200 application/json with no error field
+ *   error-message-200- every other endpoint answers 200 {"error_message": ...} with no
+ *                  "success" field and wording that is not about the key or credits
  *
  * The Warmup API (warmup-api.zerobounce.net) is served too. It carries its key in an
  * `API-Key` header rather than an `api_key` parameter, so warmup entries log that header
@@ -204,6 +207,12 @@ globalThis.fetch = async (input, init = {}) => {
   }
   if (key.startsWith('getfile-json-') && entry.path.endsWith('/getfile')) {
     return Response.json({ success: false, message: 'File not found' });
+  }
+  if (key.startsWith('getfile-jsontype-') && entry.path.endsWith('/getfile')) {
+    return Response.json({ file_name: 'list.csv' });
+  }
+  if (key.startsWith('error-message-200-')) {
+    return Response.json({ error_message: 'The request was refused' });
   }
   if (key.startsWith('returnurl-400-')) {
     // Verbatim from the live API when an S3/SFTP job goes out without return_url.

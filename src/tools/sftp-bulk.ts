@@ -72,7 +72,7 @@ export const exportSftpFileTool: ToolHandler = {
     try {
       const result = await client.exportSftpFile(
         requireString(args.fileId, 'fileId'),
-        optionalString(args.exportPath)
+        optionalString(args.exportPath, 'exportPath')
       );
       return createSuccessResponse(result);
     } catch (error) {
