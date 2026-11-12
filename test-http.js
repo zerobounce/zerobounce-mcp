@@ -23,6 +23,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SERVER_PATH = process.env.ZB_MCP_SERVER || join(__dirname, 'dist', 'index.js');
 const FAKE_API = join(__dirname, 'test', 'fake-zerobounce-api.mjs');
 
+// Every server this suite starts inherits this process's environment. Drop the
+// key variables, so a key in the developer's shell never reaches a server under
+// test and the suite runs as it does in CI; a test that needs one sets a dummy.
+delete process.env.ZEROBOUNCE_API_KEY;
+delete process.env.ZEROBOUNCE_WARMUP_API_KEY;
+
 const workDir = mkdtempSync(join(tmpdir(), 'zb-mcp-http-'));
 const LOG_FILE = join(workDir, 'requests.jsonl');
 
@@ -1878,6 +1884,32 @@ async function testBindHost() {
     `${envNames.filter((n) => n.startsWith('warmup_')).length} listed`
   );
   await stopServer(httpEnv);
+
+  // The same for the validation key: an HTTP caller who sends no key must get a
+  // 401, never the server operator's ZEROBOUNCE_API_KEY. The value is a dummy,
+  // set for this one server process only.
+  const ENV_KEY = 'env-fallback-dummy-key';
+  const httpKeyPort = await freePort();
+  const httpKeyEnv = await startServer([`--port=${httpKeyPort}`], { ZEROBOUNCE_API_KEY: ENV_KEY });
+  try {
+    const listNoKey = await rpc(httpKeyEnv.origin, 'tools/list', {});
+    check(
+      listNoKey.status === 401 && /API key is required/.test(listNoKey.message?.error?.message ?? ''),
+      'HTTP mode does not fall back to ZEROBOUNCE_API_KEY: tools/list without a key returns 401',
+      `status ${listNoKey.status}`
+    );
+    const callNoKey = await rpc(httpKeyEnv.origin, 'tools/call', {
+      name: 'validate_email',
+      arguments: { email: 'valid@example.com' },
+    });
+    check(
+      callNoKey.status === 401 && loggedRequests(ENV_KEY).length === 0,
+      'HTTP mode does not fall back to ZEROBOUNCE_API_KEY: a tool call without a key returns 401 and sends nothing',
+      `status ${callNoKey.status}, ${loggedRequests(ENV_KEY).length} requests with the environment key`
+    );
+  } finally {
+    await stopServer(httpKeyEnv);
+  }
   check(
     bogus.status === 1 && /Invalid API URL/i.test(bogus.stderr),
     'a malformed API URL is refused',
