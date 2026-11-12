@@ -301,7 +301,10 @@ Get API usage statistics for a date range. Shows validation counts by status and
 
 #### `bulk_validate_send_file`
 
-Send a CSV file for bulk email validation. Returns a file ID for tracking.
+Send a CSV file for bulk email validation. Takes `fileContent` and `fileName`, plus the
+optional `returnUrl`, `hasHeaderRow` (sent as `false` when left out), `removeDuplicate`,
+`allowPhase2` and the 0-based column indexes `emailAddressColumn`, `firstNameColumn`,
+`lastNameColumn`, `genderColumn` and `ipAddressColumn`. Returns a file ID for tracking.
 
 #### `bulk_validate_file_status`
 
@@ -319,7 +322,9 @@ Delete a bulk validation file from your account.
 
 #### `bulk_ai_scoring_send_file`
 
-Send a CSV file for bulk AI email scoring. Returns a file ID for tracking.
+Send a CSV file for bulk AI email scoring. Takes `fileContent` and `fileName`, plus the
+optional `returnUrl`, `hasHeaderRow` (sent as `false` when left out), `removeDuplicate` and
+the 0-based `emailAddressColumn`. Returns a file ID for tracking.
 
 #### `bulk_ai_scoring_file_status`
 
@@ -349,8 +354,9 @@ Find an email address based on domain, name, and/or company.
 
 Send a CSV file for bulk email finding. Takes `fileContent` and `fileName`, plus the 0-based
 column indexes `domainColumn`, `firstNameColumn`, `middleNameColumn`, `lastNameColumn` and
-`fullNameColumn`. `firstNameColumn` or `fullNameColumn` is required: the API needs a name to
-work from. Returns a file ID for tracking.
+`fullNameColumn`, and `hasHeaderRow` (sent as `false` when left out). `firstNameColumn` or
+`fullNameColumn` is required: the API needs a name to work from. The endpoint takes no
+callback URL. Returns a file ID for tracking.
 
 #### `bulk_email_finder_file_status`
 
@@ -373,7 +379,8 @@ Search for email addresses in a domain.
 #### `bulk_domain_search_send_file`
 
 Send a CSV file for bulk domain search. Takes `fileContent` and `fileName`, plus the 0-based
-`domainColumn`. Returns a file ID for tracking.
+`domainColumn` and `hasHeaderRow` (sent as `false` when left out). The endpoint takes no
+callback URL. Returns a file ID for tracking.
 
 #### `bulk_domain_search_file_status`
 

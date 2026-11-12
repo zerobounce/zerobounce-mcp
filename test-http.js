@@ -753,6 +753,85 @@ async function testArgumentHandling(origin, names) {
     );
   }
 
+  // Every send-file tool can send has_header_row; validate and AI scoring can
+  // send remove_duplicate, and validate its optional columns and allow_phase_2.
+  // Each is sent only when given, so the request with only the required
+  // arguments carries none of them beyond the SDK's own defaults.
+  const sendFileList = await rpc(origin, 'tools/list', {}, { 'X-ZeroBounce-Api-Key': 'send-file-schema' });
+  const toolsByName = Object.fromEntries(
+    (sendFileList.message?.result?.tools ?? []).map((tool) => [tool.name, tool])
+  );
+  const SEND_FILE_TOOLS = {
+    bulk_validate_send_file: {
+      args: {
+        hasHeaderRow: true,
+        removeDuplicate: true,
+        firstNameColumn: 1,
+        lastNameColumn: 2,
+        genderColumn: 3,
+        ipAddressColumn: 4,
+        allowPhase2: true,
+      },
+      fields: {
+        has_header_row: 'true',
+        remove_duplicate: 'true',
+        first_name_column: '2',
+        last_name_column: '3',
+        gender_column: '4',
+        ip_address_column: '5',
+        allow_phase_2: 'true',
+      },
+    },
+    bulk_ai_scoring_send_file: {
+      args: { hasHeaderRow: true, removeDuplicate: true },
+      fields: { has_header_row: 'true', remove_duplicate: 'true' },
+    },
+    bulk_email_finder_send_file: { args: { hasHeaderRow: true }, fields: { has_header_row: 'true' } },
+    bulk_domain_search_send_file: { args: { hasHeaderRow: true }, fields: { has_header_row: 'true' } },
+  };
+  for (const [name, { args, fields }] of Object.entries(SEND_FILE_TOOLS)) {
+    if (!has(name)) {
+      continue;
+    }
+    const props = toolsByName[name].inputSchema.properties;
+    check(
+      Object.keys(args).every((arg) => arg in props),
+      `${name} advertises ${Object.keys(args).join(', ')}`,
+      Object.keys(props).join(',')
+    );
+    await callTool(origin, `send-all-${name}`, name, { ...TOOL_ARGS[name], ...args });
+    const [req] = loggedRequests(`send-all-${name}`);
+    const sent = Object.fromEntries(Object.keys(fields).map((field) => [field, req?.fields[field]]));
+    check(
+      JSON.stringify(sent) === JSON.stringify(fields),
+      `${name} sends ${Object.keys(fields).join(', ')} when given`,
+      JSON.stringify(req?.fields)
+    );
+    await callTool(origin, `send-false-${name}`, name, { ...TOOL_ARGS[name], hasHeaderRow: false });
+    const [falseReq] = loggedRequests(`send-false-${name}`);
+    check(
+      falseReq?.fields.has_header_row === 'false',
+      `${name} sends hasHeaderRow false as false`,
+      JSON.stringify(falseReq?.fields)
+    );
+    const bad = await callTool(origin, `send-bad-${name}`, name, { ...TOOL_ARGS[name], hasHeaderRow: 'junk' });
+    check(
+      bad.message?.result?.isError === true && loggedRequests(`send-bad-${name}`).length === 0,
+      `${name} refuses a hasHeaderRow that is not a boolean, before any request`,
+      toolText(bad).slice(0, 120)
+    );
+  }
+  // The email finder and domain search sendfile endpoints take no return_url,
+  // so the tools do not offer one they would drop.
+  for (const name of ['bulk_email_finder_send_file', 'bulk_domain_search_send_file']) {
+    if (has(name)) {
+      check(
+        !('returnUrl' in toolsByName[name].inputSchema.properties),
+        `${name} does not advertise returnUrl`
+      );
+    }
+  }
+
   if (has('bulk_email_finder_send_file')) {
     await callTool(origin, 'finder-column-zero', 'bulk_email_finder_send_file', {
       ...TOOL_ARGS.bulk_email_finder_send_file,
@@ -771,6 +850,21 @@ async function testArgumentHandling(origin, names) {
 async function testErrorReporting(origin, names) {
   console.log('\nError reporting');
   const isError = (result) => result.message?.result?.isError === true;
+
+  // An error message over the cap is cut to 1000 UTF-16 units, at a character
+  // boundary: never between the two halves of an emoji.
+  const longError = await callTool(origin, 'long-error-credits', 'get_credits', {});
+  const longText = toolText(longError);
+  const kept = longText.replace(/^Error: /, '').replace(/… \(truncated\)$/, '');
+  check(
+    isError(longError) &&
+      longText.endsWith('… (truncated)') &&
+      kept.length <= 1000 &&
+      kept.length >= 990 &&
+      !/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]|\ufffd/.test(longText),
+    'a long error message is capped at 1000 characters and never split mid-character',
+    `${kept.length} kept, ends ${JSON.stringify(longText.slice(-20))}`
+  );
 
   const html403 = await callTool(origin, 'html-403-getfile', 'bulk_validate_get_file', {
     fileId: 'f1',
@@ -1807,6 +1901,15 @@ async function testBindHost() {
   check(
     (await readBaseUrl(def.origin)) === 'https://api.zerobounce.net/v2',
     'defaults to the main API host'
+  );
+  // The resource says whether a key is set; it never carries the key itself.
+  const configRead = await rpc(def.origin, 'resources/read', { uri: 'zerobounce://config' }, {
+    'X-ZeroBounce-Api-Key': 'config-secret-key',
+  });
+  const configText = configRead.message?.result?.contents?.[0]?.text ?? '';
+  check(
+    JSON.parse(configText || '{}').apiKeyConfigured === true && !configText.includes('config-secret-key'),
+    'zerobounce://config reports apiKeyConfigured as true, not the key'
   );
   await stopServer(def);
 

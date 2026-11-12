@@ -1044,7 +1044,12 @@ function formatErrorMessage(error) {
     return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ""} instead of an API response. Check the API key and request parameters.`;
   }
   if (message.length > MAX_ERROR_MESSAGE_LENGTH) {
-    return `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}\u2026 (truncated)`;
+    let end = MAX_ERROR_MESSAGE_LENGTH;
+    const last = message.charCodeAt(end - 1);
+    if (last >= 55296 && last <= 56319) {
+      end -= 1;
+    }
+    return `${message.slice(0, end)}\u2026 (truncated)`;
   }
   return message || "Unknown error";
 }
@@ -1148,6 +1153,16 @@ var ZeroBounceClient = class {
   toSdkColumnIndex(column) {
     return (column ?? 0) + 1;
   }
+  /** 0-based optional columns as the SDK's 1-based indexes, leaving out the unset ones. */
+  optionalColumns(columns) {
+    const out = {};
+    for (const [name, column] of Object.entries(columns)) {
+      if (column != null) {
+        out[name] = this.toSdkColumnIndex(column);
+      }
+    }
+    return out;
+  }
   toCsvBlob(fileContent) {
     return fileContent instanceof Blob ? fileContent : new Blob([fileContent], { type: "text/csv" });
   }
@@ -1215,12 +1230,21 @@ var ZeroBounceClient = class {
   /**
    * Send a file for bulk validation
    */
-  async bulkValidateSendFile(fileContent, fileName, returnUrl, emailAddressColumn) {
+  async bulkValidateSendFile(fileContent, fileName, returnUrl, emailAddressColumn, options) {
     const blob = this.toCsvBlob(fileContent);
     const result = this.requireSdkResult(
       await this.sdk.sendFileStream(blob, fileName, {
         email_address_column: this.toSdkColumnIndex(emailAddressColumn),
-        return_url: returnUrl || false
+        return_url: returnUrl || false,
+        ...this.optionalColumns({
+          first_name_column: options?.firstNameColumn,
+          last_name_column: options?.lastNameColumn,
+          gender_column: options?.genderColumn,
+          ip_address_column: options?.ipAddressColumn
+        }),
+        ...options?.hasHeaderRow != null ? { has_header_row: options.hasHeaderRow } : {},
+        ...options?.removeDuplicate != null ? { remove_duplicate: options.removeDuplicate } : {},
+        ...options?.allowPhase2 != null ? { allowPhase2: options.allowPhase2 } : {}
       }),
       "bulk validation send file"
     );
@@ -1251,12 +1275,14 @@ var ZeroBounceClient = class {
   /**
    * Send a file for bulk AI scoring
    */
-  async bulkAIScoringSendFile(fileContent, fileName, returnUrl, emailAddressColumn) {
+  async bulkAIScoringSendFile(fileContent, fileName, returnUrl, emailAddressColumn, options) {
     const blob = this.toCsvBlob(fileContent);
     const result = this.requireSdkResult(
       await this.sdk.sendScoringFileStream(blob, fileName, {
         email_address_column: this.toSdkColumnIndex(emailAddressColumn),
-        return_url: returnUrl || false
+        return_url: returnUrl || false,
+        ...options?.hasHeaderRow != null ? { has_header_row: options.hasHeaderRow } : {},
+        ...options?.removeDuplicate != null ? { remove_duplicate: options.removeDuplicate } : {}
       }),
       "bulk AI scoring send file"
     );
@@ -1936,11 +1962,29 @@ function createBulkFileTools(config) {
       type: "string",
       description: "Name of the file"
     },
-    returnUrl: {
-      type: "string",
-      description: "Optional HTTPS callback URL when processing completes. Only use trusted URLs you control; an attacker-controlled URL can receive bulk results."
+    hasHeaderRow: {
+      type: "boolean",
+      description: "Whether the first row of the file is a header row. Sent as false when not given."
     }
   };
+  if (config.supportsReturnUrl !== false) {
+    sendFileProperties.returnUrl = {
+      type: "string",
+      description: "Optional HTTPS callback URL when processing completes. Only use trusted URLs you control; an attacker-controlled URL can receive bulk results."
+    };
+  }
+  if (config.supportsRemoveDuplicate) {
+    sendFileProperties.removeDuplicate = {
+      type: "boolean",
+      description: "Whether to remove duplicate emails. Sent only when given."
+    };
+  }
+  if (config.supportsAllowPhase2) {
+    sendFileProperties.allowPhase2 = {
+      type: "boolean",
+      description: "Whether to allow phase 2 processing (sent as allow_phase_2). Sent only when given."
+    };
+  }
   if (config.supportsEmailAddressColumn) {
     sendFileProperties.emailAddressColumn = {
       type: "number",
@@ -1983,6 +2027,18 @@ function createBulkFileTools(config) {
       description: "Column index (0-based) containing last names."
     };
   }
+  if (config.supportsGenderColumn) {
+    sendFileProperties.genderColumn = {
+      type: "number",
+      description: "Column index (0-based) containing gender values."
+    };
+  }
+  if (config.supportsIpAddressColumn) {
+    sendFileProperties.ipAddressColumn = {
+      type: "number",
+      description: "Column index (0-based) containing IP addresses."
+    };
+  }
   const sendFileTool = {
     sdkMethods: config.sdkMethods,
     definition: {
@@ -1999,7 +2055,7 @@ function createBulkFileTools(config) {
         const fileContent = requireString(args.fileContent, "fileContent");
         assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, "fileName");
-        const returnUrl = optionalString(args.returnUrl, "returnUrl");
+        const returnUrl = config.supportsReturnUrl !== false ? optionalString(args.returnUrl, "returnUrl") : void 0;
         if (returnUrl) {
           validateBulkReturnUrl(returnUrl);
         }
@@ -2010,6 +2066,13 @@ function createBulkFileTools(config) {
         const firstNameColumn = config.supportsFirstNameColumn ? optionalNumber(args.firstNameColumn, "firstNameColumn") : void 0;
         const middleNameColumn = config.supportsMiddleNameColumn ? optionalNumber(args.middleNameColumn, "middleNameColumn") : void 0;
         const lastNameColumn = config.supportsLastNameColumn ? optionalNumber(args.lastNameColumn, "lastNameColumn") : void 0;
+        const options = {
+          hasHeaderRow: optionalBoolean(args.hasHeaderRow, "hasHeaderRow"),
+          removeDuplicate: config.supportsRemoveDuplicate ? optionalBoolean(args.removeDuplicate, "removeDuplicate") : void 0,
+          genderColumn: config.supportsGenderColumn ? optionalNumber(args.genderColumn, "genderColumn") : void 0,
+          ipAddressColumn: config.supportsIpAddressColumn ? optionalNumber(args.ipAddressColumn, "ipAddressColumn") : void 0,
+          allowPhase2: config.supportsAllowPhase2 ? optionalBoolean(args.allowPhase2, "allowPhase2") : void 0
+        };
         const result = await config.sendFileMethod(
           client,
           fileContent,
@@ -2021,7 +2084,8 @@ function createBulkFileTools(config) {
           fullNameColumn,
           firstNameColumn,
           middleNameColumn,
-          lastNameColumn
+          lastNameColumn,
+          options
         );
         return createSuccessResponse(result);
       } catch (error) {
@@ -2120,22 +2184,36 @@ function createBulkFileTools(config) {
 var bulkValidateTools = createBulkFileTools({
   name: "bulk_validate",
   description: "email validation",
-  sendFileMethod: (client, fileContent, fileName, returnUrl, emailAddressColumn) => client.bulkValidateSendFile(fileContent, fileName, returnUrl, emailAddressColumn),
+  sendFileMethod: (client, fileContent, fileName, returnUrl, emailAddressColumn, _domainColumn, _companyNameColumn, _fullNameColumn, firstNameColumn, _middleNameColumn, lastNameColumn, options) => client.bulkValidateSendFile(fileContent, fileName, returnUrl, emailAddressColumn, {
+    ...options,
+    firstNameColumn,
+    lastNameColumn
+  }),
   getStatusMethod: (client, fileId) => client.bulkValidateFileStatus(fileId),
   getFileMethod: (client, fileId) => client.bulkValidateGetFile(fileId),
   deleteFileMethod: (client, fileId) => client.bulkValidateDeleteFile(fileId),
-  supportsEmailAddressColumn: true
+  supportsEmailAddressColumn: true,
+  supportsFirstNameColumn: true,
+  supportsLastNameColumn: true,
+  supportsGenderColumn: true,
+  supportsIpAddressColumn: true,
+  supportsRemoveDuplicate: true,
+  supportsAllowPhase2: true
 });
 
 // src/tools/bulk-ai-scoring.ts
 var bulkAIScoringTools = createBulkFileTools({
   name: "bulk_ai_scoring",
   description: "AI email scoring",
-  sendFileMethod: (client, fileContent, fileName, returnUrl, emailAddressColumn) => client.bulkAIScoringSendFile(fileContent, fileName, returnUrl, emailAddressColumn),
+  sendFileMethod: (client, fileContent, fileName, returnUrl, emailAddressColumn, _domainColumn, _companyNameColumn, _fullNameColumn, _firstNameColumn, _middleNameColumn, _lastNameColumn, options) => client.bulkAIScoringSendFile(fileContent, fileName, returnUrl, emailAddressColumn, {
+    hasHeaderRow: options?.hasHeaderRow,
+    removeDuplicate: options?.removeDuplicate
+  }),
   getStatusMethod: (client, fileId) => client.bulkAIScoringFileStatus(fileId),
   getFileMethod: (client, fileId) => client.bulkAIScoringGetFile(fileId),
   deleteFileMethod: (client, fileId) => client.bulkAIScoringDeleteFile(fileId),
-  supportsEmailAddressColumn: true
+  supportsEmailAddressColumn: true,
+  supportsRemoveDuplicate: true
 });
 
 // src/tools/score-email.ts
@@ -2296,11 +2374,12 @@ var getActivityDataTool = {
 var bulkEmailFinderTools = createBulkFileTools({
   name: "bulk_email_finder",
   description: "bulk email finder",
-  sendFileMethod: (client, fileContent, fileName, _returnUrl, _emailCol, domainColumn, _c, full, first, middle, last) => client.bulkEmailFinderSendFile(fileContent, fileName, domainColumn ?? 0, {
+  sendFileMethod: (client, fileContent, fileName, _returnUrl, _emailCol, domainColumn, _c, full, first, middle, last, options) => client.bulkEmailFinderSendFile(fileContent, fileName, domainColumn ?? 0, {
     fullNameColumn: full,
     firstNameColumn: first,
     middleNameColumn: middle,
-    lastNameColumn: last
+    lastNameColumn: last,
+    hasHeaderRow: options?.hasHeaderRow
   }),
   getStatusMethod: (client, fileId) => client.bulkEmailFinderFileStatus(fileId),
   getFileMethod: (client, fileId) => client.bulkEmailFinderGetFile(fileId),
@@ -2311,6 +2390,8 @@ var bulkEmailFinderTools = createBulkFileTools({
     "getEmailFinderFile",
     "deleteEmailFinderFile"
   ],
+  // The email finder sendfile endpoint takes no return_url.
+  supportsReturnUrl: false,
   supportsDomainColumn: true,
   // The API needs a name to work from: firstNameColumn or fullNameColumn.
   supportsFullNameColumn: true,
@@ -2323,7 +2404,7 @@ var bulkEmailFinderTools = createBulkFileTools({
 var bulkDomainSearchTools = createBulkFileTools({
   name: "bulk_domain_search",
   description: "bulk domain search",
-  sendFileMethod: (client, fileContent, fileName, _returnUrl, _emailCol, domainColumn) => client.bulkDomainSearchSendFile(fileContent, fileName, domainColumn ?? 0),
+  sendFileMethod: (client, fileContent, fileName, _returnUrl, _emailCol, domainColumn, _c, _full, _first, _middle, _last, options) => client.bulkDomainSearchSendFile(fileContent, fileName, domainColumn ?? 0, options?.hasHeaderRow),
   getStatusMethod: (client, fileId) => client.bulkDomainSearchFileStatus(fileId),
   getFileMethod: (client, fileId) => client.bulkDomainSearchGetFile(fileId),
   deleteFileMethod: (client, fileId) => client.bulkDomainSearchDeleteFile(fileId),
@@ -2333,6 +2414,8 @@ var bulkDomainSearchTools = createBulkFileTools({
     "getDomainSearchFile",
     "deleteDomainSearchFile"
   ],
+  // The domain search sendfile endpoint takes no return_url.
+  supportsReturnUrl: false,
   supportsDomainColumn: true
 });
 

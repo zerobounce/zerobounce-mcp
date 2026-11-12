@@ -24,7 +24,13 @@ export function formatErrorMessage(error: unknown): string {
   }
 
   if (message.length > MAX_ERROR_MESSAGE_LENGTH) {
-    return `${message.slice(0, MAX_ERROR_MESSAGE_LENGTH)}… (truncated)`;
+    // Cut at a character boundary: never between the two halves of a surrogate pair.
+    let end = MAX_ERROR_MESSAGE_LENGTH;
+    const last = message.charCodeAt(end - 1);
+    if (last >= 0xd800 && last <= 0xdbff) {
+      end -= 1;
+    }
+    return `${message.slice(0, end)}… (truncated)`;
   }
   return message || 'Unknown error';
 }

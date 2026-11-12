@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-empty string ("emails must contain only non-empty strings"); 0.3.1 sent `[1, 2]` to the
   API as numbers. An empty string still counts as not set.
 
+### Added
+
+- `hasHeaderRow` on all four bulk `*_send_file` tools, `removeDuplicate` on
+  `bulk_validate_send_file` and `bulk_ai_scoring_send_file`, and `firstNameColumn`,
+  `lastNameColumn`, `genderColumn`, `ipAddressColumn` (0-based, like the other column
+  arguments) and `allowPhase2` on `bulk_validate_send_file`. Each is passed on only when
+  given and parsed strictly; a `hasHeaderRow` that is not a boolean is an error before any
+  request. Left out, `has_header_row` is still sent as `false`, as in 0.3.1, and the
+  bundled SDK 4.0.0 still sends `remove_duplicate=false`; that one changes when the server
+  bundles a JS SDK release that sends `remove_duplicate` only when set.
+
 ### Changed
 
 - `@zerobounce/zero-bounce-sdk` is a development dependency. `dist/index.js` bundles it, and
@@ -24,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `bulk_email_finder_send_file` and `bulk_domain_search_send_file` no longer advertise a
+  `returnUrl` argument. Those endpoints take no `return_url`, and 0.3.1 accepted the
+  argument and dropped it without saying so.
+- An error message longer than 1000 characters is cut at a character boundary. 0.3.1 cut at
+  1000 UTF-16 units, so an emoji or other character outside the Basic Multilingual Plane at
+  that point was split, leaving half a surrogate pair (U+FFFD once encoded as UTF-8).
 - The `dist/index.js` committed at the v0.3.1 tag reported version 0.3.0 in `serverInfo`,
   because the release commit did not rebuild it. The npm package was rebuilt at publish time
   and reports 0.3.1. The test suite now checks both the built and the committed bundle.

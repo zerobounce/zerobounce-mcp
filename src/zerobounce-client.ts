@@ -408,6 +408,17 @@ export class ZeroBounceClient {
     return (column ?? 0) + 1;
   }
 
+  /** 0-based optional columns as the SDK's 1-based indexes, leaving out the unset ones. */
+  private optionalColumns(columns: Record<string, number | undefined>): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [name, column] of Object.entries(columns)) {
+      if (column != null) {
+        out[name] = this.toSdkColumnIndex(column);
+      }
+    }
+    return out;
+  }
+
   private toCsvBlob(fileContent: string | Blob): Blob {
     return fileContent instanceof Blob
       ? fileContent
@@ -520,7 +531,16 @@ export class ZeroBounceClient {
     fileContent: string | Blob,
     fileName: string,
     returnUrl?: string,
-    emailAddressColumn?: number
+    emailAddressColumn?: number,
+    options?: {
+      firstNameColumn?: number;
+      lastNameColumn?: number;
+      genderColumn?: number;
+      ipAddressColumn?: number;
+      hasHeaderRow?: boolean;
+      removeDuplicate?: boolean;
+      allowPhase2?: boolean;
+    }
   ): Promise<BulkFileSendResponse> {
     const blob = this.toCsvBlob(fileContent);
 
@@ -528,6 +548,15 @@ export class ZeroBounceClient {
       await this.sdk.sendFileStream(blob, fileName, {
         email_address_column: this.toSdkColumnIndex(emailAddressColumn),
         return_url: returnUrl || false,
+        ...this.optionalColumns({
+          first_name_column: options?.firstNameColumn,
+          last_name_column: options?.lastNameColumn,
+          gender_column: options?.genderColumn,
+          ip_address_column: options?.ipAddressColumn,
+        }),
+        ...(options?.hasHeaderRow != null ? { has_header_row: options.hasHeaderRow } : {}),
+        ...(options?.removeDuplicate != null ? { remove_duplicate: options.removeDuplicate } : {}),
+        ...(options?.allowPhase2 != null ? { allowPhase2: options.allowPhase2 } : {}),
       }),
       'bulk validation send file'
     );
@@ -568,7 +597,8 @@ export class ZeroBounceClient {
     fileContent: string | Blob,
     fileName: string,
     returnUrl?: string,
-    emailAddressColumn?: number
+    emailAddressColumn?: number,
+    options?: { hasHeaderRow?: boolean; removeDuplicate?: boolean }
   ): Promise<BulkFileSendResponse> {
     const blob = this.toCsvBlob(fileContent);
 
@@ -576,6 +606,8 @@ export class ZeroBounceClient {
       await this.sdk.sendScoringFileStream(blob, fileName, {
         email_address_column: this.toSdkColumnIndex(emailAddressColumn),
         return_url: returnUrl || false,
+        ...(options?.hasHeaderRow != null ? { has_header_row: options.hasHeaderRow } : {}),
+        ...(options?.removeDuplicate != null ? { remove_duplicate: options.removeDuplicate } : {}),
       }),
       'bulk AI scoring send file'
     );

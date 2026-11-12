@@ -11,11 +11,21 @@ import {
   requireString,
   optionalString,
   optionalNumber,
+  optionalBoolean,
 } from './types.js';
 import {
   assertBulkFileContentWithinLimit,
   validateBulkReturnUrl,
 } from '../security/bulk-input.js';
+
+/** Optional send-file settings, each sent only when the caller sets it. */
+export interface BulkSendFileOptions {
+  hasHeaderRow?: boolean;
+  removeDuplicate?: boolean;
+  genderColumn?: number;
+  ipAddressColumn?: number;
+  allowPhase2?: boolean;
+}
 
 export interface BulkFileToolConfig {
   name: string;
@@ -31,7 +41,8 @@ export interface BulkFileToolConfig {
     fullNameColumn?: number,
     firstNameColumn?: number,
     middleNameColumn?: number,
-    lastNameColumn?: number
+    lastNameColumn?: number,
+    options?: BulkSendFileOptions
   ) => Promise<unknown>;
   getStatusMethod: (client: ZeroBounceClient, fileId: string) => Promise<unknown>;
   getFileMethod: (client: ZeroBounceClient, fileId: string) => Promise<unknown>;
@@ -45,6 +56,12 @@ export interface BulkFileToolConfig {
   supportsFirstNameColumn?: boolean;
   supportsMiddleNameColumn?: boolean;
   supportsLastNameColumn?: boolean;
+  supportsGenderColumn?: boolean;
+  supportsIpAddressColumn?: boolean;
+  /** `return_url`; the email finder and domain search sendfile endpoints take none. */
+  supportsReturnUrl?: boolean;
+  supportsRemoveDuplicate?: boolean;
+  supportsAllowPhase2?: boolean;
 }
 
 export function createBulkFileTools(config: BulkFileToolConfig): {
@@ -62,12 +79,31 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
       type: 'string',
       description: 'Name of the file',
     },
-    returnUrl: {
+    hasHeaderRow: {
+      type: 'boolean',
+      description: 'Whether the first row of the file is a header row. Sent as false when not given.',
+    },
+  };
+
+  if (config.supportsReturnUrl !== false) {
+    sendFileProperties.returnUrl = {
       type: 'string',
       description:
         'Optional HTTPS callback URL when processing completes. Only use trusted URLs you control; an attacker-controlled URL can receive bulk results.',
-    },
-  };
+    };
+  }
+  if (config.supportsRemoveDuplicate) {
+    sendFileProperties.removeDuplicate = {
+      type: 'boolean',
+      description: 'Whether to remove duplicate emails. Sent only when given.',
+    };
+  }
+  if (config.supportsAllowPhase2) {
+    sendFileProperties.allowPhase2 = {
+      type: 'boolean',
+      description: 'Whether to allow phase 2 processing (sent as allow_phase_2). Sent only when given.',
+    };
+  }
 
   if (config.supportsEmailAddressColumn) {
     sendFileProperties.emailAddressColumn = {
@@ -115,6 +151,18 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
       description: 'Column index (0-based) containing last names.',
     };
   }
+  if (config.supportsGenderColumn) {
+    sendFileProperties.genderColumn = {
+      type: 'number',
+      description: 'Column index (0-based) containing gender values.',
+    };
+  }
+  if (config.supportsIpAddressColumn) {
+    sendFileProperties.ipAddressColumn = {
+      type: 'number',
+      description: 'Column index (0-based) containing IP addresses.',
+    };
+  }
 
   const sendFileTool: ToolHandler = {
     sdkMethods: config.sdkMethods,
@@ -132,7 +180,8 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
         const fileContent = requireString(args.fileContent, 'fileContent');
         assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, 'fileName');
-        const returnUrl = optionalString(args.returnUrl, 'returnUrl');
+        const returnUrl =
+          config.supportsReturnUrl !== false ? optionalString(args.returnUrl, 'returnUrl') : undefined;
         if (returnUrl) {
           validateBulkReturnUrl(returnUrl);
         }
@@ -143,6 +192,13 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
         const firstNameColumn = config.supportsFirstNameColumn ? optionalNumber(args.firstNameColumn, 'firstNameColumn') : undefined;
         const middleNameColumn = config.supportsMiddleNameColumn ? optionalNumber(args.middleNameColumn, 'middleNameColumn') : undefined;
         const lastNameColumn = config.supportsLastNameColumn ? optionalNumber(args.lastNameColumn, 'lastNameColumn') : undefined;
+        const options: BulkSendFileOptions = {
+          hasHeaderRow: optionalBoolean(args.hasHeaderRow, 'hasHeaderRow'),
+          removeDuplicate: config.supportsRemoveDuplicate ? optionalBoolean(args.removeDuplicate, 'removeDuplicate') : undefined,
+          genderColumn: config.supportsGenderColumn ? optionalNumber(args.genderColumn, 'genderColumn') : undefined,
+          ipAddressColumn: config.supportsIpAddressColumn ? optionalNumber(args.ipAddressColumn, 'ipAddressColumn') : undefined,
+          allowPhase2: config.supportsAllowPhase2 ? optionalBoolean(args.allowPhase2, 'allowPhase2') : undefined,
+        };
 
         const result = await config.sendFileMethod(
           client,
@@ -155,7 +211,8 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
           fullNameColumn,
           firstNameColumn,
           middleNameColumn,
-          lastNameColumn
+          lastNameColumn,
+          options
         );
         return createSuccessResponse(result);
       } catch (error) {

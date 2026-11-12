@@ -27,6 +27,8 @@
  *   getfile-jsontype- every getfile answers 200 application/json with no error field
  *   error-message-200- every other endpoint answers 200 {"error_message": ...} with no
  *                  "success" field and wording that is not about the key or credits
+ *   long-error-    400 with a JSON error message over 1000 characters whose
+ *                  1000th UTF-16 unit is the first half of an emoji
  *
  * The Warmup API (warmup-api.zerobounce.net) is served too. It carries its key in an
  * `API-Key` header rather than an `api_key` parameter, so warmup entries log that header
@@ -214,6 +216,11 @@ globalThis.fetch = async (input, init = {}) => {
   }
   if (key.startsWith('error-message-200-')) {
     return Response.json({ error_message: 'The request was refused' });
+  }
+  if (key.startsWith('long-error-')) {
+    // 999 ASCII characters, then an emoji (two UTF-16 units): a cut at 1000
+    // units lands between its halves.
+    return Response.json({ error: `${'x'.repeat(999)}\u{1F600}${'y'.repeat(200)}` }, { status: 400 });
   }
   if (key.startsWith('returnurl-400-')) {
     // Verbatim from the live API when an S3/SFTP job goes out without return_url.

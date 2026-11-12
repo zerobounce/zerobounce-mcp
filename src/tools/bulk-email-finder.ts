@@ -14,13 +14,15 @@ export const bulkEmailFinderTools = createBulkFileTools({
     full,
     first,
     middle,
-    last
+    last,
+    options
   ) =>
     client.bulkEmailFinderSendFile(fileContent, fileName, domainColumn ?? 0, {
       fullNameColumn: full,
       firstNameColumn: first,
       middleNameColumn: middle,
       lastNameColumn: last,
+      hasHeaderRow: options?.hasHeaderRow,
     }),
   getStatusMethod: (client, fileId) => client.bulkEmailFinderFileStatus(fileId),
   getFileMethod: (client, fileId) => client.bulkEmailFinderGetFile(fileId),
@@ -31,6 +33,8 @@ export const bulkEmailFinderTools = createBulkFileTools({
     'getEmailFinderFile',
     'deleteEmailFinderFile',
   ],
+  // The email finder sendfile endpoint takes no return_url.
+  supportsReturnUrl: false,
   supportsDomainColumn: true,
   // The API needs a name to work from: firstNameColumn or fullNameColumn.
   supportsFullNameColumn: true,
