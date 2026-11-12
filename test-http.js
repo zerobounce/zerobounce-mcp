@@ -814,6 +814,14 @@ async function testArgumentHandling(origin, names) {
       `${name} sends hasHeaderRow false as false`,
       JSON.stringify(falseReq?.fields)
     );
+    // Left out, has_header_row is still sent, as false (the CHANGELOG's promise).
+    await callTool(origin, `send-default-${name}`, name, TOOL_ARGS[name]);
+    const [defaultReq] = loggedRequests(`send-default-${name}`);
+    check(
+      defaultReq?.fields.has_header_row === 'false',
+      `${name} sends has_header_row false when hasHeaderRow is left out`,
+      JSON.stringify(defaultReq?.fields)
+    );
     const bad = await callTool(origin, `send-bad-${name}`, name, { ...TOOL_ARGS[name], hasHeaderRow: 'junk' });
     check(
       bad.message?.result?.isError === true && loggedRequests(`send-bad-${name}`).length === 0,
