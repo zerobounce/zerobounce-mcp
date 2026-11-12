@@ -1178,6 +1178,58 @@ async function testWarmup(origin) {
     `${update?.method} ${update?.path} ${JSON.stringify(update?.fields)}`
   );
 
+  // zb_managed: every documented email_content and managed_sending field goes
+  // out as given, and a fractional timezone_offset is accepted.
+  const emailContent = {
+    company_name: 'Example Inc',
+    company_website: 'https://example.com',
+    company_description: 'We send newsletters.',
+    types_of_emails: ['transactional', 'newsletter', 'marketing'],
+    example_email: 'Hello from Example Inc.',
+  };
+  const managedSending = {
+    weekdays_only: true,
+    timezone: 'Asia/Kolkata',
+    timezone_offset: 5.5,
+    warmup_start_date: '2026-12-01',
+  };
+  await warmupCall('v-zb-managed', 'w-zb-managed', 'warmup_add_sending_account', {
+    fromAddress: WARMUP_FROM,
+    onboardingModel: 'zb_managed',
+    emailContent,
+    managedSending,
+  });
+  const [managed] = loggedRequests('w-zb-managed');
+  check(
+    managed?.method === 'POST' &&
+      managed?.path === '/sending-accounts' &&
+      JSON.stringify(managed?.fields) ===
+        JSON.stringify({
+          from_address: WARMUP_FROM,
+          onboarding_model: 'zb_managed',
+          email_content: emailContent,
+          managed_sending: managedSending,
+        }),
+    'warmup_add_sending_account sends every documented zb_managed field',
+    `${managed?.method} ${managed?.path} ${JSON.stringify(managed?.fields)}`
+  );
+  for (const [offset, accepted] of [[3.0, true], [-9.5, true], [-11.5, false], [14.5, false]]) {
+    const warmupKey = `w-offset-${String(offset).replace('.', '_')}`;
+    const result = await warmupCall('v-offset', warmupKey, 'warmup_add_sending_account', {
+      fromAddress: WARMUP_FROM,
+      onboardingModel: 'zb_managed',
+      managedSending: { timezone_offset: offset },
+    });
+    const sent = loggedRequests(warmupKey);
+    check(
+      accepted
+        ? sent[0]?.fields?.managed_sending?.timezone_offset === offset
+        : result.message?.result?.isError === true && sent.length === 0,
+      `warmup_add_sending_account ${accepted ? 'accepts' : 'rejects'} timezone_offset ${offset}`,
+      `${toolText(result).slice(0, 120)} ${JSON.stringify(sent[0]?.fields)}`
+    );
+  }
+
   await warmupCall('v-delete', 'w-delete', 'warmup_delete_sending_account', {
     fromAddress: WARMUP_FROM,
   });
@@ -1596,6 +1648,37 @@ async function testInboxPlacement(origin, names) {
     detailText.slice(0, 160)
   );
 
+  // Only a 2xx makes an empty body a completed delete. An empty 404 or 500 is an
+  // error with its status; reading it as "deleted" would hide a failed delete.
+  for (const status of [404, 500]) {
+    const failed = await callTool(origin, `ipt-empty-${status}-1`, 'delete_inbox_placement_test', {
+      testId: '42',
+    });
+    const failedText = toolText(failed);
+    check(
+      isError(failed) && new RegExp(`\\b${status}\\b`).test(failedText) && !/deleted/.test(failedText),
+      `delete_inbox_placement_test reports an empty ${status} as an error with its status`,
+      failedText.slice(0, 160)
+    );
+  }
+  const emptyOk = await callTool(origin, 'ipt-empty-200-1', 'delete_inbox_placement_test', {
+    testId: '42',
+  });
+  check(
+    !isError(emptyOk) && /"success": true/.test(toolText(emptyOk)),
+    'delete_inbox_placement_test reads an empty 200 body as success',
+    toolText(emptyOk).slice(0, 160)
+  );
+  // An empty 2xx is a success only for the delete.
+  const emptyGet = await callTool(origin, 'ipt-empty-200-2', 'get_inbox_placement_test', {
+    testId: '42',
+  });
+  check(
+    isError(emptyGet),
+    'get_inbox_placement_test reports an empty 200 as an error',
+    toolText(emptyGet).slice(0, 160)
+  );
+
   const conflict = await callTool(origin, 'ipt-conflict-1', 'delete_inbox_placement_test', {
     testId: '42',
   });
@@ -1647,6 +1730,21 @@ async function testKeyIsolation(origin, server) {
   );
 
   check(!/Already connected/.test(server.stderr()), 'server logged no transport reuse errors');
+
+  // Nothing the server logs carries a key: every key that reached the fake API
+  // in this run (including the error modes, whose bodies echo the key) is
+  // searched for in the server's stderr, raw and URL-encoded.
+  const sentKeys = existsSync(LOG_FILE)
+    ? [...new Set(readFileSync(LOG_FILE, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line).apiKey))]
+        .filter((k) => typeof k === 'string' && k.length >= 8)
+    : [];
+  const logged = server.stderr();
+  const leakedKeys = sentKeys.filter((k) => logged.includes(k) || logged.includes(encodeURIComponent(k)));
+  check(
+    sentKeys.length > 50 && leakedKeys.length === 0,
+    `the server log carries none of the ${sentKeys.length} API keys used`,
+    `leaked: ${leakedKeys.slice(0, 5).join(', ')}`
+  );
 }
 
 async function testBindHost() {

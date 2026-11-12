@@ -18,6 +18,7 @@
  *   batch-partial-  /validatebatch reports an error for one address only
  *   ipt-detail-     the Inbox Placement Tester answers 404 with a Django `detail` error
  *   ipt-conflict-   the Inbox Placement Tester answers 400 with a JSON list of messages
+ *   ipt-empty-NNN-  the Inbox Placement Tester answers status NNN with an empty body
  *   returnurl-400- 400 with the live API's "Provided return URL is not permitted: None"
  *   dead-key-      what an invalid or drained key gets from the live API: an HTTP 200
  *                  with no "success" field, {"Message": ...} from guessformat,
@@ -251,6 +252,10 @@ globalThis.fetch = async (input, init = {}) => {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+    const empty = /^ipt-empty-(\d{3})-/.exec(key);
+    if (empty) {
+      return new Response(null, { status: Number(empty[1]) });
     }
     if (entry.method === 'DELETE') {
       return new Response(null, { status: 204 });
