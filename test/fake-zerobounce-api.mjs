@@ -282,10 +282,11 @@ globalThis.fetch = async (input, init = {}) => {
   }
 
   // Echo the key back in every shape the client might read, so tool output can be
-  // matched to the request that produced it.
+  // matched to the request that produced it. Credits is the exception: the JS SDK
+  // rejects a Credits that is not an integer (sent as a string, as the API does).
   const payload = {
     success: true,
-    Credits: entry.apiKey,
+    Credits: '12345',
     echo_api_key: entry.apiKey,
     echo_path: entry.path,
     file_id: `file-for-${entry.apiKey}`,
