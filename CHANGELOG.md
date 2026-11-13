@@ -21,11 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hasHeaderRow` on all four bulk `*_send_file` tools, `removeDuplicate` on
   `bulk_validate_send_file` and `bulk_ai_scoring_send_file`, and `firstNameColumn`,
   `lastNameColumn`, `genderColumn`, `ipAddressColumn` (0-based, like the other column
-  arguments) and `allowPhase2` on `bulk_validate_send_file`. Each is passed on only when
-  given and parsed strictly; a `hasHeaderRow` that is not a boolean is an error before any
-  request. Left out, `has_header_row` is still sent as `false`, as in 0.3.1, and the
-  bundled SDK 4.0.0 still sends `remove_duplicate=false`; that one changes when the server
-  bundles a JS SDK release that sends `remove_duplicate` only when set.
+  arguments) and `allowPhase2` on `bulk_validate_send_file`. Each is parsed strictly; a
+  `hasHeaderRow` that is not a boolean is an error before any request. Left out,
+  `has_header_row` and `remove_duplicate` are still sent as `false`, as in 0.3.1: the JS
+  SDK always sends `remove_duplicate`, with its released default of `false`.
 
 ### Changed
 
@@ -35,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `delete_inbox_placement_test` reports a 2xx whose body is only whitespace as an error
+  with its status. 0.3.1 read any body the bundled SDK called empty (`"   "` included) as a
+  completed delete; only a body of zero bytes (the documented 204, or an empty 200) is one.
 - `bulk_email_finder_send_file` and `bulk_domain_search_send_file` no longer advertise a
   `returnUrl` argument. Those endpoints take no `return_url`, and 0.3.1 accepted the
   argument and dropped it without saying so.

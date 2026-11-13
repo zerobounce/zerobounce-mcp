@@ -95,7 +95,8 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   if (config.supportsRemoveDuplicate) {
     sendFileProperties.removeDuplicate = {
       type: 'boolean',
-      description: 'Whether to remove duplicate emails. Sent only when given.',
+      description:
+        'Whether to remove duplicate emails (sent as remove_duplicate). Left out, it is sent as false.',
     };
   }
   if (config.supportsAllowPhase2) {

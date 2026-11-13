@@ -546,6 +546,54 @@ async function testArgumentHandling(origin, names) {
     );
   }
 
+  // Each private IPv4 range, and the public address just outside it, so that
+  // dropping or widening a range fails here.
+  const ipv4Hosts = [
+    ['10.0.0.1', true],
+    ['127.0.0.1', true],
+    ['0.0.0.0', true],
+    ['169.254.1.1', true],
+    ['169.253.1.1', false],
+    ['169.255.1.1', false],
+    ['172.16.0.1', true],
+    ['172.31.255.255', true],
+    ['172.15.0.1', false],
+    ['172.32.0.1', false],
+    ['192.168.1.1', true],
+    ['192.169.1.1', false],
+    ['193.168.1.1', false],
+  ];
+  for (const [host, isPrivate] of ipv4Hosts) {
+    const key = `ipv4-${host}`;
+    const result = await callTool(origin, key, 'bulk_validate_send_file', {
+      fileContent: CSV,
+      fileName: 'list.csv',
+      returnUrl: `https://${host}/hook`,
+    });
+    const refused = /private, link-local, or loopback/.test(toolText(result));
+    check(
+      refused === isPrivate && (loggedRequests(key).length === 0) === isPrivate,
+      `IPv4 ${host} returnUrl is ${isPrivate ? 'rejected' : 'accepted'}`,
+      toolText(result).slice(0, 180)
+    );
+  }
+
+  // A hostname must be fully qualified: "intranet" names a host on the local network.
+  for (const [host, accepted] of [['intranet', false], ['hooks.example.com', true]]) {
+    const key = `fqdn-${host}`;
+    const result = await callTool(origin, key, 'bulk_validate_send_file', {
+      fileContent: CSV,
+      fileName: 'list.csv',
+      returnUrl: `https://${host}/hook`,
+    });
+    const refused = /fully qualified domain name/.test(toolText(result));
+    check(
+      refused === !accepted && (loggedRequests(key).length > 0) === accepted,
+      `returnUrl host ${host} is ${accepted ? 'accepted' : 'rejected as not fully qualified'}`,
+      toolText(result).slice(0, 180)
+    );
+  }
+
   const publicV6 = await callTool(origin, 'ipv6-public', 'bulk_validate_send_file', {
     fileContent: CSV,
     fileName: 'list.csv',
@@ -822,6 +870,24 @@ async function testArgumentHandling(origin, names) {
       `${name} sends has_header_row false when hasHeaderRow is left out`,
       JSON.stringify(defaultReq?.fields)
     );
+    // 1 and 0 are the only numbers that read as booleans; 2 is not true or false.
+    for (const [given, wire] of [[1, 'true'], [0, 'false']]) {
+      await callTool(origin, `send-num-${given}-${name}`, name, { ...TOOL_ARGS[name], hasHeaderRow: given });
+      const [numReq] = loggedRequests(`send-num-${given}-${name}`);
+      check(
+        numReq?.fields.has_header_row === wire,
+        `${name} sends hasHeaderRow ${given} as ${wire}`,
+        JSON.stringify(numReq?.fields)
+      );
+    }
+    for (const given of [2, -1, 0.5]) {
+      const badNum = await callTool(origin, `send-badnum-${given}-${name}`, name, { ...TOOL_ARGS[name], hasHeaderRow: given });
+      check(
+        badNum.message?.result?.isError === true && loggedRequests(`send-badnum-${given}-${name}`).length === 0,
+        `${name} refuses hasHeaderRow ${given}, before any request`,
+        toolText(badNum).slice(0, 160)
+      );
+    }
     const bad = await callTool(origin, `send-bad-${name}`, name, { ...TOOL_ARGS[name], hasHeaderRow: 'junk' });
     check(
       bad.message?.result?.isError === true && loggedRequests(`send-bad-${name}`).length === 0,
@@ -1770,6 +1836,16 @@ async function testInboxPlacement(origin, names) {
     !isError(emptyOk) && /"success": true/.test(toolText(emptyOk)),
     'delete_inbox_placement_test reads an empty 200 body as success',
     toolText(emptyOk).slice(0, 160)
+  );
+  // Only a body of zero bytes is empty: three spaces are not JSON, and not a
+  // completed delete either (E8, E7).
+  const blank = await callTool(origin, 'ipt-blank-200-1', 'delete_inbox_placement_test', {
+    testId: '42',
+  });
+  check(
+    isError(blank) && /\b200\b/.test(toolText(blank)) && !/deleted/.test(toolText(blank)),
+    'delete_inbox_placement_test reports a whitespace-only 200 as an error with its status',
+    toolText(blank).slice(0, 160)
   );
   // An empty 2xx is a success only for the delete.
   const emptyGet = await callTool(origin, 'ipt-empty-200-2', 'get_inbox_placement_test', {

@@ -1026,6 +1026,9 @@ function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent"
   }
 }
 
+// src/zerobounce-client.ts
+import { AsyncLocalStorage } from "node:async_hooks";
+
 // node_modules/@zerobounce/zero-bounce-sdk/zeroBounceSDK.mjs
 var import_zeroBounceSDK = __toESM(require_zeroBounceSDK(), 1);
 var { ZeroBounceWarmup, ZBApiError } = import_zeroBounceSDK.default;
@@ -1075,9 +1078,32 @@ function createWarmupClient(apiKey, baseUrl) {
 }
 
 // src/zerobounce-client.ts
-function isEmptySuccessBody(error) {
+var responseBodyLengths = new AsyncLocalStorage();
+var bodyLengthProbeInstalled = false;
+function installBodyLengthProbe() {
+  if (bodyLengthProbeInstalled) {
+    return;
+  }
+  bodyLengthProbeInstalled = true;
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (...args) => {
+    const response = await original(...args);
+    const lengths = responseBodyLengths.getStore();
+    if (lengths) {
+      try {
+        lengths.push((await response.clone().arrayBuffer()).byteLength);
+      } catch {
+      }
+    }
+    return response;
+  });
+}
+function isEmptySuccessBody(error, bodyLengths) {
   const status = error?.statusCode;
   if (typeof status !== "number" || status < 200 || status >= 300) {
+    return false;
+  }
+  if (bodyLengths.length !== 1 || bodyLengths[0] !== 0) {
     return false;
   }
   const message = error instanceof Error ? error.message : String(error);
@@ -1635,14 +1661,19 @@ var ZeroBounceClient = class {
   }
   /** Delete a finished test. DELETE /api/ipt/test/{id}, which answers with no body. */
   async deleteInboxPlacementTest(testId) {
+    installBodyLengthProbe();
+    const bodyLengths = [];
     try {
-      const result = await this.sdk.deleteInboxPlacementTest(testId);
-      if (result == null) {
+      const result = await responseBodyLengths.run(
+        bodyLengths,
+        () => this.sdk.deleteInboxPlacementTest(testId)
+      );
+      if (result == null || typeof result === "object" && Object.keys(result).length === 0) {
         return { success: true, message: `Inbox placement test ${testId} deleted` };
       }
       return result;
     } catch (error) {
-      if (isEmptySuccessBody(error)) {
+      if (isEmptySuccessBody(error, bodyLengths)) {
         return { success: true, message: `Inbox placement test ${testId} deleted` };
       }
       throw error;
@@ -1976,7 +2007,7 @@ function createBulkFileTools(config) {
   if (config.supportsRemoveDuplicate) {
     sendFileProperties.removeDuplicate = {
       type: "boolean",
-      description: "Whether to remove duplicate emails. Sent only when given."
+      description: "Whether to remove duplicate emails (sent as remove_duplicate). Left out, it is sent as false."
     };
   }
   if (config.supportsAllowPhase2) {

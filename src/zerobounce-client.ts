@@ -3,6 +3,7 @@
  * Handles communication with ZeroBounce API endpoints
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import ZeroBounceSDK from '@zerobounce/zero-bounce-sdk';
 import type { ZeroBounceWarmup } from '@zerobounce/zero-bounce-sdk';
 import { looksLikeHtml } from './errors.js';
@@ -306,13 +307,46 @@ export interface InboxPlacementDeleteResponse {
 }
 
 /**
- * DELETE /api/ipt/test/{id} answers with an empty body on success. Every other
- * ZeroBounce endpoint returns JSON, so the SDK treats an empty body as a failure
- * and throws. An empty body with a 2xx status is a completed delete, not an error.
+ * The byte length of the response body each fetch made inside `run` received.
+ * Only the delete below reads it: the bundled SDK answers a body of zero bytes
+ * and a whitespace-only body with the same "Empty response" error, and only the
+ * first is a completed delete (a whitespace-only body is not JSON).
  */
-function isEmptySuccessBody(error: unknown): boolean {
+const responseBodyLengths = new AsyncLocalStorage<number[]>();
+let bodyLengthProbeInstalled = false;
+
+function installBodyLengthProbe(): void {
+  if (bodyLengthProbeInstalled) {
+    return;
+  }
+  bodyLengthProbeInstalled = true;
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+    const response = await original(...args);
+    const lengths = responseBodyLengths.getStore();
+    if (lengths) {
+      try {
+        lengths.push((await response.clone().arrayBuffer()).byteLength);
+      } catch {
+        // A body cut short: the SDK reports it as the transport error it is.
+      }
+    }
+    return response;
+  }) as typeof fetch;
+}
+
+/**
+ * DELETE /api/ipt/test/{id} answers 204 with no body on success. An SDK that
+ * treats every empty body as a failure throws for it, so a 2xx whose body had
+ * zero bytes is a completed delete. A body of whitespace is not empty: it is
+ * not JSON, and stays the error it is (E7, E8).
+ */
+function isEmptySuccessBody(error: unknown, bodyLengths: number[]): boolean {
   const status = (error as { statusCode?: unknown })?.statusCode;
   if (typeof status !== 'number' || status < 200 || status >= 300) {
+    return false;
+  }
+  if (bodyLengths.length !== 1 || bodyLengths[0] !== 0) {
     return false;
   }
   const message = error instanceof Error ? error.message : String(error);
@@ -1073,14 +1107,19 @@ export class ZeroBounceClient {
 
   /** Delete a finished test. DELETE /api/ipt/test/{id}, which answers with no body. */
   async deleteInboxPlacementTest(testId: string): Promise<InboxPlacementDeleteResponse> {
+    installBodyLengthProbe();
+    const bodyLengths: number[] = [];
     try {
-      const result = await this.sdk.deleteInboxPlacementTest(testId);
-      if (result == null) {
+      const result = await responseBodyLengths.run(bodyLengths, () =>
+        this.sdk.deleteInboxPlacementTest(testId)
+      );
+      // A newer SDK resolves an empty 2xx to {} itself.
+      if (result == null || (typeof result === 'object' && Object.keys(result).length === 0)) {
         return { success: true, message: `Inbox placement test ${testId} deleted` };
       }
       return result as InboxPlacementDeleteResponse;
     } catch (error) {
-      if (isEmptySuccessBody(error)) {
+      if (isEmptySuccessBody(error, bodyLengths)) {
         return { success: true, message: `Inbox placement test ${testId} deleted` };
       }
       throw error;
