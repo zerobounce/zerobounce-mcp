@@ -899,16 +899,9 @@ var require_zeroBounceSDK = __commonJS({
 });
 
 // src/index.ts
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { createServer } from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createServer } from "node:http";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema
-} from "@modelcontextprotocol/sdk/types.js";
 
 // src/security/bulk-input.ts
 import { isIP } from "node:net";
@@ -1026,13 +1019,42 @@ function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent"
   }
 }
 
-// src/zerobounce-client.ts
-import { AsyncLocalStorage } from "node:async_hooks";
-
 // node_modules/@zerobounce/zero-bounce-sdk/zeroBounceSDK.mjs
 var import_zeroBounceSDK = __toESM(require_zeroBounceSDK(), 1);
 var { ZeroBounceWarmup, ZBApiError } = import_zeroBounceSDK.default;
 var zeroBounceSDK_default = import_zeroBounceSDK.default;
+
+// src/warmup-client.ts
+var DEFAULT_WARMUP_BASE_URL = "https://warmup-api.zerobounce.net";
+function warmupConstructor() {
+  const sdk = zeroBounceSDK_default;
+  return typeof sdk.Warmup === "function" ? sdk.Warmup : void 0;
+}
+function isWarmupMethodAvailable(name) {
+  const ctor = warmupConstructor();
+  return ctor !== void 0 && typeof ctor.prototype?.[name] === "function";
+}
+function createWarmupClient(apiKey, baseUrl) {
+  const Warmup = warmupConstructor();
+  if (!Warmup) {
+    throw new Error(
+      "The Warmup API requires @zerobounce/zero-bounce-sdk with Warmup support (upgrade SDK)."
+    );
+  }
+  return new Warmup(apiKey, baseUrl || DEFAULT_WARMUP_BASE_URL);
+}
+
+// src/server.ts
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema
+} from "@modelcontextprotocol/sdk/types.js";
+
+// src/zerobounce-client.ts
+import { AsyncLocalStorage } from "node:async_hooks";
 
 // src/errors.ts
 var MAX_ERROR_MESSAGE_LENGTH = 1e3;
@@ -1055,26 +1077,6 @@ function formatErrorMessage(error) {
     return `${message.slice(0, end)}\u2026 (truncated)`;
   }
   return message || "Unknown error";
-}
-
-// src/warmup-client.ts
-var DEFAULT_WARMUP_BASE_URL = "https://warmup-api.zerobounce.net";
-function warmupConstructor() {
-  const sdk = zeroBounceSDK_default;
-  return typeof sdk.Warmup === "function" ? sdk.Warmup : void 0;
-}
-function isWarmupMethodAvailable(name) {
-  const ctor = warmupConstructor();
-  return ctor !== void 0 && typeof ctor.prototype?.[name] === "function";
-}
-function createWarmupClient(apiKey, baseUrl) {
-  const Warmup = warmupConstructor();
-  if (!Warmup) {
-    throw new Error(
-      "The Warmup API requires @zerobounce/zero-bounce-sdk with Warmup support (upgrade SDK)."
-    );
-  }
-  return new Warmup(apiKey, baseUrl || DEFAULT_WARMUP_BASE_URL);
 }
 
 // src/zerobounce-client.ts
@@ -3950,47 +3952,7 @@ function getToolRegistry(availability = {}) {
   return registry;
 }
 
-// src/index.ts
-var API_KEY_HEADER = "x-zerobounce-api-key";
-var WARMUP_API_KEY_HEADER = "x-zerobounce-warmup-api-key";
-var DEFAULT_API_BASE_URL = "https://api.zerobounce.net/v2";
-var REGIONAL_API_BASE_URLS = {
-  default: DEFAULT_API_BASE_URL,
-  us: "https://api-us.zerobounce.net/v2",
-  eu: "https://api-eu.zerobounce.net/v2"
-};
-function resolveApiBaseUrl(value) {
-  const raw = value?.trim();
-  if (!raw) return DEFAULT_API_BASE_URL;
-  const region = REGIONAL_API_BASE_URLS[raw.toLowerCase()];
-  if (region) return region;
-  let parsed;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    throw new Error(
-      `Invalid API URL: ${raw}. Use us, eu, or an https:// URL.`
-    );
-  }
-  if (parsed.protocol !== "https:") {
-    throw new Error(`The API URL must use https, got: ${raw}`);
-  }
-  return raw.replace(/\/+$/, "");
-}
-function resolveWarmupBaseUrl(value) {
-  const raw = value?.trim();
-  if (!raw) return DEFAULT_WARMUP_BASE_URL;
-  let parsed;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    throw new Error(`Invalid Warmup API URL: ${raw}. Use an https:// URL.`);
-  }
-  if (parsed.protocol !== "https:") {
-    throw new Error(`The Warmup API URL must use https, got: ${raw}`);
-  }
-  return raw.replace(/\/+$/, "");
-}
+// src/server.ts
 var SERVER_VERSION = true ? "0.3.1" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
@@ -4090,6 +4052,48 @@ var ZeroBounceMCPServer = class {
     await this.server.close();
   }
 };
+
+// src/index.ts
+var API_KEY_HEADER = "x-zerobounce-api-key";
+var WARMUP_API_KEY_HEADER = "x-zerobounce-warmup-api-key";
+var DEFAULT_API_BASE_URL = "https://api.zerobounce.net/v2";
+var REGIONAL_API_BASE_URLS = {
+  default: DEFAULT_API_BASE_URL,
+  us: "https://api-us.zerobounce.net/v2",
+  eu: "https://api-eu.zerobounce.net/v2"
+};
+function resolveApiBaseUrl(value) {
+  const raw = value?.trim();
+  if (!raw) return DEFAULT_API_BASE_URL;
+  const region = REGIONAL_API_BASE_URLS[raw.toLowerCase()];
+  if (region) return region;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      `Invalid API URL: ${raw}. Use us, eu, or an https:// URL.`
+    );
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`The API URL must use https, got: ${raw}`);
+  }
+  return raw.replace(/\/+$/, "");
+}
+function resolveWarmupBaseUrl(value) {
+  const raw = value?.trim();
+  if (!raw) return DEFAULT_WARMUP_BASE_URL;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid Warmup API URL: ${raw}. Use an https:// URL.`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`The Warmup API URL must use https, got: ${raw}`);
+  }
+  return raw.replace(/\/+$/, "");
+}
 async function runStdio(config) {
   const server = new ZeroBounceMCPServer(config);
   await server.connect(new StdioServerTransport());
