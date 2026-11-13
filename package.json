@@ -16,7 +16,7 @@
     "build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/sdk --define:__PACKAGE_VERSION__=\\\"$npm_package_version\\\" --banner:js='#!/usr/bin/env node' && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "node test-http.js",
+    "test": "node test-http.js && tsx test/client-key.test.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepublishOnly": "npm run build",

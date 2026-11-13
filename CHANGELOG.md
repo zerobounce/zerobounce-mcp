@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The API key is no longer a property of the MCP's own client objects. `ZeroBounceClient`
+  kept it in an ordinary `apiKey` property, and the server kept the whole config, so
+  `JSON.stringify`, `util.inspect` and `%o` of those objects printed it. Both now hold only
+  what they need (the key sits in a private field; the server keeps just whether each key is
+  set, which the `zerobounce://config` resource still reports). The ZeroBounce SDK that
+  `dist/index.js` bundles keeps its own copy of the key; that copy is closed by the SDK fix,
+  which reaches this package with the next SDK bump.
 - `delete_inbox_placement_test` reports a 2xx whose body is only whitespace as an error
   with its status. 0.3.1 read any body the bundled SDK called empty (`"   "` included) as a
   completed delete; only a body of zero bytes (the documented 204, or an empty 200) is one.

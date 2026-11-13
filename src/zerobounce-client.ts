@@ -394,7 +394,9 @@ export function isSdkMethodAvailable(name: string): boolean {
 }
 
 export class ZeroBounceClient {
-  private apiKey: string;
+  // Private field, not a property: no property of this object holds the key, so
+  // util.inspect, %o and JSON output of a client never print it.
+  #apiKey: string;
   private baseUrl: string;
   // Use official ZeroBounce SDK for core endpoints
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -402,12 +404,12 @@ export class ZeroBounceClient {
   private warmupClient?: ZeroBounceWarmup;
 
   constructor(config: ZeroBounceConfig) {
-    this.apiKey = config.apiKey;
+    this.#apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || 'https://api.zerobounce.net/v2';
 
     // Initialize official SDK with optional regional API base URL
     this.sdk = new (ZeroBounceSDK as any)();
-    this.sdk.init(this.apiKey, this.baseUrl);
+    this.sdk.init(this.#apiKey, this.baseUrl);
 
     // Built only when a Warmup key was supplied: the Warmup SDK class rejects an
     // empty key in its constructor, and the validation key would be refused by

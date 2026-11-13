@@ -1144,17 +1144,19 @@ function isSdkMethodAvailable(name) {
   return typeof zeroBounceSDK_default.prototype?.[name] === "function";
 }
 var ZeroBounceClient = class {
-  apiKey;
+  // Private field, not a property: no property of this object holds the key, so
+  // util.inspect, %o and JSON output of a client never print it.
+  #apiKey;
   baseUrl;
   // Use official ZeroBounce SDK for core endpoints
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sdk;
   warmupClient;
   constructor(config) {
-    this.apiKey = config.apiKey;
+    this.#apiKey = config.apiKey;
     this.baseUrl = config.baseUrl || "https://api.zerobounce.net/v2";
     this.sdk = new zeroBounceSDK_default();
-    this.sdk.init(this.apiKey, this.baseUrl);
+    this.sdk.init(this.#apiKey, this.baseUrl);
     if (config.warmupApiKey) {
       this.warmupClient = createWarmupClient(config.warmupApiKey, config.warmupBaseUrl);
     }
@@ -3993,9 +3995,16 @@ var SERVER_VERSION = true ? "0.3.1" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
   client;
+  // The keys are not kept on this object: it is inspectable, and the client
+  // holds its key privately. Only what the config resource reports is kept.
   config;
   constructor(config) {
-    this.config = config;
+    this.config = {
+      baseUrl: config.baseUrl,
+      warmupBaseUrl: config.warmupBaseUrl,
+      apiKeyConfigured: !!config.apiKey,
+      warmupApiKeyConfigured: !!config.warmupApiKey
+    };
     this.client = new ZeroBounceClient({
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
@@ -4060,9 +4069,9 @@ var ZeroBounceMCPServer = class {
               text: JSON.stringify(
                 {
                   baseUrl: this.config.baseUrl,
-                  apiKeyConfigured: !!this.config.apiKey,
+                  apiKeyConfigured: this.config.apiKeyConfigured,
                   warmupBaseUrl: this.config.warmupBaseUrl,
-                  warmupApiKeyConfigured: !!this.config.warmupApiKey
+                  warmupApiKeyConfigured: this.config.warmupApiKeyConfigured
                 },
                 null,
                 2

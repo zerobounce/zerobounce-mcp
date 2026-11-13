@@ -101,10 +101,22 @@ const SERVER_VERSION = typeof __PACKAGE_VERSION__ === 'string' ? __PACKAGE_VERSI
 class ZeroBounceMCPServer {
   private server: Server;
   private client: ZeroBounceClient;
-  private config: ServerConfig;
+  // The keys are not kept on this object: it is inspectable, and the client
+  // holds its key privately. Only what the config resource reports is kept.
+  private config: {
+    baseUrl?: string;
+    warmupBaseUrl?: string;
+    apiKeyConfigured: boolean;
+    warmupApiKeyConfigured: boolean;
+  };
 
   constructor(config: ServerConfig) {
-    this.config = config;
+    this.config = {
+      baseUrl: config.baseUrl,
+      warmupBaseUrl: config.warmupBaseUrl,
+      apiKeyConfigured: !!config.apiKey,
+      warmupApiKeyConfigured: !!config.warmupApiKey,
+    };
     this.client = new ZeroBounceClient({
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
@@ -179,9 +191,9 @@ class ZeroBounceMCPServer {
               text: JSON.stringify(
                 {
                   baseUrl: this.config.baseUrl,
-                  apiKeyConfigured: !!this.config.apiKey,
+                  apiKeyConfigured: this.config.apiKeyConfigured,
                   warmupBaseUrl: this.config.warmupBaseUrl,
-                  warmupApiKeyConfigured: !!this.config.warmupApiKey,
+                  warmupApiKeyConfigured: this.config.warmupApiKeyConfigured,
                 },
                 null,
                 2
