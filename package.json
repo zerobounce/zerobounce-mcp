@@ -16,7 +16,7 @@
     "build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/sdk --define:__PACKAGE_VERSION__=\\\"$npm_package_version\\\" --banner:js='#!/usr/bin/env node' && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "node test-http.js && tsx test/client-key.test.ts",
+    "test": "node test-http.js && tsx test/client-key.test.ts && tsx test/cli.test.ts && tsx test/redaction.test.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepublishOnly": "npm run build",
@@ -51,10 +51,10 @@
     "url": "https://github.com/zerobounce/zerobounce-mcp/issues"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.32.1"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
+    "@types/node": "^22.20.5",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.61.0",
     "@zerobounce/zero-bounce-sdk": "^5.0.0",

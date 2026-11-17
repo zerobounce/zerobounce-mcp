@@ -226,6 +226,13 @@ PORT=3000 node dist/index.js --http
   container or on a hosting platform, terminate HTTPS at a trusted proxy, set
   `MCP_TLS_TERMINATED=true`, and bind all interfaces with `--host 0.0.0.0` or `MCP_HOST=0.0.0.0`.
   Keep the connection between the proxy and this HTTP listener on a trusted private network.
+- The `Host` header must name the server: the loopback names for a loopback bind, the bind
+  address itself, or a name given with `--allowed-host <name>` (repeatable) or
+  `MCP_ALLOWED_HOSTS` (comma-separated). A cross-origin `Origin` header is refused with `403`.
+  This blocks DNS-rebinding attacks from web pages. On a wildcard bind (`0.0.0.0`) set your public
+  host name this way; without it the server accepts any `Host` and logs a warning.
+- A repeated `X-ZeroBounce-Api-Key`, `X-ZeroBounce-Warmup-Api-Key` or `Authorization` header, or an
+  `X-ZeroBounce-Api-Key` that differs from the bearer token, is refused with `400`.
 
 In HTTP mode **each caller supplies their own ZeroBounce API key** on every request, either as
 `X-ZeroBounce-Api-Key: <key>` or `Authorization: Bearer <key>`. `ZEROBOUNCE_API_KEY` and
@@ -606,7 +613,7 @@ Every job tool takes the same arguments:
 | Argument | Required | Notes |
 | --- | --- | --- |
 | `fileName` | yes | Object key (S3) or path on the server (SFTP/FTP) |
-| `returnUrl` | yes | HTTPS callback notified when the job finishes. The API refuses a job without one. Only use a URL you control: it receives your bulk results |
+| `returnUrl` | yes | HTTPS callback notified when the job finishes. The API refuses a job without one. Only use a URL you control: it receives your bulk results. Refused: credentials in the URL, a port other than 443, whitespace or control characters, and loopback, private, link-local, metadata or other special-purpose addresses (IPv6 forms that embed an IPv4 address included). Host names are not resolved: ZeroBounce's servers make the callback |
 | `hasHeaderRow` | no | Defaults to `false` |
 | `removeDuplicates` | no | Omitted when not given |
 
@@ -651,9 +658,12 @@ Delete a custom filter. Takes the same `rule`, `target`, and `value` that create
 
 ### Tool Availability
 
-Tools that need a newer `@zerobounce/zero-bounce-sdk` method are hidden when the installed
-SDK does not provide it, so the server never advertises a tool it cannot run. Call the MCP
-`tools/list` method to see exactly what your installation exposes.
+The ZeroBounce SDK (`@zerobounce/zero-bounce-sdk` 5.0.0) is bundled into `dist/index.js`, so
+every tool is available in every install and nothing depends on an SDK on your machine. The
+tool list changes only with the keys you supply: the 26 Warmup tools need a Warmup API key
+(see above), so a server started without one exposes 49 tools. As a safety net the server still
+hides a tool whose SDK method is missing from the bundle, rather than advertise one it cannot
+run. Call the MCP `tools/list` method to see exactly what your server exposes.
 
 ## Resources
 
@@ -840,8 +850,10 @@ For local development on this MCP server:
   npm run typecheck && npm run build && npm test
   ```
 
-  `npm test` runs `test-http.js` only. It runs offline against a fake API, needs no API key,
-  and checks routing, auth, every tool, and per-request API key isolation.
+  `npm test` runs `test-http.js`, `test/client-key.test.ts` and `test/cli.test.ts`. They run
+  offline against a fake API, need no API key, and check routing, auth, every tool, per-request
+  API key isolation, that no object holds the key in an inspectable property, and the
+  command-line flags.
 
   The stdio test against the live ZeroBounce API is separate and spends credits. Run it with a
   real key (a placeholder key is blocked by Cloudflare rather than rejected by the API):

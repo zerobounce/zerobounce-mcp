@@ -87,8 +87,7 @@ function requireWebhookUrl(value: unknown, fieldName = 'webhookUrl'): string {
   const webhookUrl = requireString(value, fieldName);
   // ZeroBounce POSTs the finished result here, so hold it to the same bar as a
   // bulk returnUrl: HTTPS only, never a private or loopback target.
-  validateBulkReturnUrl(webhookUrl, fieldName);
-  return webhookUrl;
+  return validateBulkReturnUrl(webhookUrl, fieldName);
 }
 
 export const getInboxPlacementProvidersTool: ToolHandler = {

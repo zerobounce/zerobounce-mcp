@@ -104,9 +104,17 @@ jobs:
         if: steps.policy.outputs.eligible == 'false'
         env:
           REASON: ${{ steps.policy.outputs.reason }}
-        run: >-
-          gh pr comment "$PR_URL" --body "Not auto-merged: $REASON.
-          Review the changelog and merge by hand."
+        run: |
+          set -euo pipefail
+          # A later synchronize or reopened run must not post the comment again.
+          posted=$(gh pr view "$PR_URL" --json comments \
+            --jq '[.comments[] | select(.author.login | startswith("github-actions"))
+                   | select(.body | startswith("Not auto-merged:"))] | length')
+          if [ "$posted" -gt 0 ]; then
+            echo "Already commented on this pull request."
+            exit 0
+          fi
+          gh pr comment "$PR_URL" --body "Not auto-merged: $REASON. Review the changelog and merge by hand."
 
       # The approval records that this commit passed the check above; the Tuesday run relies on it.
       - name: Approve

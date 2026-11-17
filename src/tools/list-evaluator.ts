@@ -4,9 +4,9 @@ import {
   createSuccessResponse,
   createErrorResponse,
   requireString,
-  optionalNumber,
+  optionalColumn,
 } from './types.js';
-import { assertBulkFileContentWithinLimit } from '../security/bulk-input.js';
+import { assertBulkFileContentWithinLimit, assertSafeFileName } from '../security/bulk-input.js';
 
 export const listEvaluatorSendFileTool: ToolHandler = {
   sdkMethods: ['sendListEvaluatorFileStream'],
@@ -31,7 +31,8 @@ export const listEvaluatorSendFileTool: ToolHandler = {
       const fileContent = requireString(args.fileContent, 'fileContent');
       assertBulkFileContentWithinLimit(fileContent);
       const fileName = requireString(args.fileName, 'fileName');
-      const emailAddressColumn = optionalNumber(args.emailAddressColumn, 'emailAddressColumn') ?? 0;
+      assertSafeFileName(fileName);
+      const emailAddressColumn = optionalColumn(args.emailAddressColumn, 'emailAddressColumn') ?? 0;
       const result = await client.sendListEvaluatorFile(fileContent, fileName, emailAddressColumn);
       return createSuccessResponse(result);
     } catch (error) {

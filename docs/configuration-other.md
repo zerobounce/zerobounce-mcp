@@ -154,20 +154,24 @@ is expected, since MCP clients use `POST`.
 
 ### Continue (VS Code Extension)
 
-**Configuration file:** `.continue/config.json` in your workspace or home directory
+**Configuration file:** a YAML file in `.continue/mcpServers/` at the top of your workspace
+(for example `.continue/mcpServers/zerobounce.yaml`), or an `mcpServers:` block in Continue's
+`config.yaml`. Continue's MCP tools work in agent mode only.
 
 **Configuration:**
-```json
-{
-  "mcpServers": [
-    {
-      "name": "zerobounce",
-      "command": "zerobounce-mcp",
-      "args": ["--api-key=YOUR_API_KEY"]
-    }
-  ]
-}
+```yaml
+name: ZeroBounce
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: zerobounce
+    command: zerobounce-mcp
+    args:
+      - "--api-key=YOUR_API_KEY"
 ```
+
+Continue also picks up a JSON file in the Claude Desktop / Cursor `mcpServers` format placed in
+`.continue/mcpServers/`.
 
 ### Zed Editor
 
@@ -178,25 +182,27 @@ is expected, since MCP clients use `POST`.
 **Configuration:**
 ```json
 {
-  "mcp": {
-    "servers": {
-      "zerobounce": {
-        "command": "zerobounce-mcp",
-        "args": ["--api-key=YOUR_API_KEY"]
-      }
+  "context_servers": {
+    "zerobounce": {
+      "command": "zerobounce-mcp",
+      "args": ["--api-key=YOUR_API_KEY"],
+      "env": {}
     }
   }
 }
 ```
 
+Zed's top-level key is `context_servers`. Open the file with the `zed: open settings file` action
+or add the server under Settings, AI, MCP Servers.
+
 ### Configuration File Locations by Client
 
 | Client | Configuration File Location |
 |--------|----------------------------|
-| **Cursor** | `~/.config/cursor/mcp.json` (macOS/Linux)<br>`%APPDATA%\Cursor\mcp.json` (Windows) |
-| **VS Code** | User or workspace settings via MCP extension |
+| **Cursor** | `~/.cursor/mcp.json` (global), `.cursor/mcp.json` (project) |
+| **VS Code** | `.vscode/mcp.json` (workspace) or the user `mcp.json` (top-level key `servers`; built in, no extension) |
 | **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)<br>`%APPDATA%\Claude\claude_desktop_config.json` (Windows) |
-| **Continue** | `.continue/config.json` |
+| **Continue** | `.continue/mcpServers/*.yaml` or `config.yaml` |
 | **Zed** | `~/.config/zed/settings.json` (macOS/Linux) |
 
 > **Note:** Configuration file paths and formats may vary by client version. Always check your client's documentation for the most up-to-date information.

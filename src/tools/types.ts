@@ -194,3 +194,47 @@ export function optionalBoolean(value: unknown, fieldName: string): boolean | un
   }
   throw new Error(`${fieldName} must be true or false`);
 }
+
+/** Highest 0-based column index: the SDK's 1-based indexes stop at 1000. */
+export const MAX_COLUMN_INDEX = 999;
+
+/**
+ * An optional 0-based CSV column index: a whole number from 0 to 999. A
+ * fraction, a negative number, or a huge value is refused here rather than
+ * being shifted to a column the caller did not mean.
+ */
+export function optionalColumn(value: unknown, fieldName: string): number | undefined {
+  const num = optionalNumber(value, fieldName);
+  if (num === undefined) return undefined;
+  if (!Number.isSafeInteger(num) || num < 0 || num > MAX_COLUMN_INDEX) {
+    throw new Error(`${fieldName} must be a whole number from 0 to ${MAX_COLUMN_INDEX} (0-based column index)`);
+  }
+  return num;
+}
+
+/** The longest email address (RFC 5321 path limit is 254; 320 is the loose address bound). */
+export const MAX_EMAIL_LENGTH = 320;
+
+/** An email address of at most {@link MAX_EMAIL_LENGTH} characters. */
+export function assertEmailLength(email: string, fieldName: string): void {
+  if (email.length > MAX_EMAIL_LENGTH) {
+    throw new Error(`${fieldName} must be at most ${MAX_EMAIL_LENGTH} characters`);
+  }
+}
+
+/** A real calendar date written YYYY-MM-DD. */
+export function requireIsoDate(value: unknown, fieldName: string): string {
+  const text = requireString(value, fieldName);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  const date = match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))) : undefined;
+  if (
+    !match ||
+    !date ||
+    date.getUTCFullYear() !== Number(match[1]) ||
+    date.getUTCMonth() !== Number(match[2]) - 1 ||
+    date.getUTCDate() !== Number(match[3])
+  ) {
+    throw new Error(`${fieldName} must be a real date in YYYY-MM-DD format`);
+  }
+  return text;
+}

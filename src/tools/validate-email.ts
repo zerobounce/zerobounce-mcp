@@ -12,6 +12,7 @@ import {
   optionalString,
   optionalNumber,
   optionalBoolean,
+  assertEmailLength,
 } from './types.js';
 
 export const validateEmailTool: ToolHandler = {
@@ -53,6 +54,7 @@ export const validateEmailTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
     try {
       const email = requireString(args.email, 'email');
+      assertEmailLength(email, 'email');
       const ipAddress = optionalString(args.ipAddress, 'ipAddress');
       const timeout = optionalNumber(args.timeout, 'timeout');
       const activityData = optionalBoolean(args.activityData, 'activityData');

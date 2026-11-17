@@ -3,10 +3,10 @@
  * Handles communication with ZeroBounce API endpoints
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import ZeroBounceSDK from '@zerobounce/zero-bounce-sdk';
 import type { ZeroBounceWarmup } from '@zerobounce/zero-bounce-sdk';
-import { looksLikeHtml } from './errors.js';
+import { looksLikeHtml, looksLikeHtmlDownload } from './errors.js';
+import { collectArgSecrets, currentSecrets, redactSecrets } from './security/redact.js';
 import { createWarmupClient } from './warmup-client.js';
 
 export interface ZeroBounceConfig {
@@ -72,7 +72,8 @@ export interface BatchValidationResult {
 }
 
 export interface CreditsResponse {
-  credits: number;
+  /** The SDK 5.0.0 returns the declared string, whether the API sent "123" or 123. */
+  Credits: string;
 }
 
 export interface ApiUsageResponse {
@@ -306,53 +307,6 @@ export interface InboxPlacementDeleteResponse {
   message?: string;
 }
 
-/**
- * The byte length of the response body each fetch made inside `run` received.
- * Only the delete below reads it: the bundled SDK answers a body of zero bytes
- * and a whitespace-only body with the same "Empty response" error, and only the
- * first is a completed delete (a whitespace-only body is not JSON).
- */
-const responseBodyLengths = new AsyncLocalStorage<number[]>();
-let bodyLengthProbeInstalled = false;
-
-function installBodyLengthProbe(): void {
-  if (bodyLengthProbeInstalled) {
-    return;
-  }
-  bodyLengthProbeInstalled = true;
-  const original = globalThis.fetch;
-  globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
-    const response = await original(...args);
-    const lengths = responseBodyLengths.getStore();
-    if (lengths) {
-      try {
-        lengths.push((await response.clone().arrayBuffer()).byteLength);
-      } catch {
-        // A body cut short: the SDK reports it as the transport error it is.
-      }
-    }
-    return response;
-  }) as typeof fetch;
-}
-
-/**
- * DELETE /api/ipt/test/{id} answers 204 with no body on success. An SDK that
- * treats every empty body as a failure throws for it, so a 2xx whose body had
- * zero bytes is a completed delete. A body of whitespace is not empty: it is
- * not JSON, and stays the error it is (E7, E8).
- */
-function isEmptySuccessBody(error: unknown, bodyLengths: number[]): boolean {
-  const status = (error as { statusCode?: unknown })?.statusCode;
-  if (typeof status !== 'number' || status < 200 || status >= 300) {
-    return false;
-  }
-  if (bodyLengths.length !== 1 || bodyLengths[0] !== 0) {
-    return false;
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  return /^Empty response from ZeroBounce/.test(message.trim());
-}
-
 /** Reads a 0-based column from one CSV row, honouring double-quoted fields. */
 function readCsvColumn(row: string, column: number, rowIndex: number): string {
   const fields: string[] = [];
@@ -397,6 +351,7 @@ export class ZeroBounceClient {
   // Private field, not a property: no property of this object holds the key, so
   // util.inspect, %o and JSON output of a client never print it.
   #apiKey: string;
+  #warmupApiKey?: string;
   private baseUrl: string;
   // Use official ZeroBounce SDK for core endpoints
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -405,6 +360,7 @@ export class ZeroBounceClient {
 
   constructor(config: ZeroBounceConfig) {
     this.#apiKey = config.apiKey;
+    this.#warmupApiKey = config.warmupApiKey || undefined;
     this.baseUrl = config.baseUrl || 'https://api.zerobounce.net/v2';
 
     // Initialize official SDK with optional regional API base URL
@@ -432,6 +388,29 @@ export class ZeroBounceClient {
       );
     }
     return this.warmupClient;
+  }
+
+  /**
+   * Every secret of a tool call: the validation and Inbox Placement key (one key),
+   * the Warmup key, and what the caller put in the arguments (SMTP username and
+   * password, a token). Held here so no inspectable property carries a key.
+   */
+  secretsForCall(args: unknown = {}): string[] {
+    return [
+      ...new Set(
+        [this.#apiKey, this.#warmupApiKey, ...collectArgSecrets(args)].filter(
+          (secret): secret is string => typeof secret === 'string' && secret !== ''
+        )
+      ),
+    ];
+  }
+
+  /**
+   * Text taken from a response body, masked with every secret however short
+   * (the server's own fixed words are never passed through this).
+   */
+  private bodyText(text: string): string {
+    return redactSecrets(text, [...this.secretsForCall(), ...currentSecrets()]);
   }
 
   /** Whether this client can serve Warmup calls. */
@@ -535,9 +514,11 @@ export class ZeroBounceClient {
 
     // Account-level failures (invalid key, no credits) come back with HTTP 200 as a
     // single error for "all" addresses rather than as a thrown error.
-    const accountError = result.errors?.find((e) => e.email_address === 'all');
+    const accountError = result.errors?.find(
+      (e) => String(e?.email_address ?? '').trim().toLowerCase() === 'all'
+    );
     if (accountError) {
-      throw new Error(accountError.error);
+      throw new Error(this.bodyText(String(accountError.error ?? '')));
     }
     return result;
   }
@@ -673,10 +654,14 @@ export class ZeroBounceClient {
     }
 
     if (typeof result === 'string') {
-      // A blocked or failed download can come back as an HTML page with status 200,
-      // including when spaces, tabs, a BOM, or U+00A0 sit in front of the tag.
+      // A blocked or failed download can come back as a page with status 200. A
+      // CSV never starts with `<` (after spaces, tabs, a BOM or U+00A0), so such
+      // a body is not a file, as in the SDK 5.0.0 download rule.
       if (looksLikeHtml(result)) {
         throw new Error(result);
+      }
+      if (looksLikeHtmlDownload(result)) {
+        throw new Error('ZeroBounce returned an HTML page instead of a file.');
       }
       return { success: true, csv: result };
     }
@@ -687,18 +672,20 @@ export class ZeroBounceClient {
 
     if (typeof result === 'object' && result !== null) {
       const error = result as {
-        message?: string | string[];
-        error?: string;
-        error_message?: string;
+        message?: unknown;
+        error?: unknown;
+        error_message?: unknown;
       };
       const message = Array.isArray(error.message)
         ? error.message.join(', ')
         : error.message ?? error.error_message ?? error.error;
 
-      throw new Error(message ?? JSON.stringify(result));
+      throw new Error(
+        this.bodyText(typeof message === 'string' ? message : JSON.stringify(result))
+      );
     }
 
-    throw new Error(`Unexpected bulk get-file response: ${String(result)}`);
+    throw new Error(`Unexpected bulk get-file response: ${this.bodyText(String(result))}`);
   }
 
   /**
@@ -1110,23 +1097,12 @@ export class ZeroBounceClient {
 
   /** Delete a finished test. DELETE /api/ipt/test/{id}, which answers with no body. */
   async deleteInboxPlacementTest(testId: string): Promise<InboxPlacementDeleteResponse> {
-    installBodyLengthProbe();
-    const bodyLengths: number[] = [];
-    try {
-      const result = await responseBodyLengths.run(bodyLengths, () =>
-        this.sdk.deleteInboxPlacementTest(testId)
-      );
-      // A newer SDK resolves an empty 2xx to {} itself.
-      if (result == null || (typeof result === 'object' && Object.keys(result).length === 0)) {
-        return { success: true, message: `Inbox placement test ${testId} deleted` };
-      }
-      return result as InboxPlacementDeleteResponse;
-    } catch (error) {
-      if (isEmptySuccessBody(error, bodyLengths)) {
-        return { success: true, message: `Inbox placement test ${testId} deleted` };
-      }
-      throw error;
+    // The SDK resolves a body of zero bytes on a 2xx (the documented 204) to {}.
+    const result = await this.sdk.deleteInboxPlacementTest(testId);
+    if (result == null || (typeof result === 'object' && Object.keys(result).length === 0)) {
+      return { success: true, message: `Inbox placement test ${testId} deleted` };
     }
+    return result as InboxPlacementDeleteResponse;
   }
 
   /** The webhook URL saved on this API key. GET /api/ipt/webhook */

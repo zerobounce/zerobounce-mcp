@@ -9,12 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking changes
 
+- Bundled ZeroBounce SDK 5.0.0 (was 4.0.0). Behaviour a 0.3.1 user can notice through the tools:
+  a 2xx body that carries only a `message`, a `success` flag that is not true (`false`, `0`,
+  `"0"`, `" False "`, `null`) or no data at all (`{}`, an unrecognised object) is now an error
+  instead of a successful result; `get_credits` returns `Credits` as a string when the API sends
+  one; a validation timeout that is not a whole number of seconds in the allowed range (for
+  example `4.5`) is refused; a bulk download that starts with `<` is an error, not CSV; and
+  transport failures read as the SDK's status-0 error text.
+- Inputs the server now refuses before any request: CR, LF or NUL in `fileName` or `returnUrl`, an email over 320 characters, more than 200 emails in `validate_batch`, and `get_api_usage` dates that are not real `YYYY-MM-DD` dates or whose start is after the end.
 - Optional string arguments are type-checked like the number and boolean ones since 0.3.0. A
   value that is set but is not a string, such as `ipAddress: 123` on `validate_email` or
   `domain: 123` on `find_email`, is now an error ("ipAddress must be a string") where 0.3.1
   silently left it out. `validate_batch` refuses an `emails` list with an item that is not a
   non-empty string ("emails must contain only non-empty strings"); 0.3.1 sent `[1, 2]` to the
   API as numbers. An empty string still counts as not set.
+- HTTP mode checks the `Host` header: only the bound host (loopback names for a loopback bind) and names given with `--allowed-host` or `MCP_ALLOWED_HOSTS` (comma-separated) are served on `/mcp`; a foreign or missing Host, or a cross-origin `Origin` (including `Origin: null`), gets 403. A wildcard bind (`0.0.0.0`) with no allowed host keeps accepting any Host and logs a warning; set `MCP_ALLOWED_HOSTS` to your public name. `/health` is not checked.
+- HTTP mode refuses (400) a repeated `X-ZeroBounce-Api-Key`, `X-ZeroBounce-Warmup-Api-Key` or `Authorization` header, and an `X-ZeroBounce-Api-Key` that differs from the Bearer token.
+- `returnUrl` and `webhookUrl` are refused when they contain control, whitespace, invisible characters or a backslash, a username or password, or a port other than 443; they are also refused for the full RFC 6890 special-purpose IPv4 and IPv6 ranges (including IPv6 forms that embed an IPv4 address: mapped, compatible, NAT64, 6to4), `localhost.`, `*.local`, `*.internal`, `*.nip.io`-style names and cloud metadata names. The normalised URL (lower-case host, no trailing dot) is what is forwarded. DNS is not resolved: ZeroBounce makes the callback.
+- Column indexes (`emailAddressColumn`, `domainColumn`, name, gender, IP columns, list evaluator, `validate_batch`) must be whole numbers from 0 to 999; `validate_batch` takes at most 200 emails; an email is at most 320 characters; `get_api_usage` dates must be real `YYYY-MM-DD` dates with `startDate` not after `endDate`; CR/LF/NUL in `fileName` is refused before the SDK.
 
 ### Added
 
@@ -25,9 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `hasHeaderRow` that is not a boolean is an error before any request. Left out,
   `has_header_row` and `remove_duplicate` are still sent as `false`, as in 0.3.1: the JS
   SDK always sends `remove_duplicate`, with its released default of `false`.
+- `--allowed-host <name>` (repeatable) and `MCP_ALLOWED_HOSTS` for public HTTP binds.
 
 ### Changed
 
+- `@modelcontextprotocol/sdk` is required at `^1.32.1` (was `^1.29.0`); 1.29 to 1.31 carry published advisories, two of them on request size limits in the HTTP transport this server uses. `@types/node` follows the `engines` floor (22).
+- `--help` / `-h` and `--version` / `-v` print and exit without a key. An unknown option or a stray argument now stops the server with `Unknown argument: ...` (and a flag followed by another flag is a missing value) instead of being ignored: `--api-ky` used to start the server with the key from the environment.
+- Client setup docs follow each client's current format: VS Code `mcp.json` uses `servers` and has MCP built in (no extension), Cursor reads `~/.cursor/mcp.json`, Zed uses `context_servers`, Continue uses `.continue/mcpServers/*.yaml`. `server.json` declares the optional `ZEROBOUNCE_WARMUP_API_KEY` (secret) and `ZEROBOUNCE_API_URL`.
+- Publishing: the publish workflow tests the tag, packs it once, and publishes that exact tarball with provenance (no second build). The GitHub release needs only tag validation and the tests, and a `skip_npm` input skips the npm step. Every job uses the validated tag commit; the lockfile and every `server.json` version are checked and a missing one fails. `npm audit` gates on the shipped dependencies only; CI also runs lint and fails if the committed `dist/index.js` is stale. npm is pinned to an exact version; jobs have timeouts and concurrency groups.
 - `@zerobounce/zero-bounce-sdk` is a development dependency. `dist/index.js` bundles it, and
   nothing loads it at run time, so `npm install @zerobounce/mcp` no longer installs an unused
   copy. Which SDK version a release carries is set by the lockfile when it is built.
@@ -36,18 +53,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A base URL with a username, a password, a query, or a fragment is refused before the server starts. The error does not include the URL. `zerobounce://config` therefore cannot return a credential that was embedded in the URL.
 - An API key that contains a control character, an invisible character, or Unicode whitespace is refused. An ordinary space in the middle of the key is still allowed.
+- Every tool result (success and error, all content text) now gets a final masking pass with every secret of the call: the API key (also the Inbox Placement key), the Warmup key, and any SMTP username/password or token in the tool arguments. The masking is vendored from @zerobounce/zero-bounce-sdk 5.0.0 (`src/security/redact.ts`): case and Unicode folding (Turkish i, combining marks), `%XX`/`%25`, `\u`/`\U`/`\x`/octal and HTML-entity spellings, a 64 KiB per-window cap, linear time; long text is masked in windows. Before, the server added no masking of its own: a 400 body, a 200 `{"error"}` body, an HTML `<title>`, a transport error or a plain success body that echoed the key came back to the model verbatim.
+- `validate_batch`: the account-level error (`email_address` "all", HTTP 200) thrown by the server itself is masked with every secret (it bypassed the SDK); the match is now case-insensitive, as in the SDK.
+- Text from a bulk `get_file` JSON/other body is masked before it is thrown.
+- A short secret (under 8 characters, e.g. a short SMTP username) is masked in a whole result only as a whole token, so it no longer cuts letters out of fixed words ("ZeroBo***nce ret***rned"); text taken from a response body is masked with every secret however short.
+- A request target that does not parse (`GET //[ HTTP/1.1`) crashed the HTTP server process; it is now answered 400, and the request handler is wrapped so no request can throw out of it.
+- DNS-rebinding protection for HTTP mode (Host and Origin checks, above).
+- The API key and Warmup key check covers every invisible, format, bidi, C1 and lone-surrogate character and a key of combining marks only (as JavaScript SDK 5.0.0 `checkApiKey`).
+- HTTP server limits: headers within 15 s, a whole request within 120 s, at most 512 connections.
 
 ### Fixed
 
-- Bulk get-file treats an HTML page as an error when spaces, tabs, a BOM, or U+00A0 come before `<html`. A file that really begins with spaces is still returned.
+- The descriptions of the `bulk_email_finder_*` and `bulk_domain_search_*` tools read "bulk bulk email finder" / "bulk bulk domain search" in 0.3.1; they now say "bulk email finder" and "bulk domain search".
+- Bulk get-file treats an HTML page as an error when spaces, tabs, a BOM, or U+00A0 come before `<html`. A download whose first non-space character is `<` is refused as an HTML page, as in SDK 5.0.0 (a CSV never starts with `<`); a file that merely begins with spaces is still returned.
 - `list_filters` reads `usePost` with the same strict boolean rules as the other tools. The string `"false"` is no longer sent as POST.
 - The API key is no longer a property of the MCP's own client objects. `ZeroBounceClient`
   kept it in an ordinary `apiKey` property, and the server kept the whole config, so
   `JSON.stringify`, `util.inspect` and `%o` of those objects printed it. Both now hold only
   what they need (the key sits in a private field; the server keeps just whether each key is
   set, which the `zerobounce://config` resource still reports). The ZeroBounce SDK that
-  `dist/index.js` bundles keeps its own copy of the key; that copy is closed by the SDK fix,
-  which reaches this package with the next SDK bump.
+  `dist/index.js` bundles keeps its own copy of the key; SDK 5.0.0 (below) closes that copy.
 - `delete_inbox_placement_test` reports a 2xx whose body is only whitespace as an error
   with its status. 0.3.1 read any body the bundled SDK called empty (`"   "` included) as a
   completed delete; only a body of zero bytes (the documented 204, or an empty 200) is one.
@@ -60,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `dist/index.js` committed at the v0.3.1 tag reported version 0.3.0 in `serverInfo`,
   because the release commit did not rebuild it. The npm package was rebuilt at publish time
   and reports 0.3.1. The test suite now checks both the built and the committed bundle.
+- An error whose body is JSON (starts with `{` or `[`) is never reported as an "HTML error page", whatever a string inside it says; the HTML `<title>` is taken after masking, only from non-JSON bodies, and is dropped if over 1000 characters.
+- A bulk file download that starts with `<` (after spaces, tabs, a BOM or U+00A0) is an error ("ZeroBounce returned an HTML page instead of a file."), as in the SDK 5.0.0; v0.3.1 returned `<title>Access denied</title>` as CSV.
+- `get_credits`: the result type is the SDK 5.0.0's `Credits` string (`"Credits": "2375323"`), not a number.
+- `delete_inbox_placement_test`: the server no longer wraps global `fetch` to detect a 204; the SDK 5.0.0 resolves an empty 2xx to `{}` itself (a whitespace-only body is still an error).
+- A tool that throws is reported as a masked tool error, never a raw exception message.
 
 ## [0.3.1] - 2026-11-12
 

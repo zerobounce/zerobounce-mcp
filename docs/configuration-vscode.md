@@ -10,16 +10,8 @@ Before configuring VS Code, make sure you've completed the **Quick Start** steps
 - Obtained a ZeroBounce API key (see **Getting Your API Key** in `README.md`)
 - Verified your environment with `node --version` and `npm --version`
 
-This guide assumes you already have VS Code installed; for MCP extension installation, see below.
-
-## Installing the MCP Extension
-
-If you haven't installed the MCP extension yet:
-
-1. Open VS Code
-2. Press `Ctrl+Shift+X` (Windows/Linux) or `Cmd+Shift+X` (macOS)
-3. Search for "Model Context Protocol" or "MCP"
-4. Click "Install" on the official MCP extension
+This guide assumes you already have a current VS Code installed. MCP support is built into VS Code
+(used from Copilot Chat in agent mode); no extension is needed.
 
 ## Installation Steps
 
@@ -49,14 +41,18 @@ npm install -g @zerobounce/mcp
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "zerobounce": {
+      "type": "stdio",
       "command": "zerobounce-mcp",
       "args": ["--api-key=YOUR_API_KEY"]
     }
   }
 }
 ```
+
+VS Code's own `mcp.json` (workspace `.vscode/mcp.json`, or the user-profile file opened with
+**MCP: Open User Configuration**) uses the top-level key `servers`, not `mcpServers`.
 
 > **⚠️ Important:** 
 > - Replace `YOUR_API_KEY` with your actual ZeroBounce API key
@@ -99,8 +95,8 @@ travels with every request in the `X-ZeroBounce-Api-Key` header.
 After installation, verify the server is running:
 
 1. **Open the Command Palette** (`Ctrl+Shift+P` / `Cmd+Shift+P`)
-2. **Type and select** "MCP: List Available Tools"
-3. **Look for** ZeroBounce tools in the list
+2. **Type and select** "MCP: List Servers"
+3. **Look for** the `zerobounce` server in the list and start it if it is stopped; its tools appear in Copilot Chat (agent mode) under the tools picker
 4. **Try a test command**:
    ```
    How many ZeroBounce credits do I have?
@@ -120,12 +116,9 @@ Check if "user@domain.com" is valid
 How many credits do I have?
 ```
 
-### Via Command Palette
+### Choosing tools
 
-1. Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS)
-2. Type "MCP: Execute Tool"
-3. Select the ZeroBounce tool you want to use
-4. Provide the required parameters
+In Copilot Chat, switch to agent mode and use the tools picker to enable or disable the ZeroBounce tools.
 
 ### Example Workflows
 
@@ -148,14 +141,13 @@ Show me my ZeroBounce account status and usage for this month
 
 ### Common Issues
 
-#### MCP Extension Not Found
+#### MCP Not Available
 
-**Problem:** Cannot find the MCP extension
+**Problem:** There is no MCP option in VS Code
 
 **Solutions:**
-- Search for "Model Context Protocol" in the Extensions marketplace
-- Ensure you're using an up-to-date version of VS Code
-- Check that extensions are not blocked by your organization's policy
+- Update VS Code: MCP support is built in, not an extension
+- Check that MCP is not disabled by your organization's policy
 
 #### Server Not Appearing
 
@@ -163,9 +155,8 @@ Show me my ZeroBounce account status and usage for this month
 
 **Solutions:**
 - Verify Node.js 22 or later is installed: run `node --version` in integrated terminal
-- Check MCP extension is enabled (Extensions → MCP → Enabled)
 - Restart VS Code completely
-- View MCP logs via Command Palette → "MCP: Show Logs"
+- Run "MCP: List Servers", select zerobounce and choose the option that shows its output
 
 #### Invalid API Key
 
@@ -202,18 +193,16 @@ Show me my ZeroBounce account status and usage for this month
 To see detailed error messages:
 
 1. Press `Ctrl+Shift+P` / `Cmd+Shift+P`
-2. Type "MCP: Show Logs"
-3. Select the zerobounce server
-4. Review the log output for errors
+2. Run "MCP: List Servers" and select the zerobounce server
+3. Choose the option that shows its output and review it for errors
 
 ### Still Having Issues?
 
 - Review the [main documentation](../README.md)
 - Check [GitHub Issues](https://github.com/zerobounce/zerobounce-mcp/issues)
-- View [VS Code's MCP documentation](https://code.visualstudio.com/docs/editor/mcp)
+- View [VS Code's MCP documentation](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
 - Open a new issue with:
   - VS Code version (Help → About)
-  - MCP extension version
   - Node.js version (`node --version`)
   - Operating system
   - Complete error message

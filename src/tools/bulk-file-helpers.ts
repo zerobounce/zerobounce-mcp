@@ -10,12 +10,13 @@ import {
   createErrorResponse,
   requireString,
   optionalString,
-  optionalNumber,
+  optionalColumn,
   optionalBoolean,
 } from './types.js';
 import {
   assertBulkFileContentWithinLimit,
   validateBulkReturnUrl,
+  assertSafeFileName,
 } from '../security/bulk-input.js';
 
 /** Optional send-file settings, each sent only when the caller sets it. */
@@ -70,6 +71,8 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   getFile: ToolHandler;
   deleteFile: ToolHandler;
 } {
+  // Some configs already say "bulk ..." ("bulk email finder"); the descriptions add "bulk" themselves.
+  const kind = config.description.replace(/^bulk /, '');
   const sendFileProperties: Record<string, object> = {
     fileContent: {
       type: 'string',
@@ -169,7 +172,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
     sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_send_file`,
-      description: `Send a CSV file for bulk ${config.description}. Returns a file ID for tracking.`,
+      description: `Send a CSV file for bulk ${kind}. Returns a file ID for tracking.`,
       inputSchema: {
         type: 'object',
         properties: sendFileProperties,
@@ -181,23 +184,24 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
         const fileContent = requireString(args.fileContent, 'fileContent');
         assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, 'fileName');
-        const returnUrl =
+        assertSafeFileName(fileName);
+        let returnUrl =
           config.supportsReturnUrl !== false ? optionalString(args.returnUrl, 'returnUrl') : undefined;
         if (returnUrl) {
-          validateBulkReturnUrl(returnUrl);
+          returnUrl = validateBulkReturnUrl(returnUrl);
         }
-        const emailAddressColumn = config.supportsEmailAddressColumn ? optionalNumber(args.emailAddressColumn, 'emailAddressColumn') : undefined;
-        const domainColumn = config.supportsDomainColumn ? optionalNumber(args.domainColumn, 'domainColumn') : undefined;
-        const companyNameColumn = config.supportsCompanyNameColumn ? optionalNumber(args.companyNameColumn, 'companyNameColumn') : undefined;
-        const fullNameColumn = config.supportsFullNameColumn ? optionalNumber(args.fullNameColumn, 'fullNameColumn') : undefined;
-        const firstNameColumn = config.supportsFirstNameColumn ? optionalNumber(args.firstNameColumn, 'firstNameColumn') : undefined;
-        const middleNameColumn = config.supportsMiddleNameColumn ? optionalNumber(args.middleNameColumn, 'middleNameColumn') : undefined;
-        const lastNameColumn = config.supportsLastNameColumn ? optionalNumber(args.lastNameColumn, 'lastNameColumn') : undefined;
+        const emailAddressColumn = config.supportsEmailAddressColumn ? optionalColumn(args.emailAddressColumn, 'emailAddressColumn') : undefined;
+        const domainColumn = config.supportsDomainColumn ? optionalColumn(args.domainColumn, 'domainColumn') : undefined;
+        const companyNameColumn = config.supportsCompanyNameColumn ? optionalColumn(args.companyNameColumn, 'companyNameColumn') : undefined;
+        const fullNameColumn = config.supportsFullNameColumn ? optionalColumn(args.fullNameColumn, 'fullNameColumn') : undefined;
+        const firstNameColumn = config.supportsFirstNameColumn ? optionalColumn(args.firstNameColumn, 'firstNameColumn') : undefined;
+        const middleNameColumn = config.supportsMiddleNameColumn ? optionalColumn(args.middleNameColumn, 'middleNameColumn') : undefined;
+        const lastNameColumn = config.supportsLastNameColumn ? optionalColumn(args.lastNameColumn, 'lastNameColumn') : undefined;
         const options: BulkSendFileOptions = {
           hasHeaderRow: optionalBoolean(args.hasHeaderRow, 'hasHeaderRow'),
           removeDuplicate: config.supportsRemoveDuplicate ? optionalBoolean(args.removeDuplicate, 'removeDuplicate') : undefined,
-          genderColumn: config.supportsGenderColumn ? optionalNumber(args.genderColumn, 'genderColumn') : undefined,
-          ipAddressColumn: config.supportsIpAddressColumn ? optionalNumber(args.ipAddressColumn, 'ipAddressColumn') : undefined,
+          genderColumn: config.supportsGenderColumn ? optionalColumn(args.genderColumn, 'genderColumn') : undefined,
+          ipAddressColumn: config.supportsIpAddressColumn ? optionalColumn(args.ipAddressColumn, 'ipAddressColumn') : undefined,
           allowPhase2: config.supportsAllowPhase2 ? optionalBoolean(args.allowPhase2, 'allowPhase2') : undefined,
         };
 
@@ -226,7 +230,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
     sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_file_status`,
-      description: `Get the status of a bulk ${config.description} file upload.`,
+      description: `Get the status of a bulk ${kind} file upload.`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -254,7 +258,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
     sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_get_file`,
-      description: `Get the results of a completed bulk ${config.description} file.`,
+      description: `Get the results of a completed bulk ${kind} file.`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -282,7 +286,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
     sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_delete_file`,
-      description: `Delete a bulk ${config.description} file from your account.`,
+      description: `Delete a bulk ${kind} file from your account.`,
       annotations: { destructiveHint: true, readOnlyHint: false },
       inputSchema: {
         type: 'object',

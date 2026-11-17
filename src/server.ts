@@ -14,6 +14,8 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { ZeroBounceClient } from './zerobounce-client.js';
 import { getAllTools, getToolRegistry } from './tools/index.js';
+import { createErrorResponse } from './tools/types.js';
+import { redactResultText, withSecrets } from './security/redact.js';
 
 export interface ServerConfig {
   apiKey: string;
@@ -94,7 +96,26 @@ export class ZeroBounceMCPServer {
         };
       }
 
-      return handler(this.client, args || {});
+      // One final pass over everything the model is shown, success or error,
+      // with every secret of the call: the API key, the Warmup key, and any SMTP
+      // username/password or token in the arguments.
+      const secrets = this.client.secretsForCall(args || {});
+      return withSecrets(secrets, async () => {
+        let result;
+        try {
+          result = await handler(this.client, args || {});
+        } catch (error) {
+          result = createErrorResponse(error);
+        }
+        return {
+          ...result,
+          content: result.content.map((item) =>
+            item.type === 'text'
+              ? { ...item, text: redactResultText(item.text, secrets) }
+              : item
+          ),
+        };
+      });
     });
 
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({

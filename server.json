@@ -22,6 +22,18 @@
           "description": "ZeroBounce API key",
           "isRequired": true,
           "isSecret": true
+        },
+        {
+          "name": "ZEROBOUNCE_WARMUP_API_KEY",
+          "description": "ZeroBounce Warmup API key. Optional: enables the Warmup tools (26 tools); without it they are not registered.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "ZEROBOUNCE_API_URL",
+          "description": "Optional ZeroBounce API base URL (defaults to the ZeroBounce production API).",
+          "isRequired": false,
+          "isSecret": false
         }
       ]
     }

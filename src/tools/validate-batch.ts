@@ -10,8 +10,13 @@ import {
   createErrorResponse,
   requireStringArray,
   optionalNumber,
+  optionalColumn,
   optionalBoolean,
+  assertEmailLength,
 } from './types.js';
+
+/** The validatebatch endpoint takes at most 200 emails per request. */
+export const MAX_BATCH_EMAILS = 200;
 
 export const validateBatchTool: ToolHandler = {
   definition: {
@@ -26,7 +31,7 @@ export const validateBatchTool: ToolHandler = {
           items: {
             type: 'string',
           },
-          description: 'Array of email addresses to validate',
+          description: 'Array of email addresses to validate (at most 200)',
         },
         emailAddressColumn: {
           type: 'number',
@@ -52,7 +57,11 @@ export const validateBatchTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
     try {
       const emails = requireStringArray(args.emails, 'emails');
-      const emailAddressColumn = optionalNumber(args.emailAddressColumn, 'emailAddressColumn');
+      if (emails.length > MAX_BATCH_EMAILS) {
+        throw new Error(`emails must contain at most ${MAX_BATCH_EMAILS} addresses`);
+      }
+      emails.forEach((email, index) => assertEmailLength(email, `emails[${index}]`));
+      const emailAddressColumn = optionalColumn(args.emailAddressColumn, 'emailAddressColumn');
       const timeout = optionalNumber(args.timeout, 'timeout');
       const activityData = optionalBoolean(args.activityData, 'activityData');
       const verifyPlus = optionalBoolean(args.verifyPlus, 'verifyPlus');

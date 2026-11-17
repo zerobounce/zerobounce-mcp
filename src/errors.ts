@@ -2,6 +2,8 @@
  * Error message helpers shared by the client and tool responses.
  */
 
+import { currentSecrets, redactResultText } from './security/redact.js';
+
 /** Longest error message returned to MCP clients; API error bodies can be megabytes. */
 export const MAX_ERROR_MESSAGE_LENGTH = 1000;
 
@@ -30,8 +32,38 @@ function skipLeadingHtmlPadding(text: string): string {
   return text.slice(index);
 }
 
+/** The HTML sniff reads this many characters after the padding. */
+export const HTML_PROBE_CHARS = 2000;
+
+/**
+ * Whether a body is an HTML page. A body that starts with `{` or `[` after its
+ * padding is JSON and never HTML, whatever a string inside it says (lesson 142).
+ */
 export function looksLikeHtml(text: string): boolean {
-  return HTML_TAG.test(skipLeadingHtmlPadding(text).slice(0, 2000));
+  const body = skipLeadingHtmlPadding(text);
+  if (body.startsWith('{') || body.startsWith('[')) {
+    return false;
+  }
+  return HTML_TAG.test(body.slice(0, HTML_PROBE_CHARS));
+}
+
+/**
+ * Whether a file download is not a file but an HTML (or other markup) page: it
+ * starts with `<` after its padding, which a CSV never does. The same rule as
+ * the SDK's 5.0.0 looksLikeHtmlDownload.
+ */
+export function looksLikeHtmlDownload(text: string): boolean {
+  return skipLeadingHtmlPadding(text).startsWith('<');
+}
+
+const HTML_TITLE_WINDOW = 65536;
+const HTML_TITLE_MAX = 1000;
+
+/** The text of the page's <title>, or '' when there is none or it is over 1000 characters. */
+function htmlTitle(page: string): string {
+  const title = page.slice(0, HTML_TITLE_WINDOW).match(/<title[^>]*>([^<]*)<\/title>/i)?.[1];
+  const text = title?.replace(/\s+/g, ' ').trim() ?? '';
+  return text.length > HTML_TITLE_MAX ? '' : text;
 }
 
 /**
@@ -39,12 +71,15 @@ export function looksLikeHtml(text: string): boolean {
  * ("Error: [Error]: api_key is invalid") and passes non-JSON error bodies through
  * verbatim, which for blocked requests is a full HTML page.
  */
-export function formatErrorMessage(error: unknown): string {
+export function formatErrorMessage(error: unknown, secrets: string[] = currentSecrets()): string {
   let message = (error instanceof Error ? error.message : String(error)).trim();
   message = message.replace(/^(?:(?:Error|\[Error\]):\s*)+/i, '');
+  // Mask before anything is read out of the text: a title is taken from the
+  // masked page, and a cut for length never leaves the start of a secret.
+  message = redactResultText(message, secrets);
 
   if (looksLikeHtml(message)) {
-    const title = message.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+    const title = htmlTitle(message);
     return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ''} instead of an API response. Check the API key and request parameters.`;
   }
 

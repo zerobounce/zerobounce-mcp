@@ -4,7 +4,7 @@
  */
 
 import type { ZeroBounceClient } from '../zerobounce-client.js';
-import { ToolHandler, createSuccessResponse, createErrorResponse, requireString } from './types.js';
+import { ToolHandler, createSuccessResponse, createErrorResponse, requireIsoDate } from './types.js';
 
 export const getApiUsageTool: ToolHandler = {
   definition: {
@@ -28,8 +28,12 @@ export const getApiUsageTool: ToolHandler = {
   },
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
     try {
-      const startDate = requireString(args.startDate, 'startDate');
-      const endDate = requireString(args.endDate, 'endDate');
+      const startDate = requireIsoDate(args.startDate, 'startDate');
+      const endDate = requireIsoDate(args.endDate, 'endDate');
+
+      if (startDate > endDate) {
+        throw new Error('startDate must not be after endDate');
+      }
 
       const result = await client.getApiUsage(startDate, endDate);
       return createSuccessResponse(result);

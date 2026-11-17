@@ -17,7 +17,8 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createServer } from 'node:net';
+import { createServer, connect } from 'node:net';
+import { request as httpRequest } from 'node:http';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SERVER_PATH = process.env.ZB_MCP_SERVER || join(__dirname, 'dist', 'index.js');
@@ -2258,6 +2259,374 @@ function testBundleVersion() {
   );
 }
 
+
+/** Sends one raw HTTP/1.1 request over a socket and returns what the server wrote back. */
+function rawRequest(origin, text) {
+  const { hostname, port } = new URL(origin);
+  return new Promise((resolve) => {
+    const socket = connect(Number(port), hostname);
+    let data = '';
+    const timer = setTimeout(() => socket.destroy(), 5000);
+    socket.on('data', (chunk) => (data += chunk));
+    socket.on('error', () => {});
+    socket.on('close', () => {
+      clearTimeout(timer);
+      resolve(data);
+    });
+    socket.write(text);
+  });
+}
+
+/** POSTs an initialize with exact header control (fetch cannot set Host or repeat a header). */
+function postWithHeaders(origin, headerList) {
+  const { hostname, port } = new URL(origin);
+  const body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } },
+  });
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        hostname,
+        port,
+        path: '/mcp',
+        method: 'POST',
+        setHost: false,
+        headers: [
+          'Content-Type',
+          'application/json',
+          'Accept',
+          'application/json, text/event-stream',
+          'Content-Length',
+          String(Buffer.byteLength(body)),
+          ...headerList,
+        ],
+      },
+      (res) => {
+        let text = '';
+        res.on('data', (c) => (text += c));
+        res.on('end', () => resolve({ status: res.statusCode, text }));
+      }
+    );
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+async function testHttpHardening(origin, names) {
+  console.log('\nHTTP hardening: request target, Host/Origin, credential headers');
+  const has = (name) => names.includes(name);
+  const { port } = new URL(origin);
+
+  const bad = await rawRequest(origin, 'GET //[ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n');
+  check(/^HTTP\/1\.1 400/.test(bad), 'GET //[ is answered 400', bad.slice(0, 60));
+  const alive = await fetch(`${origin}/health`);
+  check(alive.status === 200, 'the server survives a request target that does not parse');
+  const star = await rawRequest(origin, 'OPTIONS * HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n');
+  check(/^HTTP\/1\.1 400/.test(star), 'a non-origin-form request target is answered 400');
+  const doubleSlash = await rawRequest(origin, 'GET //mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n');
+  check(/^HTTP\/1\.1 400/.test(doubleSlash), '//mcp is not routed as /mcp');
+
+  const hdr = (name, value) => [name, value];
+  const key = ['X-ZeroBounce-Api-Key', 'hard-key'];
+  const okHost = await postWithHeaders(origin, [...key, 'Host', `127.0.0.1:${port}`]);
+  check(okHost.status === 200, 'Host 127.0.0.1 is accepted', okHost.text.slice(0, 120));
+  const localhostHost = await postWithHeaders(origin, [...key, 'Host', `localhost:${port}`]);
+  check(localhostHost.status === 200, 'Host localhost is accepted');
+  const v6Host = await postWithHeaders(origin, [...key, 'Host', `[::1]:${port}`]);
+  check(v6Host.status === 200, 'Host [::1] is accepted');
+  const evilHost = await postWithHeaders(origin, [...key, 'Host', `evil.example:${port}`]);
+  check(evilHost.status === 403, 'a foreign Host is refused (DNS rebinding)', String(evilHost.status));
+  const rebind = await postWithHeaders(origin, [
+    ...key, 'Host', 'evil.example', 'Origin', 'http://evil.example',
+  ]);
+  check(rebind.status === 403, 'Host evil.example with a same-site Origin is refused');
+  const crossOrigin = await postWithHeaders(origin, [
+    ...key, 'Host', `127.0.0.1:${port}`, 'Origin', 'http://evil.example',
+  ]);
+  check(crossOrigin.status === 403, 'a cross-origin Origin is refused');
+  const nullOrigin = await postWithHeaders(origin, [...key, 'Host', `127.0.0.1:${port}`, 'Origin', 'null']);
+  check(nullOrigin.status === 403, 'Origin: null is refused');
+  const localOrigin = await postWithHeaders(origin, [
+    ...key, 'Host', `127.0.0.1:${port}`, 'Origin', `http://localhost:${port}`,
+  ]);
+  check(localOrigin.status === 200, 'a loopback Origin is accepted');
+  const noHost = await rawRequest(origin, 'POST /mcp HTTP/1.0\r\nContent-Length: 2\r\nX-ZeroBounce-Api-Key: hard-key\r\n\r\n{}');
+  check(/^HTTP\/1\.[01] 403/.test(noHost), 'a request without a Host header is refused');
+
+  const dup = await postWithHeaders(origin, [
+    ...key, ...hdr('X-ZeroBounce-Api-Key', 'other-key'), 'Host', `127.0.0.1:${port}`,
+  ]);
+  check(dup.status === 400, 'two X-ZeroBounce-Api-Key headers are refused', String(dup.status));
+  const dupAuth = await postWithHeaders(origin, [
+    'Authorization', 'Bearer a-key', 'Authorization', 'Bearer b-key', 'Host', `127.0.0.1:${port}`,
+  ]);
+  check(dupAuth.status === 400, 'two Authorization headers are refused');
+  const conflict = await postWithHeaders(origin, [
+    ...key, 'Authorization', 'Bearer other-key', 'Host', `127.0.0.1:${port}`,
+  ]);
+  check(conflict.status === 400, 'an X key that differs from the Bearer token is refused');
+  const same = await postWithHeaders(origin, [
+    ...key, 'Authorization', 'Bearer hard-key', 'Host', `127.0.0.1:${port}`,
+  ]);
+  check(same.status === 200, 'the same key in both headers is accepted');
+  const dupWarmup = await postWithHeaders(origin, [
+    ...key, 'X-ZeroBounce-Warmup-Api-Key', 'w1', 'X-ZeroBounce-Warmup-Api-Key', 'w2', 'Host', `127.0.0.1:${port}`,
+  ]);
+  check(dupWarmup.status === 400, 'two Warmup key headers are refused');
+
+  // Key characters, over HTTP (latin-1 only) and on the command line (all of Unicode).
+  const softHyphen = await postWithHeaders(origin, [
+    'X-ZeroBounce-Api-Key', Buffer.from('ab­cd', 'latin1').toString('latin1'), 'Host', `127.0.0.1:${port}`,
+  ]);
+  check(softHyphen.status === 401, 'a key with U+00AD is refused over HTTP');
+  const warmupBad = await postWithHeaders(origin, [
+    ...key, 'X-ZeroBounce-Warmup-Api-Key', 'ab­cd', 'Host', `127.0.0.1:${port}`,
+  ]);
+  check(warmupBad.status === 401, 'a Warmup key with an invisible character is refused over HTTP');
+  const warmupGood = await postWithHeaders(origin, [
+    ...key, 'X-ZeroBounce-Warmup-Api-Key', 'warm-key', 'Host', `127.0.0.1:${port}`,
+  ]);
+  check(warmupGood.status === 200, 'a clean Warmup key is accepted over HTTP');
+
+  const cliKey = (value, extra = []) =>
+    runCli([SERVER_PATH, '--api-key', value, ...extra], { env: { ...process.env, ZEROBOUNCE_API_KEY: '' } });
+  const invisible = {
+    'U+200B': '​',
+    'U+200C': '‌',
+    'U+200F': '‏',
+    'U+202A': '‪',
+    'U+2060': '⁠',
+    'U+2064': '⁤',
+    'U+2069': '⁩',
+    'U+FFFA': '￺',
+    'U+E0001 (tag)': '\u{e0001}',
+    'U+115F': 'ᅟ',
+    'U+3164': 'ㅤ',
+    'U+FE0F': '️',
+    'U+034F': '͏',
+    'U+061C': '؜',
+    'U+0085 (C1)': '\u0085',
+    'U+2003 (em space)': ' ',
+  };
+  for (const [label, ch] of Object.entries(invisible)) {
+    const r = cliKey(`ab${ch}cd`);
+    check(
+      r.status === 1 && /invisible characters/.test(r.stderr),
+      `a key with ${label} is refused`,
+      `${r.status} ${r.stderr.slice(0, 100)}`
+    );
+  }
+  const warmupCli = runCli([SERVER_PATH, '--api-key', 'good-key', '--warmup-api-key', 'ab‌d']);
+  check(warmupCli.status === 1 && /invisible characters/.test(warmupCli.stderr), 'a Warmup key with U+200C is refused');
+  const marksOnly = cliKey('́̂');
+  check(marksOnly.status === 1, 'a key of combining marks only is refused');
+
+  // Base URL: an empty query or fragment is still a query or fragment.
+  for (const url of ['https://api.example.test/v2?', 'https://api.example.test/v2#', 'https://api.example.test/v2?a=1']) {
+    const r = runCli([SERVER_PATH, '--http', '--url', url]);
+    check(
+      r.status === 1 && /query string or a fragment/.test(r.stderr),
+      `API URL ${url} is refused`,
+      r.stderr.slice(0, 100)
+    );
+  }
+
+  // returnUrl / webhookUrl
+  console.log('\nreturnUrl and webhookUrl');
+  const send = (returnUrl, apiKey = 'url-key') =>
+    callTool(origin, apiKey, 'bulk_validate_send_file', { fileContent: 'email\na@example.com\n', fileName: 'u.csv', returnUrl });
+  const refusedUrls = [
+    'https://localhost./hook',
+    'https://LOCALHOST/hook',
+    'https://foo.localhost/hook',
+    'https://app.localhost./hook',
+    'https://[::127.0.0.1]/hook',
+    'https://[::ffff:0:7f00:1]/hook',
+    'https://[::ffff:7f00:1]/hook',
+    'https://[64:ff9b::7f00:1]/hook',
+    'https://[64:ff9b::a00:1]/hook',
+    'https://[64:ff9b:1::1]/hook',
+    'https://[2002:7f00:1::]/hook',
+    'https://[2002:a9fe:a9fe::1]/hook',
+    'https://100.64.0.1/hook',
+    'https://198.18.0.1/hook',
+    'https://192.0.0.1/hook',
+    'https://224.0.0.1/hook',
+    'https://255.255.255.255/hook',
+    'https://169.254.169.254/hook',
+    'https://0x7f.1/hook',
+    'https://2130706433/hook',
+    'https://[fec0::1]/hook',
+    'https://[ff02::1]/hook',
+    'https://[fe80::1]/hook',
+    'https://[fd00::1]/hook',
+    'https://[2001:db8::1]/hook',
+    'https://[::]/hook',
+    'https://127.0.0.1.nip.io/hook',
+    'https://a.b.sslip.io/hook',
+    'https://metadata.google.internal/hook',
+    'https://metadata.google.internal./hook',
+    'https://user:pw@example.com/hook',
+    'https://user@example.com/hook',
+    'https://example.com:8443/hook',
+    'https://example.com:80/hook',
+    'https://exa\tmple.com/hook',
+    'https://example.com/ho\nok',
+    'https://example.com/ho\rok',
+    'https://example.com/hook​',
+    'https://example.com/hook⁠',
+    ' https://example.com/hook',
+    'https://example.com/hook ',
+    'https://example.com\\@evil.test/hook',
+    'https://example.com/ho\u0000ok',
+  ];
+  for (const url of refusedUrls) {
+    const r = await send(url);
+    check(
+      /returnUrl must/.test(toolText(r)) && loggedRequests('url-key').length === 0,
+      `returnUrl ${JSON.stringify(url)} is refused`,
+      toolText(r).slice(0, 120)
+    );
+  }
+  const accepted = await send('https://Example.COM.:443/Hook?a=1#f', 'url-ok');
+  const sent = loggedRequests('url-ok').find((e) => e.fields?.return_url);
+  check(
+    sent?.fields.return_url === 'https://example.com/Hook?a=1#f',
+    'the normalised href is forwarded (lower-case host, no trailing dot, :443 dropped)',
+    `${sent?.fields.return_url} ${toolText(accepted).slice(0, 80)}`
+  );
+  for (const url of ['https://[2606:4700::1111]/hook', 'https://1.1.1.1/hook', 'https://[2002:808:808::]/hook']) {
+    const r = await send(url, `url-ok-${url.length}`);
+    check(
+      loggedRequests(`url-ok-${url.length}`).length === 1,
+      `public returnUrl ${url} is forwarded`,
+      toolText(r).slice(0, 100)
+    );
+  }
+  if (has('set_inbox_placement_webhook')) {
+    const r = await callTool(origin, 'hook-key', 'set_inbox_placement_webhook', {
+      webhookUrl: 'https://metadata.google.internal/x',
+    });
+    check(/webhookUrl must/.test(toolText(r)), 'webhookUrl uses the same refusal');
+    const r2 = await callTool(origin, 'hook-key', 'set_inbox_placement_webhook', {
+      webhookUrl: 'https://user:pw@example.com/x',
+    });
+    check(/webhookUrl must not contain a username/.test(toolText(r2)), 'webhookUrl with userinfo is refused');
+  }
+  const rootJob = names.find((n) => /_s3_file$/.test(n) || /_sftp_file$/.test(n));
+  if (rootJob) {
+    const r = await callTool(origin, 'root-key', rootJob, { ...TOOL_ARGS[rootJob], returnUrl: 'https://example.com/h\nx' });
+    check(/returnUrl must not contain control/.test(toolText(r)), `${rootJob} refuses CR/LF in returnUrl`, toolText(r).slice(0, 100));
+    const r2 = await callTool(origin, 'root-key', rootJob, { ...TOOL_ARGS[rootJob], fileName: 'a\r\nb.csv' });
+    check(/fileName must not contain control/.test(toolText(r2)), `${rootJob} refuses CR/LF in fileName`);
+  }
+
+  console.log('\nInput limits');
+  const bulk = (args) =>
+    callTool(origin, 'limit-key', 'bulk_validate_send_file', { fileContent: 'email\na@example.com\n', fileName: 'l.csv', ...args });
+  for (const [label, args, re] of [
+    ['CRLF in fileName', { fileName: 'a\r\nX: 1.csv' }, /fileName must not contain control/],
+    ['NUL in fileName', { fileName: 'a\u0000.csv' }, /fileName must not contain control/],
+    ['negative column', { emailAddressColumn: -1 }, /emailAddressColumn must be a whole number/],
+    ['fractional column', { emailAddressColumn: 1.5 }, /emailAddressColumn must be a whole number/],
+    ['huge column', { emailAddressColumn: 1e9 }, /emailAddressColumn must be a whole number/],
+    ['column 1000', { emailAddressColumn: 1000 }, /emailAddressColumn must be a whole number/],
+    ['unsafe-integer column', { emailAddressColumn: 2 ** 60 }, /emailAddressColumn must be a whole number/],
+    ['fractional first-name column', { firstNameColumn: 0.5 }, /firstNameColumn must be a whole number/],
+  ]) {
+    const r = await bulk(args);
+    check(re.test(toolText(r)) && loggedRequests('limit-key').length === 0, `${label} is refused`, toolText(r).slice(0, 120));
+  }
+  const col999 = await callTool(origin, 'col-ok', 'bulk_validate_send_file', {
+    fileContent: 'email\na@example.com\n', fileName: 'l.csv', emailAddressColumn: 999,
+  });
+  check(loggedRequests('col-ok').length === 1, 'column 999 (the last) is accepted', toolText(col999).slice(0, 100));
+  if (has('list_evaluator_send_file')) {
+    const r = await callTool(origin, 'le-key', 'list_evaluator_send_file', {
+      fileContent: 'a@example.com\n', fileName: 'l.csv', emailAddressColumn: -1,
+    });
+    check(/emailAddressColumn must be a whole number/.test(toolText(r)), 'list_evaluator_send_file refuses a negative column');
+    const r2 = await callTool(origin, 'le-key', 'list_evaluator_send_file', {
+      fileContent: 'a@example.com\n', fileName: 'l\n.csv',
+    });
+    check(/fileName must not contain control/.test(toolText(r2)), 'list_evaluator_send_file refuses CR/LF in fileName');
+  }
+  const batch = (args) => callTool(origin, 'batch-limit', 'validate_batch', args);
+  const b1 = await batch({ emails: ['a@example.com'], emailAddressColumn: -1 });
+  check(/emailAddressColumn must be a whole number/.test(toolText(b1)), 'validate_batch refuses a negative column');
+  const b2 = await batch({ emails: Array.from({ length: 201 }, (_, i) => `u${i}@example.com`) });
+  check(/at most 200/.test(toolText(b2)) && loggedRequests('batch-limit').length === 0, 'validate_batch refuses 201 emails');
+  const b3 = await batch({ emails: ['a'.repeat(321) + '@example.com'] });
+  check(/at most 320 characters/.test(toolText(b3)), 'validate_batch refuses an email over 320 characters');
+  const b4 = await callTool(origin, 'batch-200', 'validate_batch', {
+    emails: Array.from({ length: 200 }, (_, i) => `u${i}@example.com`),
+  });
+  check(loggedRequests('batch-200').length === 1, 'validate_batch accepts exactly 200 emails', toolText(b4).slice(0, 100));
+  const v1 = await callTool(origin, 'email-limit', 'validate_email', { email: 'a'.repeat(100000) + '@example.com' });
+  check(/at most 320 characters/.test(toolText(v1)) && loggedRequests('email-limit').length === 0, 'validate_email refuses a 100000-character email');
+  if (has('get_api_usage')) {
+    for (const [start, end, label] of [
+      ['yesterday', '2024-01-02', 'a word'],
+      ['2024-13-45', '2024-01-02', 'month 13'],
+      ['2023-02-29', '2024-01-02', 'Feb 29 in a common year'],
+      ['2024-1-2', '2024-01-02', 'a short form'],
+      ['2024-02-01', '2024-01-01', 'start after end'],
+    ]) {
+      const r = await callTool(origin, 'usage-limit', 'get_api_usage', { startDate: start, endDate: end });
+      check(
+        /startDate|endDate/.test(toolText(r)) && r.message?.result?.isError === true && loggedRequests('usage-limit').length === 0,
+        `get_api_usage refuses ${label}`,
+        toolText(r).slice(0, 100)
+      );
+    }
+    const okDates = await callTool(origin, 'usage-ok', 'get_api_usage', { startDate: '2024-02-29', endDate: '2024-02-29' });
+    check(loggedRequests('usage-ok').length === 1, 'get_api_usage accepts a real leap day, start equal to end', toolText(okDates).slice(0, 100));
+  }
+}
+
+async function testAllowedHosts() {
+  console.log('\nAllowed hosts on a public bind');
+  const port = await freePort();
+  const server = await startServer(['--port', String(port), '--host', '0.0.0.0', '--allowed-host', 'mcp.example.test'], {
+    MCP_TLS_TERMINATED: 'true',
+  });
+  const key = ['X-ZeroBounce-Api-Key', 'ah-key'];
+  const good = await postWithHeaders(server.origin.replace('0.0.0.0', '127.0.0.1'), [...key, 'Host', 'mcp.example.test']);
+  check(good.status === 200, 'an --allowed-host name is accepted');
+  const bad = await postWithHeaders(server.origin.replace('0.0.0.0', '127.0.0.1'), [...key, 'Host', 'evil.example']);
+  check(bad.status === 403, 'a name that is not allowed is refused');
+  const origin = await postWithHeaders(server.origin.replace('0.0.0.0', '127.0.0.1'), [
+    ...key, 'Host', 'mcp.example.test', 'Origin', 'https://evil.example',
+  ]);
+  check(origin.status === 403, 'a cross-origin Origin is refused on a public bind');
+  const own = await postWithHeaders(server.origin.replace('0.0.0.0', '127.0.0.1'), [
+    ...key, 'Host', 'mcp.example.test', 'Origin', 'https://mcp.example.test',
+  ]);
+  check(own.status === 200, 'the allowed host as Origin is accepted');
+  await stopServer(server);
+
+  const envPort = await freePort();
+  const env = await startServer(['--port', String(envPort), '--host', '0.0.0.0'], {
+    MCP_TLS_TERMINATED: 'true',
+    MCP_ALLOWED_HOSTS: 'a.example.test, b.example.test:443',
+  });
+  const base = env.origin.replace('0.0.0.0', '127.0.0.1');
+  const e1 = await postWithHeaders(base, [...key, 'Host', 'b.example.test']);
+  const e2 = await postWithHeaders(base, [...key, 'Host', 'c.example.test']);
+  check(e1.status === 200 && e2.status === 403, 'MCP_ALLOWED_HOSTS lists the accepted names');
+  await stopServer(env);
+
+  const openPort = await freePort();
+  const open = await startServer(['--port', String(openPort), '--host', '0.0.0.0'], { MCP_TLS_TERMINATED: 'true' });
+  const o1 = await postWithHeaders(open.origin.replace('0.0.0.0', '127.0.0.1'), [...key, 'Host', 'whatever.example']);
+  check(o1.status === 200, 'a wildcard bind with no allow-list does not restrict Host');
+  check(/Host header is not restricted/.test(open.stderr()), 'and says so on stderr');
+  await stopServer(open);
+}
+
 async function main() {
   if (!existsSync(SERVER_PATH)) {
     console.error(`Server not found at ${SERVER_PATH}. Run npm run build first.`);
@@ -2278,10 +2647,12 @@ async function main() {
     await testWarmup(server.origin);
     await testInboxPlacement(server.origin, names);
     await testKeyIsolation(server.origin, server);
+    await testHttpHardening(server.origin, names);
   } finally {
     await stopServer(server);
   }
   await testBindHost();
+  await testAllowedHosts();
 
   console.log(`\n${passes} passed, ${failures} failed`);
   rmSync(workDir, { recursive: true, force: true });

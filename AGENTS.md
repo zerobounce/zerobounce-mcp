@@ -83,8 +83,10 @@ test out of CI -- the offline `test-http.js` is the part that gates meaningfully
 - **A set argument of the wrong type is an error, never dropped.** `optionalString`, `optionalNumber`
   and `optionalBoolean` treat only `null` and `undefined` (and, for strings and numbers, `''`) as
   not set; `requireStringArray` checks every item.
-- **Tools that need newer SDK methods** must list them in `sdkMethods`. `getAllTools()` hides a
-  tool when the installed SDK lacks any of them, so a release never advertises broken tools.
+- **Tools that call an SDK method** list it in `sdkMethods`. The SDK is bundled (devDependency,
+  5.0.0), so every method exists in a release; `getAllTools()` still hides a tool whose method is
+  missing from the bundle, so a bad SDK bump never advertises broken tools. After bumping the
+  SDK, rebuild `dist/index.js` and check `tools/list`.
 - **Never share API keys or server state across HTTP requests.** `handleMcpRequest` creates a
   fresh server and client per request, and HTTP mode deliberately ignores `ZEROBOUNCE_API_KEY`.
 - **HTTP binds to `127.0.0.1` by default.** Hosted deployments opt in with `--host 0.0.0.0`.
@@ -119,3 +121,6 @@ project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.ht
 3. Rebuild `dist/index.js`, run the commands above, and commit.
 4. Tag `vx.y.z` and run the publish workflow with that tag. Publishing to npm and pushing tags
    need a maintainer's explicit approval.
+   The workflow tests the tag, packs it once and publishes that tarball (no rebuild); tick
+   `skip_npm` to make only the GitHub release. The MCP Registry (`server.json`) is not published by
+   the workflow.

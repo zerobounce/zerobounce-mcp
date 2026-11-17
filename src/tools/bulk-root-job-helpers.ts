@@ -14,7 +14,7 @@ import {
   requireString,
   optionalBoolean,
 } from './types.js';
-import { validateBulkReturnUrl } from '../security/bulk-input.js';
+import { assertSafeFileName, validateBulkReturnUrl } from '../security/bulk-input.js';
 
 export interface BulkRootJobToolConfig {
   /** MCP tool name, e.g. `validate_s3_file`. */
@@ -71,8 +71,8 @@ export function createBulkRootJobTool(config: BulkRootJobToolConfig): ToolHandle
     handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
       try {
         const fileName = requireString(args.fileName, 'fileName');
-        const returnUrl = requireString(args.returnUrl, 'returnUrl');
-        validateBulkReturnUrl(returnUrl);
+        assertSafeFileName(fileName);
+        const returnUrl = validateBulkReturnUrl(requireString(args.returnUrl, 'returnUrl'));
         const result = await config.jobMethod(client, {
           fileName,
           returnUrl,

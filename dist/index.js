@@ -1617,6 +1617,586 @@ import { createServer } from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
+// src/security/redact.ts
+import { AsyncLocalStorage } from "node:async_hooks";
+var jsonEscaped = (text) => JSON.stringify(text).slice(1, -1);
+var jsonEscapedSlash = (text) => jsonEscaped(text).split("/").join("\\/");
+var urlEncoded = (text) => encodeURIComponent(text);
+var formEncoded = (text) => new URLSearchParams({ s: text }).toString().slice(2);
+var QUOTINGS = [jsonEscaped, jsonEscapedSlash];
+var ENCODINGS = [(text) => text, urlEncoded, formEncoded];
+function secretForms(secret) {
+  const raw = String(secret);
+  const quoted = [raw];
+  for (const once of QUOTINGS) {
+    const first = once(raw);
+    quoted.push(first);
+    for (const twice of QUOTINGS) quoted.push(twice(first));
+  }
+  const forms = [escape(raw)];
+  for (const text of quoted) {
+    for (const encode of ENCODINGS) forms.push(encode(text));
+  }
+  return [...new Set(forms.filter(Boolean))].sort((a, b) => b.length - a.length);
+}
+var CREDENTIAL_OMITTED_MESSAGE = "ZeroBounce: the response text was omitted because it contained a credential.";
+function utf8SequenceLength(byte) {
+  if (byte < 128) return 1;
+  if (byte >= 194 && byte <= 223) return 2;
+  if (byte >= 224 && byte <= 239) return 3;
+  if (byte >= 240 && byte <= 244) return 4;
+  return 0;
+}
+function percentRunDecoded(run) {
+  const bytes = run.match(/%[0-9A-Fa-f]{2}/g) ?? [];
+  let out = "";
+  let i = 0;
+  while (i < bytes.length) {
+    const length = utf8SequenceLength(parseInt(bytes[i].slice(1), 16));
+    if (length) {
+      try {
+        out += decodeURIComponent(bytes.slice(i, i + length).join(""));
+        i += length;
+        continue;
+      } catch {
+      }
+    }
+    out += bytes[i];
+    i += 1;
+  }
+  return out;
+}
+function percentDecoded(text) {
+  return text.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+    try {
+      return decodeURIComponent(run);
+    } catch {
+      return percentRunDecoded(run);
+    }
+  });
+}
+function percentLatin1(text) {
+  return text.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+function latin1RunsAsUtf8(text) {
+  return text.replace(/[\u0080-\u00ff]+/g, (run) => {
+    let out = "";
+    let i = 0;
+    while (i < run.length) {
+      const length = utf8SequenceLength(run.charCodeAt(i));
+      if (length > 1 && i + length <= run.length) {
+        let escaped = "";
+        for (let k = 0; k < length; k += 1) escaped += `%${run.charCodeAt(i + k).toString(16).padStart(2, "0")}`;
+        try {
+          out += decodeURIComponent(escaped);
+          i += length;
+          continue;
+        } catch {
+        }
+      }
+      out += run[i];
+      i += 1;
+    }
+    return out;
+  });
+}
+var JSON_UNESCAPES = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "	", "'": "'" };
+function hexDigit(char) {
+  const d = parseInt(char, 16);
+  return Number.isNaN(d) ? -1 : d;
+}
+function codePointText(code) {
+  if (code < 0 || code > 1114111) return "\uFFFD";
+  return String.fromCodePoint(code);
+}
+function jsonUnescaped(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== "\\" || i + 1 >= text.length) {
+      out += text[i];
+      i += 1;
+      continue;
+    }
+    const next = text[i + 1];
+    if (next in JSON_UNESCAPES) {
+      out += JSON_UNESCAPES[next];
+      i += 2;
+      continue;
+    }
+    if ((next === "u" || next === "U") && text[i + 2] === "{") {
+      let j = i + 3;
+      let digits = "";
+      while (j < text.length && digits.length < 8 && hexDigit(text[j]) >= 0) {
+        digits += text[j];
+        j += 1;
+      }
+      if (digits && text[j] === "}") {
+        out += codePointText(parseInt(digits, 16));
+        i = j + 1;
+        continue;
+      }
+    }
+    if (next === "U" && /^[0-9A-Fa-f]{8}$/.test(text.slice(i + 2, i + 10)) && parseInt(text.slice(i + 2, i + 10), 16) <= 1114111) {
+      out += codePointText(parseInt(text.slice(i + 2, i + 10), 16));
+      i += 10;
+      continue;
+    }
+    if (next === "u" || next === "U") {
+      const hex = text.slice(i + 2, i + 6);
+      if (/^[0-9A-Fa-f]{4}$/.test(hex)) {
+        let code = parseInt(hex, 16);
+        if (code >= 55296 && code <= 56319 && text[i + 6] === "\\" && (text[i + 7] === "u" || text[i + 7] === "U")) {
+          const low = text.slice(i + 8, i + 12);
+          if (/^[0-9A-Fa-f]{4}$/.test(low)) {
+            const lowCode = parseInt(low, 16);
+            if (lowCode >= 56320 && lowCode <= 57343) {
+              code = 65536 + (code - 55296 << 10) + (lowCode - 56320);
+              out += codePointText(code);
+              i += 12;
+              continue;
+            }
+          }
+        }
+        out += codePointText(code);
+        i += 6;
+        continue;
+      }
+    }
+    if (next === "x") {
+      if (text[i + 2] === "{") {
+        let j = i + 3;
+        let digits = "";
+        while (j < text.length && digits.length < 6 && hexDigit(text[j]) >= 0) {
+          digits += text[j];
+          j += 1;
+        }
+        if (digits && text[j] === "}") {
+          out += codePointText(parseInt(digits, 16));
+          i = j + 1;
+          continue;
+        }
+      }
+      if (hexDigit(text[i + 2]) >= 0 && hexDigit(text[i + 3]) >= 0) {
+        out += String.fromCharCode(hexDigit(text[i + 2]) * 16 + hexDigit(text[i + 3]));
+        i += 4;
+        continue;
+      }
+    }
+    if (next >= "0" && next <= "7") {
+      let value = next.charCodeAt(0) - 48;
+      let len = 2;
+      if (next <= "3" && text[i + 2] >= "0" && text[i + 2] <= "7") {
+        value = value * 8 + (text[i + 2].charCodeAt(0) - 48);
+        len = 3;
+        if (text[i + 3] >= "0" && text[i + 3] <= "7") {
+          value = value * 8 + (text[i + 3].charCodeAt(0) - 48);
+          len = 4;
+        }
+      } else if (text[i + 2] >= "0" && text[i + 2] <= "7") {
+        value = value * 8 + (text[i + 2].charCodeAt(0) - 48);
+        len = 3;
+      }
+      out += String.fromCharCode(value);
+      i += len;
+      continue;
+    }
+    out += text[i];
+    i += 1;
+  }
+  return out;
+}
+function htmlEntity(name) {
+  switch (name.toLowerCase()) {
+    case "amp":
+      return "&";
+    case "lt":
+      return "<";
+    case "gt":
+      return ">";
+    case "quot":
+      return '"';
+    case "apos":
+      return "'";
+    case "nbsp":
+      return "\xA0";
+    default:
+      return null;
+  }
+}
+function htmlUnescaped(text) {
+  if (!text.includes("&")) return text;
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== "&") {
+      out += text[i];
+      i += 1;
+      continue;
+    }
+    if (text[i + 1] === "#") {
+      let radix = 10;
+      let at = i + 2;
+      if (text[at] === "x" || text[at] === "X") {
+        radix = 16;
+        at += 1;
+      }
+      let digits = "";
+      while (at < text.length && (radix === 10 ? text[at] >= "0" && text[at] <= "9" : hexDigit(text[at]) >= 0)) {
+        digits += text[at];
+        at += 1;
+      }
+      if (digits) {
+        let end = at;
+        if (text[at] === ";") end = at + 1;
+        out += codePointText(parseInt(digits, radix));
+        i = end;
+        continue;
+      }
+    }
+    const nameMatch = text.slice(i + 1).match(/^[A-Za-z][A-Za-z0-9]*/);
+    if (nameMatch) {
+      const name = nameMatch[0];
+      const decoded = htmlEntity(name);
+      if (decoded != null) {
+        const semi = text[i + 1 + name.length] === ";";
+        out += decoded;
+        i += 1 + name.length + (semi ? 1 : 0);
+        continue;
+      }
+    }
+    out += "&";
+    i += 1;
+  }
+  return out;
+}
+function hexByteEscapesDecoded(text) {
+  if (!text.includes("\\x") && !text.includes("\\X")) return text;
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "\\" && (text[i + 1] === "x" || text[i + 1] === "X") && hexDigit(text[i + 2]) >= 0 && hexDigit(text[i + 3]) >= 0) {
+      out += String.fromCharCode(hexDigit(text[i + 2]) * 16 + hexDigit(text[i + 3]));
+      i += 4;
+    } else {
+      out += text[i];
+      i += 1;
+    }
+  }
+  return out;
+}
+function quoteDecoded(text) {
+  return htmlUnescaped(hexByteEscapesDecoded(text.replace(/\\'/g, "'")));
+}
+function foldedScalars(scalar) {
+  let current = [scalar];
+  for (let round = 0; round < 3; round += 1) {
+    const next = [];
+    for (const item of current) {
+      for (const upper of item.toUpperCase()) {
+        for (const lower of upper.toLowerCase()) {
+          next.push(lower);
+        }
+      }
+    }
+    if (next.join("") === current.join("")) break;
+    current = next;
+  }
+  return current;
+}
+function foldedCharacter(character) {
+  const scalars = [...character];
+  const plain = scalars.every((s) => {
+    const value = s.codePointAt(0);
+    return value >= 19968 && value <= 40959;
+  });
+  const out = plain ? scalars : [...character.normalize("NFD")];
+  let folded = [];
+  for (const scalar of out) {
+    folded.push(...foldedScalars(scalar));
+  }
+  if (!plain) {
+    folded = [...folded.join("").normalize("NFD")];
+  }
+  const droppable = folded.map(
+    (scalar, index) => scalar.codePointAt(0) === 775 && index > 0 && folded[index - 1] === "i"
+  );
+  return { folded, droppable };
+}
+function buildFoldedText(text) {
+  if (/^[\x00-\x7F]*$/.test(text)) {
+    const scalars2 = [...text].map((c) => c.toLowerCase());
+    const starts2 = scalars2.map((_, index) => index);
+    const ends2 = starts2.map((start) => start + 1);
+    return { scalars: scalars2, starts: starts2, ends: ends2, droppable: scalars2.map(() => false) };
+  }
+  const scalars = [];
+  const starts = [];
+  const ends = [];
+  const droppable = [];
+  let offset = 0;
+  for (const character of text) {
+    const width = [...character].length;
+    const { folded, droppable: drops } = foldedCharacter(character);
+    for (let index = 0; index < folded.length; index += 1) {
+      scalars.push(folded[index]);
+      starts.push(offset);
+      ends.push(offset + width);
+      droppable.push(drops[index]);
+    }
+    offset += width;
+  }
+  return { scalars, starts, ends, droppable };
+}
+function foldedSpelling(text) {
+  const view = buildFoldedText(text);
+  return view.scalars.filter((_, index) => !view.droppable[index]).join("");
+}
+function markScalar(scalar) {
+  return /\p{M}/u.test(scalar);
+}
+function secretOccurrences(needle, haystack) {
+  const text = haystack.scalars;
+  if (!needle.length || text.length < needle.length) return [];
+  let baseIndex = needle.length - 1;
+  while (baseIndex >= 0 && markScalar(needle[baseIndex])) baseIndex -= 1;
+  const found = [];
+  for (let start = 0; start < text.length; start += 1) {
+    if (text[start] !== needle[0]) continue;
+    let matches = true;
+    let position = start + 1;
+    let offset = 1;
+    while (offset <= baseIndex) {
+      while (position < text.length && haystack.droppable[position] && text[position] !== needle[offset]) {
+        position += 1;
+      }
+      if (position >= text.length || text[position] !== needle[offset]) {
+        matches = false;
+        break;
+      }
+      position += 1;
+      offset += 1;
+    }
+    let last = position - 1;
+    if (matches && baseIndex < needle.length - 1) {
+      const span = haystack.starts[last];
+      let next = last + 1;
+      for (let mi = baseIndex + 1; mi < needle.length; mi += 1) {
+        const mark = needle[mi];
+        let seen = false;
+        while (next < text.length && haystack.starts[next] === span) {
+          const hit = !haystack.droppable[next] && text[next] === mark;
+          next += 1;
+          if (hit) {
+            seen = true;
+            last = next - 1;
+            break;
+          }
+        }
+        if (!seen) {
+          matches = false;
+          break;
+        }
+      }
+    }
+    if (matches) found.push([haystack.starts[start], haystack.ends[last]]);
+  }
+  return found;
+}
+function simpleFoldSpelling(text) {
+  let folded = [];
+  for (const scalar of [...String(text).normalize("NFD")]) {
+    folded.push(...foldedScalars(scalar));
+  }
+  folded = [...folded.join("").normalize("NFD")];
+  return folded.filter((scalar, index) => !(scalar.codePointAt(0) === 775 && index > 0 && folded[index - 1] === "i")).join("");
+}
+function revealsInFoldedText(text, secrets) {
+  const hay = simpleFoldSpelling(text);
+  return secrets.filter(Boolean).some((secret) => {
+    const needle = simpleFoldSpelling(String(secret));
+    return needle.length > 0 && hay.includes(needle);
+  });
+}
+function maskFolded(text, secrets) {
+  const forms = [];
+  for (const secret of secrets) {
+    if (!secret) continue;
+    forms.push(String(secret), ...secretForms(String(secret)));
+  }
+  const needles = [...new Set(forms.map((form) => foldedSpelling(form)).filter(Boolean))].map((spelling) => [...spelling]);
+  if (!needles.length || !text) return text;
+  const view = buildFoldedText(text);
+  const ranges = [];
+  for (const needle of needles) {
+    for (const [start, end] of secretOccurrences(needle, view)) {
+      const span = text.slice(start, end);
+      if (span.includes("%") || span.includes("\\") || span.includes("&")) continue;
+      ranges.push([start, end]);
+    }
+  }
+  if (!ranges.length) return text;
+  ranges.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
+  const merged = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range[0] < last[1]) last[1] = Math.max(last[1], range[1]);
+    else merged.push([...range]);
+  }
+  let out = "";
+  let index = 0;
+  let next = 0;
+  for (const character of text) {
+    const width = character.length;
+    if (next < merged.length && index === merged[next][0]) out += "***";
+    if (next < merged.length && index >= merged[next][0] && index < merged[next][1]) {
+      index += width;
+      if (index === merged[next][1]) next += 1;
+      continue;
+    }
+    out += character;
+    index += width;
+  }
+  return out;
+}
+var DECODERS = [
+  percentDecoded,
+  (text) => percentDecoded(text.split("+").join(" ")),
+  percentLatin1,
+  (text) => percentLatin1(text.split("+").join(" ")),
+  jsonUnescaped,
+  (text) => latin1RunsAsUtf8(jsonUnescaped(text)),
+  quoteDecoded
+];
+var DECODE_LAYERS = 4;
+function decodedViews(text) {
+  const views = /* @__PURE__ */ new Set([text]);
+  let layer = [text];
+  for (let depth = 0; depth < DECODE_LAYERS; depth += 1) {
+    const next = [];
+    for (const view of layer) {
+      for (const decode of DECODERS) {
+        const decoded = decode(view);
+        if (!views.has(decoded)) {
+          views.add(decoded);
+          next.push(decoded);
+        }
+      }
+    }
+    layer = next;
+  }
+  return views;
+}
+function holdsSecret(text, secrets = []) {
+  const present = secrets.filter(Boolean).map(String);
+  if (!present.length) return false;
+  for (const view of decodedViews(String(text))) {
+    if (present.some((secret) => view.includes(secret))) return true;
+    if (revealsInFoldedText(view, present)) return true;
+  }
+  return false;
+}
+var MAX_REDACTED_LENGTH = 65536;
+var TEXT_TOO_LONG_MESSAGE = "ZeroBounce: the text was omitted because it is too long to show.";
+function utf8Length(text) {
+  let total = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code < 128) total += 1;
+    else if (code < 2048) total += 2;
+    else if (code >= 55296 && code <= 56319 && i + 1 < text.length && (text.charCodeAt(i + 1) & 64512) === 56320) {
+      total += 4;
+      i += 1;
+    } else total += 3;
+  }
+  return total;
+}
+function redactSecrets(text, secrets = []) {
+  let value = String(text);
+  if (value.length > MAX_REDACTED_LENGTH / 3 && utf8Length(value) > MAX_REDACTED_LENGTH) {
+    return TEXT_TOO_LONG_MESSAGE;
+  }
+  for (const secret of secrets) {
+    if (!secret) continue;
+    for (const form of secretForms(String(secret))) {
+      value = value.split(form).join("***");
+    }
+  }
+  value = maskFolded(value, secrets.map(String));
+  value = value.replace(/([?&](?:api_key|API-Key)=)[^&\s"']+/gi, "$1***");
+  return holdsSecret(value, secrets) ? CREDENTIAL_OMITTED_MESSAGE : value;
+}
+var callSecrets = new AsyncLocalStorage();
+function withSecrets(secrets, fn) {
+  return callSecrets.run(secrets.filter((s) => typeof s === "string" && s !== ""), fn);
+}
+function currentSecrets() {
+  return callSecrets.getStore() ?? [];
+}
+var SECRET_ARG_NAME = /pass(?:word|phrase)?|secret|token|api[_-]?key|username|credential|^user$/i;
+function collectArgSecrets(args, depth = 0) {
+  const found = [];
+  if (!args || typeof args !== "object" || depth > 3) return found;
+  for (const [name, value] of Object.entries(args)) {
+    if (typeof value === "string") {
+      if (value !== "" && SECRET_ARG_NAME.test(name)) found.push(value);
+    } else if (value && typeof value === "object") {
+      found.push(...collectArgSecrets(value, depth + 1));
+    }
+  }
+  return found;
+}
+var WHOLE_TEXT_MIN_SECRET_LENGTH = 8;
+var WINDOW_CHARS = 16384;
+function maskWholeTokens(text, secret) {
+  if (!text.includes(secret)) return text;
+  const isWord = (ch) => ch !== void 0 && /[\p{L}\p{N}_]/u.test(ch);
+  let out = "";
+  let from = 0;
+  for (let at = text.indexOf(secret, from); at >= 0; at = text.indexOf(secret, from)) {
+    const beforeChar = [...text.slice(Math.max(0, at - 2), at)].pop();
+    const after = [...text.slice(at + secret.length, at + secret.length + 2)][0];
+    out += text.slice(from, at);
+    out += isWord(beforeChar) || isWord(after) ? secret : "***";
+    from = at + secret.length;
+  }
+  return out + text.slice(from);
+}
+function windows(text) {
+  const pieces = [];
+  let start = 0;
+  while (start < text.length) {
+    let end = Math.min(text.length, start + WINDOW_CHARS);
+    if (end < text.length) {
+      const lineBreak = text.lastIndexOf("\n", end - 1);
+      if (lineBreak > start + WINDOW_CHARS / 2) end = lineBreak + 1;
+      else if ((text.charCodeAt(end - 1) & 64512) === 55296) end -= 1;
+    }
+    pieces.push(text.slice(start, end));
+    start = end;
+  }
+  return pieces;
+}
+function redactResultText(text, secrets) {
+  const present = [...new Set(secrets.filter((s) => typeof s === "string" && s !== ""))];
+  if (!present.length || !text) return text;
+  const long = present.filter((s) => s.length >= WHOLE_TEXT_MIN_SECRET_LENGTH);
+  const short = present.filter((s) => s.length < WHOLE_TEXT_MIN_SECRET_LENGTH);
+  let out = text;
+  if (long.length) {
+    if (out.length <= WINDOW_CHARS) {
+      out = redactSecrets(out, long);
+    } else {
+      for (const secret of long) {
+        for (const form of secretForms(secret)) out = out.split(form).join("***");
+      }
+      out = windows(out).map((piece) => redactSecrets(piece, long)).join("");
+    }
+  }
+  for (const secret of short) out = maskWholeTokens(out, secret);
+  return out;
+}
+
 // src/errors.ts
 var MAX_ERROR_MESSAGE_LENGTH = 1e3;
 var HTML_TAG = /<(?:!doctype\s+html|html|head|body)\b/i;
@@ -1633,14 +2213,30 @@ function skipLeadingHtmlPadding(text) {
   }
   return text.slice(index);
 }
+var HTML_PROBE_CHARS = 2e3;
 function looksLikeHtml(text) {
-  return HTML_TAG.test(skipLeadingHtmlPadding(text).slice(0, 2e3));
+  const body = skipLeadingHtmlPadding(text);
+  if (body.startsWith("{") || body.startsWith("[")) {
+    return false;
+  }
+  return HTML_TAG.test(body.slice(0, HTML_PROBE_CHARS));
 }
-function formatErrorMessage(error) {
+function looksLikeHtmlDownload(text) {
+  return skipLeadingHtmlPadding(text).startsWith("<");
+}
+var HTML_TITLE_WINDOW = 65536;
+var HTML_TITLE_MAX = 1e3;
+function htmlTitle(page) {
+  const title = page.slice(0, HTML_TITLE_WINDOW).match(/<title[^>]*>([^<]*)<\/title>/i)?.[1];
+  const text = title?.replace(/\s+/g, " ").trim() ?? "";
+  return text.length > HTML_TITLE_MAX ? "" : text;
+}
+function formatErrorMessage(error, secrets = currentSecrets()) {
   let message = (error instanceof Error ? error.message : String(error)).trim();
   message = message.replace(/^(?:(?:Error|\[Error\]):\s*)+/i, "");
+  message = redactResultText(message, secrets);
   if (looksLikeHtml(message)) {
-    const title = message.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+    const title = htmlTitle(message);
     return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ""} instead of an API response. Check the API key and request parameters.`;
   }
   if (message.length > MAX_ERROR_MESSAGE_LENGTH) {
@@ -1659,76 +2255,130 @@ import { isIP } from "node:net";
 var MAX_BULK_FILE_CONTENT_BYTES = 32 * 1024 * 1024;
 var HTTP_MAX_REQUEST_BODY_BYTES = MAX_BULK_FILE_CONTENT_BYTES * 2 + 64 * 1024;
 function normalizeHost(hostname) {
-  const host = hostname.trim().toLowerCase();
+  let host = hostname.trim().toLowerCase();
   if (host.startsWith("[") && host.endsWith("]") && host.length >= 2) {
-    return host.slice(1, -1);
+    host = host.slice(1, -1);
   }
-  return host;
+  return host.replace(/\.+$/, "");
+}
+var IPV4_BLOCKS = [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.0.2.0", 24],
+  ["192.88.99.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["198.51.100.0", 24],
+  ["203.0.113.0", 24],
+  ["224.0.0.0", 4],
+  ["240.0.0.0", 4]
+  // reserved, and 255.255.255.255 (limited broadcast)
+];
+function ipv4ToInt(host) {
+  const parts = host.split(".");
+  if (parts.length !== 4) return void 0;
+  let value = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return void 0;
+    const n = Number(part);
+    if (n > 255) return void 0;
+    value = value * 256 + n;
+  }
+  return value;
+}
+function isSpecialIpv4Int(value) {
+  return IPV4_BLOCKS.some(([base, bits]) => {
+    const baseInt = ipv4ToInt(base);
+    const size = 2 ** (32 - bits);
+    return Math.floor(value / size) === Math.floor(baseInt / size);
+  });
 }
 function isPrivateIpv4(host) {
-  const parts = host.split(".").map((p) => Number(p));
-  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) {
-    return true;
-  }
-  const [a, b] = parts;
-  if (a === 10 || a === 127 || a === 0) {
-    return true;
-  }
-  if (a === 169 && b === 254) {
-    return true;
-  }
-  if (a === 172 && b >= 16 && b <= 31) {
-    return true;
-  }
-  if (a === 192 && b === 168) {
-    return true;
-  }
-  return false;
+  const value = ipv4ToInt(host);
+  return value === void 0 ? true : isSpecialIpv4Int(value);
 }
-function ipv4FromMapped(host) {
-  const dotted = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(host);
-  if (dotted?.[1]) {
-    return dotted[1];
+function parseIpv6(host) {
+  let text = host;
+  const lastColon = text.lastIndexOf(":");
+  if (text.includes(".")) {
+    const v4 = ipv4ToInt(text.slice(lastColon + 1));
+    if (v4 === void 0) return void 0;
+    text = text.slice(0, lastColon + 1) + Math.floor(v4 / 65536).toString(16) + ":" + (v4 % 65536).toString(16);
   }
-  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(host);
-  if (!hex?.[1] || !hex[2]) {
-    return void 0;
-  }
-  const hi = Number.parseInt(hex[1], 16);
-  const lo = Number.parseInt(hex[2], 16);
+  const halves = text.split("::");
+  if (halves.length > 2) return void 0;
+  const toGroups = (part) => {
+    if (part === "") return [];
+    const out = [];
+    for (const g of part.split(":")) {
+      if (!/^[0-9a-f]{1,4}$/i.test(g)) return void 0;
+      out.push(Number.parseInt(g, 16));
+    }
+    return out;
+  };
+  const head = toGroups(halves[0] ?? "");
+  const tail = halves.length === 2 ? toGroups(halves[1] ?? "") : [];
+  if (!head || !tail) return void 0;
+  if (halves.length === 1) return head.length === 8 ? head : void 0;
+  const fill = 8 - head.length - tail.length;
+  if (fill < 1) return void 0;
+  return [...head, ...new Array(fill).fill(0), ...tail];
+}
+function groupsToIpv4(hi, lo) {
   return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
 }
 function isPrivateIpv6(host) {
   const bare = (host.split("%")[0] ?? host).toLowerCase();
-  if (bare === "::" || bare === "::0" || bare === "0:0:0:0:0:0:0:0") {
-    return true;
+  const groups = parseIpv6(bare);
+  if (!groups) return true;
+  const [a, b, c, d, e, f, g, h] = groups;
+  const firstFiveZero = a === 0 && b === 0 && c === 0 && d === 0 && e === 0;
+  if (firstFiveZero && (f === 0 || f === 65535)) {
+    return f === 0 ? true : isPrivateIpv4(groupsToIpv4(g, h));
   }
-  if (bare === "::1" || bare === "0:0:0:0:0:0:0:1") {
-    return true;
+  if (a === 0 && b === 0 && c === 0 && d === 0 && e === 65535 && f === 0) {
+    return isPrivateIpv4(groupsToIpv4(g, h));
   }
-  const mapped = ipv4FromMapped(bare);
-  if (mapped) {
-    return isPrivateIpv4(mapped);
+  if (a === 100 && b === 65435 && c === 0 && d === 0 && e === 0 && f === 0) {
+    return isPrivateIpv4(groupsToIpv4(g, h));
   }
-  const first = bare.split(":")[0] ?? "";
-  if (!first) {
-    return false;
-  }
-  const value = Number.parseInt(first, 16);
-  if (!Number.isFinite(value)) {
-    return false;
-  }
-  if (value >= 65152 && value <= 65215) {
-    return true;
-  }
-  if (value >= 64512 && value <= 65023) {
-    return true;
-  }
+  if (a === 100 && b === 65435 && c === 1) return true;
+  if (a === 8194) return isPrivateIpv4(groupsToIpv4(b, c));
+  if (a === 256 && b === 0 && c === 0 && d === 0) return true;
+  if (a === 8193 && b < 512) return true;
+  if (a === 8193 && b === 3512) return true;
+  if (a === 16383 && b < 4096) return true;
+  if (a === 24320) return true;
+  if (a >= 64512 && a <= 65023) return true;
+  if (a >= 65152 && a <= 65215) return true;
+  if (a >= 65216 && a <= 65279) return true;
+  if (a >= 65280) return true;
   return false;
 }
+var BLOCKED_NAME_SUFFIXES = [
+  "localhost",
+  "local",
+  "localdomain",
+  "internal",
+  "lan",
+  "home.arpa",
+  "nip.io",
+  "sslip.io",
+  "xip.io",
+  "traefik.me",
+  "localtest.me",
+  "lvh.me"
+];
+var BLOCKED_NAMES = /* @__PURE__ */ new Set(["metadata", "instance-data", "metadata.google.internal"]);
 function isPrivateOrLocalHost(hostname) {
   const host = normalizeHost(hostname);
-  if (host === "localhost" || host.endsWith(".localhost")) {
+  if (BLOCKED_NAMES.has(host)) return true;
+  if (BLOCKED_NAME_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) {
     return true;
   }
   const ipVersion = isIP(host);
@@ -1740,7 +2390,13 @@ function isPrivateOrLocalHost(hostname) {
   }
   return false;
 }
+var UNSAFE_URL_CHARACTER = /[\p{Cc}\p{Cf}\p{Z}\s\\\p{Default_Ignorable_Code_Point}]/u;
 function validateBulkReturnUrl(returnUrl, fieldName = "returnUrl") {
+  if (UNSAFE_URL_CHARACTER.test(returnUrl)) {
+    throw new Error(
+      `${fieldName} must not contain control, whitespace, or invisible characters, or backslashes`
+    );
+  }
   let parsed;
   try {
     parsed = new URL(returnUrl);
@@ -1749,6 +2405,12 @@ function validateBulkReturnUrl(returnUrl, fieldName = "returnUrl") {
   }
   if (parsed.protocol !== "https:") {
     throw new Error(`${fieldName} must use HTTPS`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error(`${fieldName} must not contain a username or password`);
+  }
+  if (parsed.port !== "") {
+    throw new Error(`${fieldName} must use the default HTTPS port (443)`);
   }
   const hostname = normalizeHost(parsed.hostname);
   if (!hostname) {
@@ -1759,6 +2421,13 @@ function validateBulkReturnUrl(returnUrl, fieldName = "returnUrl") {
   }
   if (isIP(hostname) === 0 && !hostname.includes(".")) {
     throw new Error(`${fieldName} hostname must be a fully qualified domain name`);
+  }
+  if (!parsed.hostname.startsWith("[")) parsed.hostname = hostname;
+  return parsed.href;
+}
+function assertSafeFileName(fileName, fieldName = "fileName") {
+  if (/[\p{Cc}\u2028\u2029]/u.test(fileName)) {
+    throw new Error(`${fieldName} must not contain control characters (such as CR, LF, or NUL)`);
   }
 }
 function assertBulkFileContentWithinLimit(fileContent, fieldName = "fileContent") {
@@ -1805,38 +2474,6 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 // src/zerobounce-client.ts
-import { AsyncLocalStorage } from "node:async_hooks";
-var responseBodyLengths = new AsyncLocalStorage();
-var bodyLengthProbeInstalled = false;
-function installBodyLengthProbe() {
-  if (bodyLengthProbeInstalled) {
-    return;
-  }
-  bodyLengthProbeInstalled = true;
-  const original = globalThis.fetch;
-  globalThis.fetch = (async (...args) => {
-    const response = await original(...args);
-    const lengths = responseBodyLengths.getStore();
-    if (lengths) {
-      try {
-        lengths.push((await response.clone().arrayBuffer()).byteLength);
-      } catch {
-      }
-    }
-    return response;
-  });
-}
-function isEmptySuccessBody(error, bodyLengths) {
-  const status = error?.statusCode;
-  if (typeof status !== "number" || status < 200 || status >= 300) {
-    return false;
-  }
-  if (bodyLengths.length !== 1 || bodyLengths[0] !== 0) {
-    return false;
-  }
-  const message = error instanceof Error ? error.message : String(error);
-  return /^Empty response from ZeroBounce/.test(message.trim());
-}
 function readCsvColumn(row, column, rowIndex) {
   const fields = [];
   let field = "";
@@ -1875,6 +2512,7 @@ var ZeroBounceClient = class {
   // Private field, not a property: no property of this object holds the key, so
   // util.inspect, %o and JSON output of a client never print it.
   #apiKey;
+  #warmupApiKey;
   baseUrl;
   // Use official ZeroBounce SDK for core endpoints
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1882,6 +2520,7 @@ var ZeroBounceClient = class {
   warmupClient;
   constructor(config) {
     this.#apiKey = config.apiKey;
+    this.#warmupApiKey = config.warmupApiKey || void 0;
     this.baseUrl = config.baseUrl || "https://api.zerobounce.net/v2";
     this.sdk = new zeroBounceSDK_default();
     this.sdk.init(this.#apiKey, this.baseUrl);
@@ -1900,6 +2539,27 @@ var ZeroBounceClient = class {
       );
     }
     return this.warmupClient;
+  }
+  /**
+   * Every secret of a tool call: the validation and Inbox Placement key (one key),
+   * the Warmup key, and what the caller put in the arguments (SMTP username and
+   * password, a token). Held here so no inspectable property carries a key.
+   */
+  secretsForCall(args = {}) {
+    return [
+      ...new Set(
+        [this.#apiKey, this.#warmupApiKey, ...collectArgSecrets(args)].filter(
+          (secret) => typeof secret === "string" && secret !== ""
+        )
+      )
+    ];
+  }
+  /**
+   * Text taken from a response body, masked with every secret however short
+   * (the server's own fixed words are never passed through this).
+   */
+  bodyText(text) {
+    return redactSecrets(text, [...this.secretsForCall(), ...currentSecrets()]);
   }
   /** Whether this client can serve Warmup calls. */
   get hasWarmup() {
@@ -1962,9 +2622,11 @@ var ZeroBounceClient = class {
       await this.sdk.validateBatch(emailBatch, batchOptions),
       "batch validation"
     );
-    const accountError = result.errors?.find((e) => e.email_address === "all");
+    const accountError = result.errors?.find(
+      (e) => String(e?.email_address ?? "").trim().toLowerCase() === "all"
+    );
     if (accountError) {
-      throw new Error(accountError.error);
+      throw new Error(this.bodyText(String(accountError.error ?? "")));
     }
     return result;
   }
@@ -2066,6 +2728,9 @@ var ZeroBounceClient = class {
       if (looksLikeHtml(result)) {
         throw new Error(result);
       }
+      if (looksLikeHtmlDownload(result)) {
+        throw new Error("ZeroBounce returned an HTML page instead of a file.");
+      }
       return { success: true, csv: result };
     }
     if (result instanceof Blob) {
@@ -2074,9 +2739,11 @@ var ZeroBounceClient = class {
     if (typeof result === "object" && result !== null) {
       const error = result;
       const message = Array.isArray(error.message) ? error.message.join(", ") : error.message ?? error.error_message ?? error.error;
-      throw new Error(message ?? JSON.stringify(result));
+      throw new Error(
+        this.bodyText(typeof message === "string" ? message : JSON.stringify(result))
+      );
     }
-    throw new Error(`Unexpected bulk get-file response: ${String(result)}`);
+    throw new Error(`Unexpected bulk get-file response: ${this.bodyText(String(result))}`);
   }
   /**
    * Delete bulk AI scoring file
@@ -2391,23 +3058,11 @@ var ZeroBounceClient = class {
   }
   /** Delete a finished test. DELETE /api/ipt/test/{id}, which answers with no body. */
   async deleteInboxPlacementTest(testId) {
-    installBodyLengthProbe();
-    const bodyLengths = [];
-    try {
-      const result = await responseBodyLengths.run(
-        bodyLengths,
-        () => this.sdk.deleteInboxPlacementTest(testId)
-      );
-      if (result == null || typeof result === "object" && Object.keys(result).length === 0) {
-        return { success: true, message: `Inbox placement test ${testId} deleted` };
-      }
-      return result;
-    } catch (error) {
-      if (isEmptySuccessBody(error, bodyLengths)) {
-        return { success: true, message: `Inbox placement test ${testId} deleted` };
-      }
-      throw error;
+    const result = await this.sdk.deleteInboxPlacementTest(testId);
+    if (result == null || typeof result === "object" && Object.keys(result).length === 0) {
+      return { success: true, message: `Inbox placement test ${testId} deleted` };
     }
+    return result;
   }
   /** The webhook URL saved on this API key. GET /api/ipt/webhook */
   async getInboxPlacementWebhook() {
@@ -2546,6 +3201,30 @@ function optionalBoolean(value, fieldName) {
   }
   throw new Error(`${fieldName} must be true or false`);
 }
+var MAX_COLUMN_INDEX = 999;
+function optionalColumn(value, fieldName) {
+  const num = optionalNumber(value, fieldName);
+  if (num === void 0) return void 0;
+  if (!Number.isSafeInteger(num) || num < 0 || num > MAX_COLUMN_INDEX) {
+    throw new Error(`${fieldName} must be a whole number from 0 to ${MAX_COLUMN_INDEX} (0-based column index)`);
+  }
+  return num;
+}
+var MAX_EMAIL_LENGTH = 320;
+function assertEmailLength(email, fieldName) {
+  if (email.length > MAX_EMAIL_LENGTH) {
+    throw new Error(`${fieldName} must be at most ${MAX_EMAIL_LENGTH} characters`);
+  }
+}
+function requireIsoDate(value, fieldName) {
+  const text = requireString(value, fieldName);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  const date = match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))) : void 0;
+  if (!match || !date || date.getUTCFullYear() !== Number(match[1]) || date.getUTCMonth() !== Number(match[2]) - 1 || date.getUTCDate() !== Number(match[3])) {
+    throw new Error(`${fieldName} must be a real date in YYYY-MM-DD format`);
+  }
+  return text;
+}
 
 // src/tools/validate-email.ts
 var validateEmailTool = {
@@ -2586,6 +3265,7 @@ var validateEmailTool = {
   handler: async (client, args) => {
     try {
       const email = requireString(args.email, "email");
+      assertEmailLength(email, "email");
       const ipAddress = optionalString(args.ipAddress, "ipAddress");
       const timeout = optionalNumber(args.timeout, "timeout");
       const activityData = optionalBoolean(args.activityData, "activityData");
@@ -2606,6 +3286,7 @@ var validateEmailTool = {
 };
 
 // src/tools/validate-batch.ts
+var MAX_BATCH_EMAILS = 200;
 var validateBatchTool = {
   definition: {
     name: "validate_batch",
@@ -2618,7 +3299,7 @@ var validateBatchTool = {
           items: {
             type: "string"
           },
-          description: "Array of email addresses to validate"
+          description: "Array of email addresses to validate (at most 200)"
         },
         emailAddressColumn: {
           type: "number",
@@ -2643,7 +3324,11 @@ var validateBatchTool = {
   handler: async (client, args) => {
     try {
       const emails = requireStringArray(args.emails, "emails");
-      const emailAddressColumn = optionalNumber(args.emailAddressColumn, "emailAddressColumn");
+      if (emails.length > MAX_BATCH_EMAILS) {
+        throw new Error(`emails must contain at most ${MAX_BATCH_EMAILS} addresses`);
+      }
+      emails.forEach((email, index) => assertEmailLength(email, `emails[${index}]`));
+      const emailAddressColumn = optionalColumn(args.emailAddressColumn, "emailAddressColumn");
       const timeout = optionalNumber(args.timeout, "timeout");
       const activityData = optionalBoolean(args.activityData, "activityData");
       const verifyPlus = optionalBoolean(args.verifyPlus, "verifyPlus");
@@ -2702,8 +3387,11 @@ var getApiUsageTool = {
   },
   handler: async (client, args) => {
     try {
-      const startDate = requireString(args.startDate, "startDate");
-      const endDate = requireString(args.endDate, "endDate");
+      const startDate = requireIsoDate(args.startDate, "startDate");
+      const endDate = requireIsoDate(args.endDate, "endDate");
+      if (startDate > endDate) {
+        throw new Error("startDate must not be after endDate");
+      }
       const result = await client.getApiUsage(startDate, endDate);
       return createSuccessResponse(result);
     } catch (error) {
@@ -2714,6 +3402,7 @@ var getApiUsageTool = {
 
 // src/tools/bulk-file-helpers.ts
 function createBulkFileTools(config) {
+  const kind = config.description.replace(/^bulk /, "");
   const sendFileProperties = {
     fileContent: {
       type: "string",
@@ -2804,7 +3493,7 @@ function createBulkFileTools(config) {
     sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_send_file`,
-      description: `Send a CSV file for bulk ${config.description}. Returns a file ID for tracking.`,
+      description: `Send a CSV file for bulk ${kind}. Returns a file ID for tracking.`,
       inputSchema: {
         type: "object",
         properties: sendFileProperties,
@@ -2816,22 +3505,23 @@ function createBulkFileTools(config) {
         const fileContent = requireString(args.fileContent, "fileContent");
         assertBulkFileContentWithinLimit(fileContent);
         const fileName = requireString(args.fileName, "fileName");
-        const returnUrl = config.supportsReturnUrl !== false ? optionalString(args.returnUrl, "returnUrl") : void 0;
+        assertSafeFileName(fileName);
+        let returnUrl = config.supportsReturnUrl !== false ? optionalString(args.returnUrl, "returnUrl") : void 0;
         if (returnUrl) {
-          validateBulkReturnUrl(returnUrl);
+          returnUrl = validateBulkReturnUrl(returnUrl);
         }
-        const emailAddressColumn = config.supportsEmailAddressColumn ? optionalNumber(args.emailAddressColumn, "emailAddressColumn") : void 0;
-        const domainColumn = config.supportsDomainColumn ? optionalNumber(args.domainColumn, "domainColumn") : void 0;
-        const companyNameColumn = config.supportsCompanyNameColumn ? optionalNumber(args.companyNameColumn, "companyNameColumn") : void 0;
-        const fullNameColumn = config.supportsFullNameColumn ? optionalNumber(args.fullNameColumn, "fullNameColumn") : void 0;
-        const firstNameColumn = config.supportsFirstNameColumn ? optionalNumber(args.firstNameColumn, "firstNameColumn") : void 0;
-        const middleNameColumn = config.supportsMiddleNameColumn ? optionalNumber(args.middleNameColumn, "middleNameColumn") : void 0;
-        const lastNameColumn = config.supportsLastNameColumn ? optionalNumber(args.lastNameColumn, "lastNameColumn") : void 0;
+        const emailAddressColumn = config.supportsEmailAddressColumn ? optionalColumn(args.emailAddressColumn, "emailAddressColumn") : void 0;
+        const domainColumn = config.supportsDomainColumn ? optionalColumn(args.domainColumn, "domainColumn") : void 0;
+        const companyNameColumn = config.supportsCompanyNameColumn ? optionalColumn(args.companyNameColumn, "companyNameColumn") : void 0;
+        const fullNameColumn = config.supportsFullNameColumn ? optionalColumn(args.fullNameColumn, "fullNameColumn") : void 0;
+        const firstNameColumn = config.supportsFirstNameColumn ? optionalColumn(args.firstNameColumn, "firstNameColumn") : void 0;
+        const middleNameColumn = config.supportsMiddleNameColumn ? optionalColumn(args.middleNameColumn, "middleNameColumn") : void 0;
+        const lastNameColumn = config.supportsLastNameColumn ? optionalColumn(args.lastNameColumn, "lastNameColumn") : void 0;
         const options = {
           hasHeaderRow: optionalBoolean(args.hasHeaderRow, "hasHeaderRow"),
           removeDuplicate: config.supportsRemoveDuplicate ? optionalBoolean(args.removeDuplicate, "removeDuplicate") : void 0,
-          genderColumn: config.supportsGenderColumn ? optionalNumber(args.genderColumn, "genderColumn") : void 0,
-          ipAddressColumn: config.supportsIpAddressColumn ? optionalNumber(args.ipAddressColumn, "ipAddressColumn") : void 0,
+          genderColumn: config.supportsGenderColumn ? optionalColumn(args.genderColumn, "genderColumn") : void 0,
+          ipAddressColumn: config.supportsIpAddressColumn ? optionalColumn(args.ipAddressColumn, "ipAddressColumn") : void 0,
           allowPhase2: config.supportsAllowPhase2 ? optionalBoolean(args.allowPhase2, "allowPhase2") : void 0
         };
         const result = await config.sendFileMethod(
@@ -2858,7 +3548,7 @@ function createBulkFileTools(config) {
     sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_file_status`,
-      description: `Get the status of a bulk ${config.description} file upload.`,
+      description: `Get the status of a bulk ${kind} file upload.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -2884,7 +3574,7 @@ function createBulkFileTools(config) {
     sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_get_file`,
-      description: `Get the results of a completed bulk ${config.description} file.`,
+      description: `Get the results of a completed bulk ${kind} file.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -2910,7 +3600,7 @@ function createBulkFileTools(config) {
     sdkMethods: config.sdkMethods,
     definition: {
       name: `${config.name}_delete_file`,
-      description: `Delete a bulk ${config.description} file from your account.`,
+      description: `Delete a bulk ${kind} file from your account.`,
       annotations: { destructiveHint: true, readOnlyHint: false },
       inputSchema: {
         type: "object",
@@ -3204,7 +3894,8 @@ var listEvaluatorSendFileTool = {
       const fileContent = requireString(args.fileContent, "fileContent");
       assertBulkFileContentWithinLimit(fileContent);
       const fileName = requireString(args.fileName, "fileName");
-      const emailAddressColumn = optionalNumber(args.emailAddressColumn, "emailAddressColumn") ?? 0;
+      assertSafeFileName(fileName);
+      const emailAddressColumn = optionalColumn(args.emailAddressColumn, "emailAddressColumn") ?? 0;
       const result = await client.sendListEvaluatorFile(fileContent, fileName, emailAddressColumn);
       return createSuccessResponse(result);
     } catch (error) {
@@ -3372,8 +4063,8 @@ function createBulkRootJobTool(config) {
     handler: async (client, args) => {
       try {
         const fileName = requireString(args.fileName, "fileName");
-        const returnUrl = requireString(args.returnUrl, "returnUrl");
-        validateBulkReturnUrl(returnUrl);
+        assertSafeFileName(fileName);
+        const returnUrl = validateBulkReturnUrl(requireString(args.returnUrl, "returnUrl"));
         const result = await config.jobMethod(client, {
           fileName,
           returnUrl,
@@ -3591,8 +4282,7 @@ function optionalProviderSelections(value) {
 }
 function requireWebhookUrl(value, fieldName = "webhookUrl") {
   const webhookUrl = requireString(value, fieldName);
-  validateBulkReturnUrl(webhookUrl, fieldName);
-  return webhookUrl;
+  return validateBulkReturnUrl(webhookUrl, fieldName);
 }
 var getInboxPlacementProvidersTool = {
   sdkMethods: ["getInboxPlacementProviders"],
@@ -4734,7 +5424,21 @@ var ZeroBounceMCPServer = class {
           isError: true
         };
       }
-      return handler(this.client, args || {});
+      const secrets = this.client.secretsForCall(args || {});
+      return withSecrets(secrets, async () => {
+        let result;
+        try {
+          result = await handler(this.client, args || {});
+        } catch (error) {
+          result = createErrorResponse(error);
+        }
+        return {
+          ...result,
+          content: result.content.map(
+            (item) => item.type === "text" ? { ...item, text: redactResultText(item.text, secrets) } : item
+          )
+        };
+      });
     });
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       resources: [
@@ -4842,15 +5546,22 @@ function resolveWarmupBaseUrl(value) {
     throw new Error("Invalid Warmup API URL. Use an https:// URL.");
   }
 }
+function isInvisibleChar(code) {
+  return code === 173 || code === 847 || code >= 1536 && code <= 1541 || code === 2192 || code === 2193 || code === 1564 || code === 1757 || code === 1807 || code === 2274 || code === 4447 || code === 4448 || code === 6068 || code === 6069 || code >= 6155 && code <= 6159 || code >= 8203 && code <= 8207 || code >= 8234 && code <= 8238 || code >= 8288 && code <= 8303 || code === 10240 || code === 12644 || code >= 65024 && code <= 65039 || code === 65279 || code === 65440 || code >= 65520 && code <= 65531 || code === 69821 || code === 69837 || code >= 78896 && code <= 78911 || code >= 113824 && code <= 113827 || code >= 119155 && code <= 119162 || code >= 917504 && code <= 921599;
+}
 function assertSafeApiKey(key, label) {
+  const message = `${label} must not contain control characters or invisible characters.`;
+  if (key !== key.trim()) throw new Error(message);
+  let onlyMarks = true;
   for (const char of key) {
     const code = char.codePointAt(0) ?? 0;
-    if (code === 32) continue;
-    const invisible = code <= 31 || code >= 127 && code <= 159 || code === 160 || code === 173 || code === 1536 || code === 2192 || code === 2193 || code === 6155 || code === 6156 || code === 6157 || code === 6158 || code === 6159 || code === 8203 || code === 8238 || code === 8294 || code === 65279 || code === 65529 || code === 119155 || isHttpWhitespace(char);
-    if (invisible) {
-      throw new Error(`${label} must not contain control characters or invisible characters.`);
-    }
+    if (code <= 31 || code >= 127 && code <= 159) throw new Error(message);
+    if (code >= 55296 && code <= 57343) throw new Error(message);
+    if (char !== " " && /\s/u.test(char)) throw new Error(message);
+    if (isInvisibleChar(code)) throw new Error(message);
+    if (!/\p{M}/u.test(char)) onlyMarks = false;
   }
+  if (onlyMarks) throw new Error(message);
 }
 async function runStdio(config) {
   const server = new ZeroBounceMCPServer(config);
@@ -4875,19 +5586,32 @@ function bearerToken(authorization) {
   if (index >= authorization.length) return "";
   return authorization.slice(index).trim();
 }
+function headerCount(req, name) {
+  let count = 0;
+  for (let i = 0; i < req.rawHeaders.length; i += 2) {
+    if (req.rawHeaders[i]?.toLowerCase() === name) count += 1;
+  }
+  return count;
+}
 function headerValue(req, name) {
   const header = req.headers[name];
   const value = Array.isArray(header) ? header[0] : header;
   return value?.trim() ?? "";
 }
 function getRequestApiKey(req) {
-  const value = headerValue(req, API_KEY_HEADER);
-  if (value) {
-    return value;
+  if (headerCount(req, API_KEY_HEADER) > 1 || headerCount(req, "authorization") > 1 || headerCount(req, WARMUP_API_KEY_HEADER) > 1) {
+    throw new RequestError("Duplicate credential headers are not allowed.");
   }
+  const value = headerValue(req, API_KEY_HEADER);
   const authorization = req.headers.authorization;
-  return typeof authorization === "string" ? bearerToken(authorization) : "";
+  const bearer = typeof authorization === "string" ? bearerToken(authorization) : "";
+  if (value && bearer && value !== bearer) {
+    throw new RequestError("Conflicting API keys in X-ZeroBounce-Api-Key and Authorization.");
+  }
+  return value || bearer;
 }
+var RequestError = class extends Error {
+};
 function getRequestWarmupApiKey(req) {
   return headerValue(req, WARMUP_API_KEY_HEADER);
 }
@@ -4906,7 +5630,13 @@ async function handleMcpRequest(req, res, baseUrl, warmupBaseUrl) {
     sendJsonRpcError(res, 405, "Method not allowed.");
     return;
   }
-  const apiKey = getRequestApiKey(req);
+  let apiKey;
+  try {
+    apiKey = getRequestApiKey(req);
+  } catch (error) {
+    sendJsonRpcError(res, 400, formatErrorMessage(error));
+    return;
+  }
   if (!apiKey) {
     sendJsonRpcError(
       res,
@@ -4940,24 +5670,114 @@ async function handleMcpRequest(req, res, baseUrl, warmupBaseUrl) {
   await server.connect(transport);
   await transport.handleRequest(req, res);
 }
-async function runHttp(host, port, baseUrl, warmupBaseUrl) {
+var LOOPBACK_NAMES = ["localhost", "127.0.0.1", "::1"];
+function hostnameOf(value) {
+  const text = value.trim().toLowerCase();
+  let host;
+  if (text.startsWith("[")) {
+    const end = text.indexOf("]");
+    if (end < 0) return void 0;
+    host = text.slice(1, end);
+    if (text.slice(end + 1) !== "" && !/^:\d{1,5}$/.test(text.slice(end + 1))) return void 0;
+  } else {
+    const parts = text.split(":");
+    if (parts.length > 2) return void 0;
+    host = parts[0] ?? "";
+    if (parts.length === 2 && !/^\d{1,5}$/.test(parts[1] ?? "")) return void 0;
+  }
+  host = host.replace(/\.+$/, "");
+  return host || void 0;
+}
+function buildAllowedHosts(bindHost, extra) {
+  const bind = hostnameOf(bindHost) ?? bindHost.toLowerCase();
+  const wildcard = bind === "0.0.0.0" || bind === "::";
+  const names = /* @__PURE__ */ new Set();
+  for (const name of extra) {
+    const host = hostnameOf(name);
+    if (host) names.add(host);
+  }
+  if (LOOPBACK_NAMES.includes(bind)) {
+    for (const name of LOOPBACK_NAMES) names.add(name);
+  } else if (!wildcard) {
+    names.add(bind);
+  } else if (names.size === 0) {
+    return null;
+  }
+  return names;
+}
+function hostAndOriginAllowed(req, allowed) {
+  const hostHeader = req.headers.host;
+  if (allowed) {
+    const host = typeof hostHeader === "string" ? hostnameOf(hostHeader) : void 0;
+    if (!host || !allowed.has(host)) return false;
+  }
+  const origin = req.headers.origin;
+  if (origin === void 0) return true;
+  if (typeof origin !== "string") return false;
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (allowed) {
+    const originHost = hostnameOf(parsed.host);
+    return originHost !== void 0 && allowed.has(originHost);
+  }
+  return typeof hostHeader === "string" && parsed.host.toLowerCase() === hostHeader.trim().toLowerCase();
+}
+function requestPath(target) {
+  if (!target || !target.startsWith("/") || target.startsWith("//")) return void 0;
+  const end = target.search(/[?#]/);
+  return end < 0 ? target : target.slice(0, end);
+}
+async function runHttp(host, port, baseUrl, warmupBaseUrl, allowedHostNames = []) {
+  const allowedHosts = buildAllowedHosts(host, allowedHostNames);
+  if (!allowedHosts) {
+    console.error(
+      "Warning: Host header is not restricted (wildcard bind without MCP_ALLOWED_HOSTS or --allowed-host). Set the public host name to enable DNS-rebinding protection."
+    );
+  }
   const httpServer = createServer((req, res) => {
-    const { pathname } = new URL(req.url ?? "/", "http://localhost");
-    if (pathname === "/health") {
-      res.writeHead(200, { "Content-Type": "application/json" }).end('{"status":"ok"}');
-      return;
-    }
-    if (pathname !== "/mcp") {
-      res.writeHead(404).end();
-      return;
-    }
-    handleMcpRequest(req, res, baseUrl, warmupBaseUrl).catch((error) => {
-      console.error("Error handling MCP request:", formatErrorMessage(error));
-      if (!res.headersSent) {
-        sendJsonRpcError(res, 500, "Internal server error.");
+    try {
+      const pathname = requestPath(req.url);
+      if (pathname === void 0) {
+        res.writeHead(400, { "Content-Type": "application/json" }).end('{"error":"Bad request target."}');
+        return;
       }
-    });
+      if (pathname === "/health") {
+        res.writeHead(200, { "Content-Type": "application/json" }).end('{"status":"ok"}');
+        return;
+      }
+      if (pathname !== "/mcp") {
+        res.writeHead(404).end();
+        return;
+      }
+      if (!hostAndOriginAllowed(req, allowedHosts)) {
+        sendJsonRpcError(res, 403, "Forbidden: Host or Origin is not allowed.");
+        return;
+      }
+      handleMcpRequest(req, res, baseUrl, warmupBaseUrl).catch((error) => {
+        console.error("Error handling MCP request:", formatErrorMessage(error));
+        if (!res.headersSent) {
+          sendJsonRpcError(res, 500, "Internal server error.");
+        }
+      });
+    } catch (error) {
+      console.error("Error routing request:", formatErrorMessage(error));
+      try {
+        if (!res.headersSent) res.writeHead(500).end();
+        else res.end();
+      } catch {
+        res.destroy();
+      }
+    }
   });
+  httpServer.headersTimeout = 15e3;
+  httpServer.requestTimeout = 12e4;
+  httpServer.keepAliveTimeout = 5e3;
+  httpServer.maxConnections = 512;
   await new Promise((resolve, reject) => {
     httpServer.once("error", reject);
     httpServer.listen(port, host, resolve);
@@ -4973,6 +5793,7 @@ function parseArgs() {
     // Loopback by default; hosted deployments must opt in to 0.0.0.0 explicitly.
     host: process.env.MCP_HOST?.trim() || "127.0.0.1",
     port: Number(process.env.PORT) || 3e3,
+    allowedHosts: (process.env.MCP_ALLOWED_HOSTS ?? "").split(",").map((name) => name.trim()).filter(Boolean),
     baseUrl: resolveApiBaseUrl(process.env.ZEROBOUNCE_API_URL),
     warmupBaseUrl: resolveWarmupBaseUrl(process.env.ZEROBOUNCE_WARMUP_API_URL)
   };
@@ -5006,6 +5827,15 @@ function parseArgs() {
       }
     } else if (arg.startsWith("--warmup-url=")) {
       config.warmupBaseUrl = resolveWarmupBaseUrl(arg.slice("--warmup-url=".length));
+    } else if (arg === "--allowed-host") {
+      if (nextArg) {
+        config.allowedHosts.push(nextArg);
+        i++;
+      } else {
+        throw new Error("--allowed-host requires a value");
+      }
+    } else if (arg.startsWith("--allowed-host=")) {
+      config.allowedHosts.push(arg.slice("--allowed-host=".length));
     } else if (arg === "--http") {
       config.transport = "http";
     } else if (arg === "--port") {
@@ -5035,6 +5865,8 @@ function parseArgs() {
       }
     } else if (arg.startsWith("--url=")) {
       config.baseUrl = resolveApiBaseUrl(arg.slice("--url=".length));
+    } else {
+      throw new Error(`Unknown argument: ${arg.startsWith("-") ? arg.split("=")[0] : "unexpected positional argument"}. Run with --help for the options.`);
     }
   }
   if (!Number.isInteger(config.port) || config.port <= 0) {
@@ -5062,11 +5894,52 @@ function parseArgs() {
   if (config.warmupApiKey) assertSafeApiKey(config.warmupApiKey, "ZeroBounce Warmup API key");
   return config;
 }
+var HELP_TEXT = `ZeroBounce MCP server
+
+Usage: zerobounce-mcp [options]
+
+Options:
+  -k, --api-key <key>        ZeroBounce API key (or ZEROBOUNCE_API_KEY)
+      --warmup-api-key <key> ZeroBounce Warmup API key, enables the Warmup tools (or ZEROBOUNCE_WARMUP_API_KEY)
+      --url <url>            ZeroBounce API base URL (or ZEROBOUNCE_API_URL)
+      --warmup-url <url>     Warmup API base URL (or ZEROBOUNCE_WARMUP_API_URL)
+      --http                 Serve MCP over HTTP instead of stdio (or MCP_TRANSPORT=http)
+      --port <port>          HTTP port, default 3000 (or PORT)
+      --host <host>          HTTP bind address, default 127.0.0.1 (or MCP_HOST)
+      --allowed-host <name>  Host name accepted in HTTP mode besides the bind address; repeatable (or MCP_ALLOWED_HOSTS, comma-separated)
+  -h, --help                 Show this help and exit
+  -v, --version              Show the version and exit
+
+Unknown options are refused. In HTTP mode the API key comes from each request
+(X-ZeroBounce-Api-Key or Authorization: Bearer), not from the command line.
+`;
+function handleInfoFlags(args) {
+  const valueFlags = /* @__PURE__ */ new Set(["--api-key", "-k", "--warmup-api-key", "--warmup-url", "--port", "--host", "--url", "--allowed-host"]);
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (valueFlags.has(arg)) {
+      if (args[i + 1]?.startsWith("--")) throw new Error(`${arg} requires a value`);
+      i++;
+      continue;
+    }
+    if (arg === "--help" || arg === "-h") {
+      process.stdout.write(HELP_TEXT);
+      return true;
+    }
+    if (arg === "--version" || arg === "-v") {
+      process.stdout.write(`${true ? "0.3.1" : "0.0.0-dev"}
+`);
+      return true;
+    }
+  }
+  return false;
+}
 async function main() {
   try {
+    if (handleInfoFlags(process.argv.slice(2))) return;
     const config = parseArgs();
     if (config.transport === "http") {
-      await runHttp(config.host, config.port, config.baseUrl, config.warmupBaseUrl);
+      await runHttp(config.host, config.port, config.baseUrl, config.warmupBaseUrl, config.allowedHosts);
     } else {
       await runStdio({
         apiKey: config.apiKey,

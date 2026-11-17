@@ -5,11 +5,20 @@ on:
     inputs:
       tag:
         type: string
-        description: Tag to publish (e.g. v0.1.11)
+        description: Tag to publish (e.g. v0.3.2)
         required: true
+      skip_npm:
+        type: boolean
+        description: Skip the npm publish (GitHub release only, for example when npm refuses the push)
+        default: false
 
 permissions:
   contents: read
+
+# One publish per tag at a time; a second run waits instead of cancelling a release half way.
+concurrency:
+  group: publish-${{ github.event.inputs.tag }}
+  cancel-in-progress: false
 
 jobs:
   validate-tag:
@@ -17,12 +26,13 @@ jobs:
       tag_sha: ${{ steps.tag_sha.outputs.sha }}
     name: Validate tag
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Validate tag input
         env:
           TAG: ${{ github.event.inputs.tag }}
         run: |
-          re='^v?[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$'
+          re='^v[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$'
           if [[ ! "$TAG" =~ $re ]]; then
             echo "Error: the tag input must be a release tag such as v1.2.3."
             exit 1
@@ -33,15 +43,13 @@ jobs:
         with:
           fetch-depth: 0
           ref: refs/tags/${{ github.event.inputs.tag }}
-
           persist-credentials: false
-      - name: Verify tag and package version
+
+      - name: Verify tag, package.json, lockfile and server.json versions
+        env:
+          TAG: ${{ github.event.inputs.tag }}
         run: |
-          TAG="${{ github.event.inputs.tag }}"
-          if [ -z "$TAG" ]; then
-            echo "Error: Tag is required."
-            exit 1
-          fi
+          set -euo pipefail
           if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "Error: Tag '$TAG' does not exist."
             exit 1
@@ -52,12 +60,22 @@ jobs:
             echo "Error: package.json version ($PKG_VERSION) does not match tag ($TAG)."
             exit 1
           fi
-          for SERVER_VERSION in $(node -p "const s=require('./server.json'); [s.version, ...s.packages.map((p) => p.version)].join(' ')"); do
-            if [ "$SERVER_VERSION" != "$PKG_VERSION" ]; then
-              echo "Error: server.json version ($SERVER_VERSION) does not match package.json ($PKG_VERSION)."
-              exit 1
-            fi
-          done
+          LOCK_VERSION=$(node -p "require('./package-lock.json').version")
+          LOCK_ROOT_VERSION=$(node -p "require('./package-lock.json').packages[''].version")
+          if [ "$LOCK_VERSION" != "$TAG_VERSION" ] || [ "$LOCK_ROOT_VERSION" != "$TAG_VERSION" ]; then
+            echo "Error: package-lock.json version ($LOCK_VERSION, packages[''] $LOCK_ROOT_VERSION) does not match tag ($TAG)."
+            exit 1
+          fi
+          # Fails closed: a missing or empty version or packages list, or a node error, is an error.
+          node -e "
+            const s = require('./server.json');
+            const want = process.argv[1];
+            if (s.version !== want) throw new Error('server.json version ' + s.version + ' is not ' + want);
+            if (!Array.isArray(s.packages) || s.packages.length < 1) throw new Error('server.json has no packages');
+            for (const p of s.packages) {
+              if (p.version !== want) throw new Error('server.json package ' + p.identifier + ' version ' + p.version + ' is not ' + want);
+            }
+          " "$TAG_VERSION"
 
       - name: Record tag commit SHA
         id: tag_sha
@@ -67,43 +85,61 @@ jobs:
           SHA=$(git rev-parse "refs/tags/$TAG^{commit}")
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-  publish:
-    name: Build, test and publish to npm
+  test:
+    name: Test and pack
+    timeout-minutes: 30
     needs: [validate-tag]
     if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - name: Checkout tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ github.event.inputs.tag }}
+          ref: ${{ needs.validate-tag.outputs.tag_sha }}
           persist-credentials: false
+
+      - name: Verify checkout matches validated SHA
+        env:
+          TAG_SHA: ${{ needs.validate-tag.outputs.tag_sha }}
+        run: |
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [ -z "$TAG_SHA" ] || [ "$HEAD_SHA" != "$TAG_SHA" ]; then
+            echo "Error: checked-out commit ($HEAD_SHA) does not match the validated tag commit ($TAG_SHA)."
+            exit 1
+          fi
+
       - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
+
       - name: Install dependencies
         run: npm ci
 
-      - name: Audit dependencies
+      # Gate on what actually ships. The bundled SDK and the build tools are devDependencies;
+      # only @modelcontextprotocol/sdk is a runtime dependency.
+      - name: Audit shipped dependencies
+        run: npm audit --omit=dev --audit-level=low
+
+      - name: Audit build toolchain (informational)
+        continue-on-error: true
         run: npm audit --audit-level=low
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Build
         run: npm run build
 
+      - name: Check the committed dist is current
+        run: git diff --exit-code -- dist/index.js
+
       - name: Test
         run: npm test
-
-      # Trusted publishing (OIDC) needs npm 11.5.1 or later. Pin the major so a new npm
-      # major (npm@latest is 12) is not picked up untested at release time.
-      - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@11
 
       - name: Check npm publishes package.json unchanged
         # npm silently rewrites package.json entries it considers invalid at publish time,
@@ -118,6 +154,68 @@ jobs:
             exit 1
           fi
 
+      # Pack the tag's own, tested build. The publish job uploads this tarball to npm unchanged.
+      - name: Pack
+        run: |
+          mkdir "$RUNNER_TEMP/pack"
+          npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP/pack"
+
+      - name: Upload the tested tarball
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/pack/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  publish:
+    name: Publish to npm
+    needs: [validate-tag, test]
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && github.event.inputs.skip_npm != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # No checkout, no install and no build: what is published is the tarball the test job built
+      # and tested. (prepublishOnly does not run when a tarball is published.)
+      - name: Download the tested tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-tarball
+          path: ${{ runner.temp }}/tarball
+
+      - name: Verify the tarball is the tag's version
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -eu
+          cd "$RUNNER_TEMP/tarball"
+          [ "$(ls -1 | wc -l)" = "1" ] || { echo "Error: expected exactly one tarball."; ls -l; exit 1; }
+          FILE=$(ls -1 *.tgz)
+          NAME=$(tar -xzOf "$FILE" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).name")
+          VERSION=$(tar -xzOf "$FILE" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version")
+          if [ "$NAME" != "@zerobounce/mcp" ] || [ "$VERSION" != "${TAG#v}" ]; then
+            echo "Error: the tarball is $NAME@$VERSION, not @zerobounce/mcp@${TAG#v}."
+            exit 1
+          fi
+          tar -tzf "$FILE" | grep -qx 'package/dist/index.js' || { echo "Error: the tarball has no dist/index.js."; exit 1; }
+          sha256sum "$FILE"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      # Trusted publishing (OIDC) needs npm 11.5.1 or later. Pin the exact version so a new npm
+      # release is not picked up untested in this id-token: write job.
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@11.19.1
+
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -125,34 +223,35 @@ jobs:
           if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
             npm config set //registry.npmjs.org/:_authToken "$NODE_AUTH_TOKEN"
           fi
-          npm publish --access public
+          npm publish "$RUNNER_TEMP"/tarball/*.tgz --access public --provenance
 
   release:
     name: Create GitHub Release
-    needs: [validate-tag, publish]
-    if: ${{ !cancelled() && !failure() }}
+    # Needs the tag validation and the tests only: a refused npm push must not block the release.
+    needs: [validate-tag, test]
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
-    environment: release
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.validate-tag.outputs.tag_sha }}
-          fetch-depth: 0
-
-          persist-credentials: false
       - name: Create release if missing
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag }}
+          TAG_SHA: ${{ needs.validate-tag.outputs.tag_sha }}
         run: |
-          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG_SHA" ]; then
+            echo "Error: validated tag SHA is missing."
+            exit 1
+          fi
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG already exists, skipping."
           else
             gh release create "$TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --title "$TAG" \
+              --verify-tag \
+              --target "$TAG_SHA" \
               --generate-notes
           fi
