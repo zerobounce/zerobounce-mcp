@@ -22,6 +22,8 @@ import {
   requireString,
   optionalString,
   optionalNumber,
+  optionalIsoDateTime,
+  assertEmailLength,
 } from './types.js';
 import { validateBulkReturnUrl } from '../security/bulk-input.js';
 
@@ -198,6 +200,7 @@ export const createInboxPlacementTestTool: ToolHandler = {
       }
 
       const senderEmail = optionalString(args.senderEmail, 'senderEmail');
+      if (senderEmail !== undefined) assertEmailLength(senderEmail, 'senderEmail');
       if (testType === 1 && !senderEmail) {
         throw new Error('senderEmail is required when testType is 1');
       }
@@ -298,11 +301,11 @@ export const listInboxPlacementTestsTool: ToolHandler = {
         options.status = status as 'running' | 'finished';
       }
 
-      const createdAfter = optionalString(args.createdAfter, 'createdAfter');
+      const createdAfter = optionalIsoDateTime(args.createdAfter, 'createdAfter');
       if (createdAfter !== undefined) {
         options.createdAfter = createdAfter;
       }
-      const createdBefore = optionalString(args.createdBefore, 'createdBefore');
+      const createdBefore = optionalIsoDateTime(args.createdBefore, 'createdBefore');
       if (createdBefore !== undefined) {
         options.createdBefore = createdBefore;
       }

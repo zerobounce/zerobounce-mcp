@@ -222,6 +222,36 @@ export function assertEmailLength(email: string, fieldName: string): void {
   }
 }
 
+/** A required string that is an email address of at most {@link MAX_EMAIL_LENGTH} characters. */
+export function requireEmail(value: unknown, fieldName: string): string {
+  const email = requireString(value, fieldName);
+  assertEmailLength(email, fieldName);
+  return email;
+}
+
+/** An optional ISO 8601 date (YYYY-MM-DD) or datetime (with optional seconds, fraction and Z or offset), every part a real value. */
+export function optionalIsoDateTime(value: unknown, fieldName: string): string | undefined {
+  const text = optionalString(value, fieldName);
+  if (text === undefined) return undefined;
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})(?:[Tt](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:[Zz]|[+-](\d{2}):(\d{2}))?)?$/.exec(text);
+  const [year, month, day] = [Number(match?.[1]), Number(match?.[2]), Number(match?.[3])];
+  const date = match ? new Date(Date.UTC(year, month - 1, day)) : undefined;
+  const real =
+    match &&
+    date &&
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day &&
+    (match[4] === undefined || (Number(match[4]) <= 23 && Number(match[5]) <= 59)) &&
+    (match[6] === undefined || Number(match[6]) <= 59) &&
+    (match[7] === undefined || (Number(match[7]) <= 23 && Number(match[8]) <= 59));
+  if (!real) {
+    throw new Error(`${fieldName} must be a real ISO 8601 date (YYYY-MM-DD) or datetime`);
+  }
+  return text;
+}
+
 /** A real calendar date written YYYY-MM-DD. */
 export function requireIsoDate(value: unknown, fieldName: string): string {
   const text = requireString(value, fieldName);

@@ -16,7 +16,7 @@ We focus on the current release line for fixes. Using the latest release is reco
 
 * Don't commit API keys or `.env` files—use environment variables or a secrets manager.
 * Keep dependencies up to date and upgrade when new versions are released.
-* HTTP mode binds to `127.0.0.1` by default. Binding to `0.0.0.0` exposes the server to the network and requires `MCP_TLS_TERMINATED=true`, because every request carries a caller's API key.
+* HTTP mode binds to `127.0.0.1` by default. Binding to `0.0.0.0` exposes the server to the network and requires `MCP_TLS_TERMINATED=true`, because every request carries a caller's API key. Also set `MCP_ALLOWED_HOSTS` (or `--allowed-host`) to your public host name: without it a wildcard bind accepts any `Host` header, which leaves DNS rebinding open.
 * In HTTP mode each request supplies its own key and gets its own server instance, so keys are never shared between callers. Keep it that way.
 * `--url` accepts only `us`, `eu` or an explicit `https://` URL; a non-https value is refused rather than silently replaced.
 

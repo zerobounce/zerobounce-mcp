@@ -6,7 +6,7 @@
 import ZeroBounceSDK from '@zerobounce/zero-bounce-sdk';
 import type { ZeroBounceWarmup } from '@zerobounce/zero-bounce-sdk';
 import { looksLikeHtml, looksLikeHtmlDownload } from './errors.js';
-import { collectArgSecrets, currentSecrets, redactSecrets } from './security/redact.js';
+import { collectArgSecrets, currentSecrets, redactResultText } from './security/redact.js';
 import { createWarmupClient } from './warmup-client.js';
 
 export interface ZeroBounceConfig {
@@ -343,8 +343,8 @@ function readCsvColumn(row: string, column: number, rowIndex: number): string {
 
 /** Whether the installed ZeroBounce SDK implements the given method. */
 export function isSdkMethodAvailable(name: string): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return typeof (ZeroBounceSDK as any).prototype?.[name] === 'function';
+  const prototype = (ZeroBounceSDK as unknown as { prototype?: Record<string, unknown> }).prototype;
+  return typeof prototype?.[name] === 'function';
 }
 
 export class ZeroBounceClient {
@@ -364,7 +364,7 @@ export class ZeroBounceClient {
     this.baseUrl = config.baseUrl || 'https://api.zerobounce.net/v2';
 
     // Initialize official SDK with optional regional API base URL
-    this.sdk = new (ZeroBounceSDK as any)();
+    this.sdk = new (ZeroBounceSDK as unknown as new () => typeof this.sdk)();
     this.sdk.init(this.#apiKey, this.baseUrl);
 
     // Built only when a Warmup key was supplied: the Warmup SDK class rejects an
@@ -406,11 +406,12 @@ export class ZeroBounceClient {
   }
 
   /**
-   * Text taken from a response body, masked with every secret however short
-   * (the server's own fixed words are never passed through this).
+   * Text taken from a response body, masked with every secret of the call. A
+   * short secret (a short SMTP username) is masked as a whole token only, as in
+   * the final pass, so it does not cut letters out of the words around it.
    */
   private bodyText(text: string): string {
-    return redactSecrets(text, [...this.secretsForCall(), ...currentSecrets()]);
+    return redactResultText(text, [...this.secretsForCall(), ...currentSecrets()]);
   }
 
   /** Whether this client can serve Warmup calls. */

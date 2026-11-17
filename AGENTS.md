@@ -29,7 +29,7 @@ npm ci
 npm run typecheck   # esbuild does not typecheck, so run this separately
 npm run lint
 npm run build
-npm test            # offline HTTP test against a fake API (test-http.js); no key needed
+npm test            # four offline suites: test-http.js (fake API), test/client-key, test/cli, test/redaction; no key needed
 npm run test:live   # stdio test against the live API (test-mcp.js); TEST_KEY by default
 ```
 
@@ -94,6 +94,9 @@ test out of CI -- the offline `test-http.js` is the part that gates meaningfully
   `__PACKAGE_VERSION__`, which the server reports in `serverInfo`.
 - Bulk tool column indexes are 0-based for MCP callers; `ZeroBounceClient` converts them to the
   SDK's 1-based indexes. Treat column `0` as a real value (`!= null`, not truthiness).
+- **A new secret-bearing tool argument (password, token, username) must be collected for the final
+  masking pass** (`collectArgSecrets` / `withSecrets`), so every tool result, success or error, is
+  masked with it. Add a test that the value does not come back in any result.
 - Add new tools to `TOOL_ARGS` (and `SDK_GATED` if gated) in `test-http.js`, which fails if a
   listed tool has no valid-argument case.
 - Match the surrounding style: Prettier (`npm run format`) and ESLint configs are in the repo.

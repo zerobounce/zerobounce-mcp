@@ -2148,34 +2148,94 @@ function collectArgSecrets(args, depth = 0) {
 }
 var WHOLE_TEXT_MIN_SECRET_LENGTH = 8;
 var WINDOW_CHARS = 16384;
+var isWordChar = (ch) => ch !== void 0 && /[\p{L}\p{N}\p{M}]/u.test(ch);
+var ESCAPE_AT_END = /(?:%[0-9a-f]{2}|\\(?:[nrtbf"'/\\]|x[0-9a-f]{2}|[uU]\{[0-9a-f]{1,8}\}|u[0-9a-f]{4}|[0-7]{1,3})|&(?:#x[0-9a-f]+|#[0-9]+|[a-z]+);?)$/i;
+var ESCAPE_AT_START = /^(?:%[0-9a-f]{2}|\\(?:[nrtbf"'/\\]|x[0-9a-f]{2}|[uU]\{[0-9a-f]{1,8}\}|u[0-9a-f]{4}|[0-7]{1,3})|&(?:#x[0-9a-f]+|#[0-9]+|[a-z]+);?)/i;
+function escapeChars(escape2) {
+  return htmlUnescaped(jsonUnescaped(percentLatin1(escape2)));
+}
+function boundaryBefore(text, at) {
+  if (at === 0) return true;
+  const prefix = text.slice(Math.max(0, at - 16), at);
+  const escape2 = ESCAPE_AT_END.exec(prefix)?.[0];
+  const ch = escape2 ? [...escapeChars(escape2)].pop() : [...prefix].pop();
+  return !isWordChar(ch);
+}
+function boundaryAfter(text, end) {
+  if (end >= text.length) return true;
+  const suffix = text.slice(end, end + 16);
+  const escape2 = ESCAPE_AT_START.exec(suffix)?.[0];
+  const ch = escape2 ? [...escapeChars(escape2)][0] : [...suffix][0];
+  return !isWordChar(ch);
+}
+function occurrences(text, secret) {
+  const lower = text.toLowerCase();
+  const exact = lower.length !== text.length;
+  const hay = exact ? text : lower;
+  const needle = exact ? secret : secret.toLowerCase();
+  const found = [];
+  if (!needle) return found;
+  for (let at = hay.indexOf(needle); at >= 0; at = hay.indexOf(needle, at + 1)) found.push(at);
+  return found;
+}
 function maskWholeTokens(text, secret) {
-  if (!text.includes(secret)) return text;
-  const isWord = (ch) => ch !== void 0 && /[\p{L}\p{N}_]/u.test(ch);
+  if (!text || !secret) return text;
   let out = "";
   let from = 0;
-  for (let at = text.indexOf(secret, from); at >= 0; at = text.indexOf(secret, from)) {
-    const beforeChar = [...text.slice(Math.max(0, at - 2), at)].pop();
-    const after = [...text.slice(at + secret.length, at + secret.length + 2)][0];
-    out += text.slice(from, at);
-    out += isWord(beforeChar) || isWord(after) ? secret : "***";
-    from = at + secret.length;
+  for (const at of occurrences(text, secret)) {
+    if (at < from) continue;
+    const end = at + secret.length;
+    if (boundaryBefore(text, at) && boundaryAfter(text, end)) {
+      out += text.slice(from, at) + "***";
+      from = end;
+    }
   }
   return out + text.slice(from);
 }
-function windows(text) {
+function decodedTokenRemains(text, secret) {
+  for (const view of decodedViews(text)) {
+    if (view === text) continue;
+    for (const at of occurrences(view, secret)) {
+      const plainBefore = at === 0 || !isWordChar([...view.slice(Math.max(0, at - 2), at)].pop());
+      const plainAfter = !isWordChar([...view.slice(at + secret.length, at + secret.length + 2)][0]);
+      if (plainBefore && plainAfter) return true;
+    }
+  }
+  return false;
+}
+function windows(text, size) {
   const pieces = [];
   let start = 0;
   while (start < text.length) {
-    let end = Math.min(text.length, start + WINDOW_CHARS);
+    let end = Math.min(text.length, start + size);
     if (end < text.length) {
       const lineBreak = text.lastIndexOf("\n", end - 1);
-      if (lineBreak > start + WINDOW_CHARS / 2) end = lineBreak + 1;
+      if (lineBreak > start + size / 2) end = lineBreak + 1;
       else if ((text.charCodeAt(end - 1) & 64512) === 55296) end -= 1;
     }
     pieces.push(text.slice(start, end));
     start = end;
   }
   return pieces;
+}
+var spellingSpan = (length) => 16 * length + 64;
+function maskInWindows(text, overlap, mask) {
+  const size = Math.max(WINDOW_CHARS, 4 * overlap);
+  if (text.length <= size) return mask(text);
+  const pieces = windows(text, size).map(mask);
+  const parts = [];
+  let current = pieces[0];
+  for (let i = 1; i < pieces.length; i += 1) {
+    const next = pieces[i];
+    let tail = Math.min(overlap, current.length);
+    if (tail < current.length && (current.charCodeAt(current.length - tail) & 64512) === 56320) tail += 1;
+    let head = Math.min(overlap, next.length);
+    if (head < next.length && (next.charCodeAt(head - 1) & 64512) === 55296) head -= 1;
+    parts.push(current.slice(0, current.length - tail));
+    current = mask(current.slice(current.length - tail) + next.slice(0, head)) + next.slice(head);
+  }
+  parts.push(current);
+  return parts.join("");
 }
 function redactResultText(text, secrets) {
   const present = [...new Set(secrets.filter((s) => typeof s === "string" && s !== ""))];
@@ -2190,10 +2250,18 @@ function redactResultText(text, secrets) {
       for (const secret of long) {
         for (const form of secretForms(secret)) out = out.split(form).join("***");
       }
-      out = windows(out).map((piece) => redactSecrets(piece, long)).join("");
+      const overlap = spellingSpan(Math.max(...long.map((s) => s.length)));
+      out = maskInWindows(out, overlap, (piece) => redactSecrets(piece, long));
     }
   }
-  for (const secret of short) out = maskWholeTokens(out, secret);
+  if (short.length) {
+    const maskShort = (piece) => {
+      let masked = piece;
+      for (const secret of short) masked = maskWholeTokens(masked, secret);
+      return short.some((secret) => decodedTokenRemains(masked, secret)) ? CREDENTIAL_OMITTED_MESSAGE : masked;
+    };
+    out = maskInWindows(out, spellingSpan(WHOLE_TEXT_MIN_SECRET_LENGTH), maskShort);
+  }
   return out;
 }
 
@@ -2231,11 +2299,27 @@ function htmlTitle(page) {
   const text = title?.replace(/\s+/g, " ").trim() ?? "";
   return text.length > HTML_TITLE_MAX ? "" : text;
 }
+function describeThrown(error) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (error !== null && typeof error === "object") {
+    const message = error.message;
+    if (typeof message === "string" && message) return message;
+    try {
+      const json = JSON.stringify(error);
+      if (json && json !== "{}") return json.slice(0, MAX_ERROR_MESSAGE_LENGTH + 1);
+    } catch {
+    }
+    return "Unknown error";
+  }
+  if (typeof error === "symbol" || typeof error === "function") return "Unknown error";
+  return String(error);
+}
 function formatErrorMessage(error, secrets = currentSecrets()) {
-  let message = (error instanceof Error ? error.message : String(error)).trim();
+  let message = describeThrown(error).trim();
   message = message.replace(/^(?:(?:Error|\[Error\]):\s*)+/i, "");
   message = redactResultText(message, secrets);
-  if (looksLikeHtml(message)) {
+  if (looksLikeHtmlDownload(message)) {
     const title = htmlTitle(message);
     return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ""} instead of an API response. Check the API key and request parameters.`;
   }
@@ -2506,7 +2590,8 @@ function readCsvColumn(row, column, rowIndex) {
   return value;
 }
 function isSdkMethodAvailable(name) {
-  return typeof zeroBounceSDK_default.prototype?.[name] === "function";
+  const prototype = zeroBounceSDK_default.prototype;
+  return typeof prototype?.[name] === "function";
 }
 var ZeroBounceClient = class {
   // Private field, not a property: no property of this object holds the key, so
@@ -2555,11 +2640,12 @@ var ZeroBounceClient = class {
     ];
   }
   /**
-   * Text taken from a response body, masked with every secret however short
-   * (the server's own fixed words are never passed through this).
+   * Text taken from a response body, masked with every secret of the call. A
+   * short secret (a short SMTP username) is masked as a whole token only, as in
+   * the final pass, so it does not cut letters out of the words around it.
    */
   bodyText(text) {
-    return redactSecrets(text, [...this.secretsForCall(), ...currentSecrets()]);
+    return redactResultText(text, [...this.secretsForCall(), ...currentSecrets()]);
   }
   /** Whether this client can serve Warmup calls. */
   get hasWarmup() {
@@ -3216,6 +3302,23 @@ function assertEmailLength(email, fieldName) {
     throw new Error(`${fieldName} must be at most ${MAX_EMAIL_LENGTH} characters`);
   }
 }
+function requireEmail(value, fieldName) {
+  const email = requireString(value, fieldName);
+  assertEmailLength(email, fieldName);
+  return email;
+}
+function optionalIsoDateTime(value, fieldName) {
+  const text = optionalString(value, fieldName);
+  if (text === void 0) return void 0;
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:[Tt](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:[Zz]|[+-](\d{2}):(\d{2}))?)?$/.exec(text);
+  const [year, month, day] = [Number(match?.[1]), Number(match?.[2]), Number(match?.[3])];
+  const date = match ? new Date(Date.UTC(year, month - 1, day)) : void 0;
+  const real = match && date && date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day && (match[4] === void 0 || Number(match[4]) <= 23 && Number(match[5]) <= 59) && (match[6] === void 0 || Number(match[6]) <= 59) && (match[7] === void 0 || Number(match[7]) <= 23 && Number(match[8]) <= 59);
+  if (!real) {
+    throw new Error(`${fieldName} must be a real ISO 8601 date (YYYY-MM-DD) or datetime`);
+  }
+  return text;
+}
 function requireIsoDate(value, fieldName) {
   const text = requireString(value, fieldName);
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
@@ -3690,7 +3793,7 @@ var scoreEmailTool = {
   },
   handler: async (client, args) => {
     try {
-      const email = requireString(args.email, "email");
+      const email = requireEmail(args.email, "email");
       const usePost = optionalBoolean(args.usePost, "usePost") ?? false;
       const result = await client.scoreEmail(email, { usePost });
       return createSuccessResponse(result);
@@ -3812,7 +3915,7 @@ var getActivityDataTool = {
   },
   handler: async (client, args) => {
     try {
-      const email = requireString(args.email, "email");
+      const email = requireEmail(args.email, "email");
       const result = await client.getActivityData(email);
       return createSuccessResponse(result);
     } catch (error) {
@@ -4384,6 +4487,7 @@ var createInboxPlacementTestTool = {
         throw new Error(`testType must be one of ${TEST_TYPES.join(", ")}`);
       }
       const senderEmail = optionalString(args.senderEmail, "senderEmail");
+      if (senderEmail !== void 0) assertEmailLength(senderEmail, "senderEmail");
       if (testType === 1 && !senderEmail) {
         throw new Error("senderEmail is required when testType is 1");
       }
@@ -4477,11 +4581,11 @@ var listInboxPlacementTestsTool = {
         }
         options.status = status;
       }
-      const createdAfter = optionalString(args.createdAfter, "createdAfter");
+      const createdAfter = optionalIsoDateTime(args.createdAfter, "createdAfter");
       if (createdAfter !== void 0) {
         options.createdAfter = createdAfter;
       }
-      const createdBefore = optionalString(args.createdBefore, "createdBefore");
+      const createdBefore = optionalIsoDateTime(args.createdBefore, "createdBefore");
       if (createdBefore !== void 0) {
         options.createdBefore = createdBefore;
       }
@@ -4619,7 +4723,7 @@ var warmupGetSendingAccountTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.getSendingAccount(
-        requireString(args.fromAddress, "fromAddress")
+        requireEmail(args.fromAddress, "fromAddress")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -4665,7 +4769,7 @@ var warmupAddSendingAccountTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.addSendingAccount({
-        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        fromAddress: requireEmail(args.fromAddress, "fromAddress"),
         onboardingModel: requireString(args.onboardingModel, "onboardingModel"),
         engagementRuleId: optionalNumber(args.engagementRuleId, "engagementRuleId") ?? null,
         ignoreConflict: optionalBoolean(args.ignoreConflict, "ignoreConflict") ?? null,
@@ -4701,7 +4805,7 @@ var warmupUpdateSendingAccountTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.updateSendingAccount({
-        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        fromAddress: requireEmail(args.fromAddress, "fromAddress"),
         engagementRuleId: requireNumber(args.engagementRuleId, "engagementRuleId"),
         statusId: requireNumber(args.statusId, "statusId"),
         autoEnable: requireBoolean(args.autoEnable, "autoEnable")
@@ -4729,7 +4833,7 @@ var warmupDeleteSendingAccountTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.deleteSendingAccount(
-        requireString(args.fromAddress, "fromAddress")
+        requireEmail(args.fromAddress, "fromAddress")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -4755,8 +4859,8 @@ var warmupChangeFromAddressTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.changeFromAddress(
-        requireString(args.oldFromAddress, "oldFromAddress"),
-        requireString(args.newFromAddress, "newFromAddress")
+        requireEmail(args.oldFromAddress, "oldFromAddress"),
+        requireEmail(args.newFromAddress, "newFromAddress")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -5079,7 +5183,7 @@ var warmupGetStatisticsTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.getStatistics(
-        requireString(args.fromAddress, "fromAddress")
+        requireEmail(args.fromAddress, "fromAddress")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -5106,7 +5210,7 @@ var warmupGetStatisticsPerDayTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.getStatisticsPerDay({
-        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        fromAddress: requireEmail(args.fromAddress, "fromAddress"),
         startDate: requireString(args.startDate, "startDate"),
         endDate: requireString(args.endDate, "endDate")
       });
@@ -5179,7 +5283,7 @@ var warmupGetFromAddressStatisticsTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.getFromAddressStatistics(
-        requireString(args.fromAddress, "fromAddress")
+        requireEmail(args.fromAddress, "fromAddress")
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -5210,7 +5314,7 @@ var warmupCheckDomainDmarcTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.checkDomainDmarc(
-        requireString(args.fromAddress, "fromAddress"),
+        requireEmail(args.fromAddress, "fromAddress"),
         optionalString(args.dkimSelector, "dkimSelector") ?? null
       );
       return createSuccessResponse(result);
@@ -5240,7 +5344,7 @@ var warmupTestSmtpConfigurationTool = {
   handler: async (client, args) => {
     try {
       const result = await client.warmup.testSmtpConfiguration({
-        fromAddress: requireString(args.fromAddress, "fromAddress"),
+        fromAddress: requireEmail(args.fromAddress, "fromAddress"),
         username: requireString(args.username, "username"),
         password: requireString(args.password, "password"),
         server: requireString(args.server, "server"),
@@ -5414,11 +5518,12 @@ var ZeroBounceMCPServer = class {
       const { name, arguments: args } = request.params;
       const handler = toolRegistry.get(name);
       if (!handler) {
+        const secrets2 = this.client.secretsForCall(args || {});
         return {
           content: [
             {
               type: "text",
-              text: `Error: Unknown tool: ${name}`
+              text: redactResultText(`Error: Unknown tool: ${name}`, secrets2)
             }
           ],
           isError: true
@@ -5472,7 +5577,7 @@ var ZeroBounceMCPServer = class {
           ]
         };
       }
-      throw new Error(`Unknown resource: ${uri}`);
+      throw new Error(redactResultText(`Unknown resource: ${uri}`, this.client.secretsForCall()));
     });
   }
   async connect(transport) {
@@ -5910,6 +6015,7 @@ Options:
   -h, --help                 Show this help and exit
   -v, --version              Show the version and exit
 
+Binding a non-loopback --host also requires MCP_TLS_TERMINATED=true (HTTPS ends at a trusted proxy).
 Unknown options are refused. In HTTP mode the API key comes from each request
 (X-ZeroBounce-Api-Key or Authorization: Bearer), not from the command line.
 `;

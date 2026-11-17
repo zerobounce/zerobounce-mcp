@@ -85,11 +85,14 @@ export class ZeroBounceMCPServer {
 
       const handler = toolRegistry.get(name);
       if (!handler) {
+        // The name is the caller's text: it goes through the same final pass as
+        // every other result, with the key in this call's secrets.
+        const secrets = this.client.secretsForCall(args || {});
         return {
           content: [
             {
               type: 'text',
-              text: `Error: Unknown tool: ${name}`,
+              text: redactResultText(`Error: Unknown tool: ${name}`, secrets),
             },
           ],
           isError: true,
@@ -153,7 +156,7 @@ export class ZeroBounceMCPServer {
         };
       }
 
-      throw new Error(`Unknown resource: ${uri}`);
+      throw new Error(redactResultText(`Unknown resource: ${uri}`, this.client.secretsForCall()));
     });
   }
 

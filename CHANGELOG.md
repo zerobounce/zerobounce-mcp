@@ -12,11 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bundled ZeroBounce SDK 5.0.0 (was 4.0.0). Behaviour a 0.3.1 user can notice through the tools:
   a 2xx body that carries only a `message`, a `success` flag that is not true (`false`, `0`,
   `"0"`, `" False "`, `null`) or no data at all (`{}`, an unrecognised object) is now an error
-  instead of a successful result; `get_credits` returns `Credits` as a string when the API sends
-  one; a validation timeout that is not a whole number of seconds in the allowed range (for
+  instead of a successful result; `get_credits` returns `Credits` as a decimal string (a numeric
+  `Credits` is converted; a string that is not an integer is an error); a response field of the
+  wrong type or a missing required field is an error ("ZeroBounce returned a response field of an
+  unexpected type for this call (field)"), where 0.3.1 passed it through: `validate_email` with
+  `free_email: "true"`, `domain_age_days: 123` or no `address`, and `get_credits` with
+  `Credits: "12.5"`; a validation timeout that is not a whole number of seconds in the allowed range (for
   example `4.5`) is refused; a bulk download that starts with `<` is an error, not CSV; and
   transport failures read as the SDK's status-0 error text.
-- Inputs the server now refuses before any request: CR, LF or NUL in `fileName` or `returnUrl`, an email over 320 characters, more than 200 emails in `validate_batch`, and `get_api_usage` dates that are not real `YYYY-MM-DD` dates or whose start is after the end.
 - Optional string arguments are type-checked like the number and boolean ones since 0.3.0. A
   value that is set but is not a string, such as `ipAddress: 123` on `validate_email` or
   `domain: 123` on `find_email`, is now an error ("ipAddress must be a string") where 0.3.1
@@ -26,7 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP mode checks the `Host` header: only the bound host (loopback names for a loopback bind) and names given with `--allowed-host` or `MCP_ALLOWED_HOSTS` (comma-separated) are served on `/mcp`; a foreign or missing Host, or a cross-origin `Origin` (including `Origin: null`), gets 403. A wildcard bind (`0.0.0.0`) with no allowed host keeps accepting any Host and logs a warning; set `MCP_ALLOWED_HOSTS` to your public name. `/health` is not checked.
 - HTTP mode refuses (400) a repeated `X-ZeroBounce-Api-Key`, `X-ZeroBounce-Warmup-Api-Key` or `Authorization` header, and an `X-ZeroBounce-Api-Key` that differs from the Bearer token.
 - `returnUrl` and `webhookUrl` are refused when they contain control, whitespace, invisible characters or a backslash, a username or password, or a port other than 443; they are also refused for the full RFC 6890 special-purpose IPv4 and IPv6 ranges (including IPv6 forms that embed an IPv4 address: mapped, compatible, NAT64, 6to4), `localhost.`, `*.local`, `*.internal`, `*.nip.io`-style names and cloud metadata names. The normalised URL (lower-case host, no trailing dot) is what is forwarded. DNS is not resolved: ZeroBounce makes the callback.
-- Column indexes (`emailAddressColumn`, `domainColumn`, name, gender, IP columns, list evaluator, `validate_batch`) must be whole numbers from 0 to 999; `validate_batch` takes at most 200 emails; an email is at most 320 characters; `get_api_usage` dates must be real `YYYY-MM-DD` dates with `startDate` not after `endDate`; CR/LF/NUL in `fileName` is refused before the SDK.
+- Inputs refused before any request: column indexes (`emailAddressColumn`, `domainColumn`, name, gender, IP columns, list evaluator, `validate_batch`) must be whole numbers from 0 to 999; `validate_batch` takes at most 200 emails; an email is at most 320 characters; `get_api_usage` dates must be real `YYYY-MM-DD` dates with `startDate` not after `endDate`; CR, LF or NUL in `fileName` or `returnUrl` is refused.
+- An unknown command-line option or a stray argument stops the server with `Unknown argument: ...` (a flag followed by another flag is a missing value) instead of being ignored: `--api-ky` used to start the server with the key from the environment.
 
 ### Added
 
@@ -41,13 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Docs: README documents the command-line options and the bulk `returnUrl` rules; the test lists name all four suites; `.env.example` and SECURITY.md cover `MCP_ALLOWED_HOSTS` / `--allowed-host` (DNS rebinding on a `0.0.0.0` bind); the Cursor guide follows Cursor's current docs (Customize in the sidebar, `~/.cursor/mcp.json`); AGENTS.md says a new secret-bearing argument must reach the final masking pass.
+- CI and the publish workflow install the packed tarball into a clean directory and run `--version` (checked against `package.json` and the tag) and `--help`.
 - `@modelcontextprotocol/sdk` is required at `^1.32.1` (was `^1.29.0`); 1.29 to 1.31 carry published advisories, two of them on request size limits in the HTTP transport this server uses. `@types/node` follows the `engines` floor (22).
-- `--help` / `-h` and `--version` / `-v` print and exit without a key. An unknown option or a stray argument now stops the server with `Unknown argument: ...` (and a flag followed by another flag is a missing value) instead of being ignored: `--api-ky` used to start the server with the key from the environment.
+- `--help` / `-h` and `--version` / `-v` print and exit without a key; `--help` now lists `MCP_TLS_TERMINATED`.
 - Client setup docs follow each client's current format: VS Code `mcp.json` uses `servers` and has MCP built in (no extension), Cursor reads `~/.cursor/mcp.json`, Zed uses `context_servers`, Continue uses `.continue/mcpServers/*.yaml`. `server.json` declares the optional `ZEROBOUNCE_WARMUP_API_KEY` (secret) and `ZEROBOUNCE_API_URL`.
 - Publishing: the publish workflow tests the tag, packs it once, and publishes that exact tarball with provenance (no second build). The GitHub release needs only tag validation and the tests, and a `skip_npm` input skips the npm step. Every job uses the validated tag commit; the lockfile and every `server.json` version are checked and a missing one fails. `npm audit` gates on the shipped dependencies only; CI also runs lint and fails if the committed `dist/index.js` is stale. npm is pinned to an exact version; jobs have timeouts and concurrency groups.
 - `@zerobounce/zero-bounce-sdk` is a development dependency. `dist/index.js` bundles it, and
   nothing loads it at run time, so `npm install @zerobounce/mcp` no longer installs an unused
   copy. Which SDK version a release carries is set by the lockfile when it is built.
+- `npm run lint` fails on any warning (`--max-warnings 0`); the `any` in src/zerobounce-client.ts is gone.
 
 ### Security
 
@@ -61,6 +68,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DNS-rebinding protection for HTTP mode (Host and Origin checks, above).
 - The API key and Warmup key check covers every invisible, format, bidi, C1 and lone-surrogate character and a key of combining marks only (as JavaScript SDK 5.0.0 `checkApiKey`).
 - HTTP server limits: headers within 15 s, a whole request within 120 s, at most 512 connections.
+- The final masking pass now masks a secret's spelling (upper case, all-%XX, &#x;, \xHH, \U{}, %25, NFD plus a combining mark) even when it straddles a window boundary in a long single-line text, such as a bulk get_file CSV: windows are masked again over each seam (16 characters per secret character plus 64 on each side). A 3 MB result takes about 0.5 s (ASCII) to 1.3 s (non-ASCII), down from 6.3 s.
+- A secret shorter than 8 characters (a short SMTP username) is masked as a whole token with any non-alphanumeric boundary (an underscore, a quote, "%3D", "\n" and "&quot;" count as boundaries), in any case; a result whose decoded form still shows it as a whole token is replaced by "ZeroBounce: the response text was omitted because it contained a credential."
+- "Unknown tool: <name>" and "Unknown resource: <uri>" go through the final masking pass, so a key sent as a tool name or resource URI is not echoed.
 
 ### Fixed
 
@@ -90,6 +100,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `get_credits`: the result type is the SDK 5.0.0's `Credits` string (`"Credits": "2375323"`), not a number.
 - `delete_inbox_placement_test`: the server no longer wraps global `fetch` to detect a 204; the SDK 5.0.0 resolves an empty 2xx to `{}` itself (a whitespace-only body is still an error).
 - A tool that throws is reported as a masked tool error, never a raw exception message.
+- Text taken from a response body (a bulk get_file error object, an unexpected response) no longer cuts a short secret out of the words around it ("a***th failed … ***ser"); it follows the same whole-token rule as the final pass.
+- An error whose message starts with `<` is reported as "ZeroBounce returned an HTML error page ("<title>")…" (a page with only a `<title>` included); a `<html>` tag further into a message is text, not a page.
+- A thrown value that is not an Error is described safely: its message, else its JSON (capped, masked), else "Unknown error"; never "[object Object]".
+- Email addresses are limited to 320 characters on every tool that takes one: score_email, get_activity_data, create_inbox_placement_test (senderEmail) and every Warmup fromAddress, oldFromAddress and newFromAddress (message: "<field> must be at most 320 characters"), not only validate_email and validate_batch.
+- list_inbox_placement_tests createdAfter and createdBefore must be a real ISO 8601 date (YYYY-MM-DD) or datetime ("<field> must be a real ISO 8601 date (YYYY-MM-DD) or datetime"); 2024-02-30 or "yesterday" is refused before any request.
 
 ## [0.3.1] - 2026-11-12
 

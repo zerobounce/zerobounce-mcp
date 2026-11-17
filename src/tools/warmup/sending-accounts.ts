@@ -11,6 +11,7 @@ import {
   createSuccessResponse,
   createErrorResponse,
   requireString,
+  requireEmail,
   requireNumber,
   requireBoolean,
   optionalString,
@@ -56,7 +57,7 @@ export const warmupGetSendingAccountTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.getSendingAccount(
-        requireString(args.fromAddress, 'fromAddress')
+        requireEmail(args.fromAddress, 'fromAddress')
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -109,7 +110,7 @@ export const warmupAddSendingAccountTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.addSendingAccount({
-        fromAddress: requireString(args.fromAddress, 'fromAddress'),
+        fromAddress: requireEmail(args.fromAddress, 'fromAddress'),
         onboardingModel: requireString(args.onboardingModel, 'onboardingModel') as
           | 'self_managed'
           | 'zb_managed',
@@ -149,7 +150,7 @@ export const warmupUpdateSendingAccountTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.updateSendingAccount({
-        fromAddress: requireString(args.fromAddress, 'fromAddress'),
+        fromAddress: requireEmail(args.fromAddress, 'fromAddress'),
         engagementRuleId: requireNumber(args.engagementRuleId, 'engagementRuleId'),
         statusId: requireNumber(args.statusId, 'statusId'),
         autoEnable: requireBoolean(args.autoEnable, 'autoEnable'),
@@ -180,7 +181,7 @@ export const warmupDeleteSendingAccountTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.deleteSendingAccount(
-        requireString(args.fromAddress, 'fromAddress')
+        requireEmail(args.fromAddress, 'fromAddress')
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -209,8 +210,8 @@ export const warmupChangeFromAddressTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.changeFromAddress(
-        requireString(args.oldFromAddress, 'oldFromAddress'),
-        requireString(args.newFromAddress, 'newFromAddress')
+        requireEmail(args.oldFromAddress, 'oldFromAddress'),
+        requireEmail(args.newFromAddress, 'newFromAddress')
       );
       return createSuccessResponse(result);
     } catch (error) {

@@ -8,6 +8,7 @@ import {
   createSuccessResponse,
   createErrorResponse,
   requireString,
+  requireEmail,
   requireNumber,
   optionalString,
 } from '../types.js';
@@ -36,7 +37,7 @@ export const warmupCheckDomainDmarcTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.checkDomainDmarc(
-        requireString(args.fromAddress, 'fromAddress'),
+        requireEmail(args.fromAddress, 'fromAddress'),
         optionalString(args.dkimSelector, 'dkimSelector') ?? null
       );
       return createSuccessResponse(result);
@@ -71,7 +72,7 @@ export const warmupTestSmtpConfigurationTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.testSmtpConfiguration({
-        fromAddress: requireString(args.fromAddress, 'fromAddress'),
+        fromAddress: requireEmail(args.fromAddress, 'fromAddress'),
         username: requireString(args.username, 'username'),
         password: requireString(args.password, 'password'),
         server: requireString(args.server, 'server'),

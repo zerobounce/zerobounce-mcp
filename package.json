@@ -17,7 +17,7 @@
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "test": "node test-http.js && tsx test/client-key.test.ts && tsx test/cli.test.ts && tsx test/redaction.test.ts",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src --ext .ts --max-warnings 0",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepublishOnly": "npm run build",
     "test:http": "node test-http.js",

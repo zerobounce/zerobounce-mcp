@@ -612,6 +612,7 @@ Options:
   -h, --help                 Show this help and exit
   -v, --version              Show the version and exit
 
+Binding a non-loopback --host also requires MCP_TLS_TERMINATED=true (HTTPS ends at a trusted proxy).
 Unknown options are refused. In HTTP mode the API key comes from each request
 (X-ZeroBounce-Api-Key or Authorization: Bearer), not from the command line.
 `;

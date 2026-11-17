@@ -131,6 +131,13 @@ Alternatively, supply the key through the `ZEROBOUNCE_API_KEY` environment varia
 
 The `--api-key` flag takes precedence when both are set.
 
+### Command-line options
+
+`zerobounce-mcp --help` (`-h`) and `--version` (`-v`) print and exit; neither needs a key. The key
+can also be given as `-k <key>` (same as `--api-key`). An unknown option or a stray argument is
+refused with `Unknown argument: ...` and the server does not start, so a misspelt `--api-ky` is
+never silently ignored.
+
 ### Referencing an existing environment variable
 
 Some clients let you reference a variable that already exists in their own environment,
@@ -311,7 +318,9 @@ Get API usage statistics for a date range. Shows validation counts by status and
 Send a CSV file for bulk email validation. Takes `fileContent` and `fileName`, plus the
 optional `returnUrl`, `hasHeaderRow` (sent as `false` when left out), `removeDuplicate`,
 `allowPhase2` and the 0-based column indexes `emailAddressColumn`, `firstNameColumn`,
-`lastNameColumn`, `genderColumn` and `ipAddressColumn`. Returns a file ID for tracking.
+`lastNameColumn`, `genderColumn` and `ipAddressColumn`. A `returnUrl`, when given, must
+be an HTTPS callback URL on a public host (port 443, no credentials, no private or special-purpose
+address); the server refuses anything else before the request. Returns a file ID for tracking.
 
 #### `bulk_validate_file_status`
 
@@ -331,7 +340,8 @@ Delete a bulk validation file from your account.
 
 Send a CSV file for bulk AI email scoring. Takes `fileContent` and `fileName`, plus the
 optional `returnUrl`, `hasHeaderRow` (sent as `false` when left out), `removeDuplicate` and
-the 0-based `emailAddressColumn`. Returns a file ID for tracking.
+the 0-based `emailAddressColumn`. `returnUrl` follows the same rules as for
+`bulk_validate_send_file`: HTTPS, port 443, public host, no credentials. Returns a file ID for tracking.
 
 #### `bulk_ai_scoring_file_status`
 
@@ -850,7 +860,8 @@ For local development on this MCP server:
   npm run typecheck && npm run build && npm test
   ```
 
-  `npm test` runs `test-http.js`, `test/client-key.test.ts` and `test/cli.test.ts`. They run
+  `npm test` runs `test-http.js`, `test/client-key.test.ts`, `test/cli.test.ts` and
+  `test/redaction.test.ts`. They run
   offline against a fake API, need no API key, and check routing, auth, every tool, per-request
   API key isolation, that no object holds the key in an inspectable property, and the
   command-line flags.

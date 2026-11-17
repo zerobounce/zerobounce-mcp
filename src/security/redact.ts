@@ -673,30 +673,91 @@ export const WHOLE_TEXT_MIN_SECRET_LENGTH = 8;
 /** A window the decoding passes handle (redactSecrets refuses over 64 KiB of UTF-8). */
 const WINDOW_CHARS = 16384;
 
+const isWordChar = (ch: string | undefined) => ch !== undefined && /[\p{L}\p{N}\p{M}]/u.test(ch);
+
+/** One escape of the kinds the decoders undo, at the end of a text ... */
+const ESCAPE_AT_END =
+  /(?:%[0-9a-f]{2}|\\(?:[nrtbf"'/\\]|x[0-9a-f]{2}|[uU]\{[0-9a-f]{1,8}\}|u[0-9a-f]{4}|[0-7]{1,3})|&(?:#x[0-9a-f]+|#[0-9]+|[a-z]+);?)$/i;
+/** ... and at the start of one. */
+const ESCAPE_AT_START =
+  /^(?:%[0-9a-f]{2}|\\(?:[nrtbf"'/\\]|x[0-9a-f]{2}|[uU]\{[0-9a-f]{1,8}\}|u[0-9a-f]{4}|[0-7]{1,3})|&(?:#x[0-9a-f]+|#[0-9]+|[a-z]+);?)/i;
+
+/** The character one escape stands for ("%3D" is "=", "\\n" a line break), or the text itself. */
+function escapeChars(escape: string): string {
+  return htmlUnescaped(jsonUnescaped(percentLatin1(escape)));
+}
+
+/**
+ * Whether the text before/after a short secret is a token boundary: no letter,
+ * digit or combining mark next to it, an escape (%3D, \\n, &quot;) counting as
+ * the character it stands for. Any other character is a boundary.
+ */
+function boundaryBefore(text: string, at: number): boolean {
+  if (at === 0) return true;
+  const prefix = text.slice(Math.max(0, at - 16), at);
+  const escape = ESCAPE_AT_END.exec(prefix)?.[0];
+  const ch = escape ? [...escapeChars(escape)].pop() : [...prefix].pop();
+  return !isWordChar(ch);
+}
+
+function boundaryAfter(text: string, end: number): boolean {
+  if (end >= text.length) return true;
+  const suffix = text.slice(end, end + 16);
+  const escape = ESCAPE_AT_START.exec(suffix)?.[0];
+  const ch = escape ? [...escapeChars(escape)][0] : [...suffix][0];
+  return !isWordChar(ch);
+}
+
+/** Start indexes of the secret in the text, ignoring case where lower-casing keeps the length. */
+function occurrences(text: string, secret: string): number[] {
+  const lower = text.toLowerCase();
+  const exact = lower.length !== text.length;
+  const hay = exact ? text : lower;
+  const needle = exact ? secret : secret.toLowerCase();
+  const found: number[] = [];
+  if (!needle) return found;
+  for (let at = hay.indexOf(needle); at >= 0; at = hay.indexOf(needle, at + 1)) found.push(at);
+  return found;
+}
+
+/** The short secret as a whole token (any case, any non-alphanumeric boundary) replaced with ***. */
 function maskWholeTokens(text: string, secret: string): string {
-  if (!text.includes(secret)) return text;
-  const isWord = (ch: string | undefined) => ch !== undefined && /[\p{L}\p{N}_]/u.test(ch);
+  if (!text || !secret) return text;
   let out = "";
   let from = 0;
-  for (let at = text.indexOf(secret, from); at >= 0; at = text.indexOf(secret, from)) {
-    const beforeChar = [...text.slice(Math.max(0, at - 2), at)].pop();
-    const after = [...text.slice(at + secret.length, at + secret.length + 2)][0];
-    out += text.slice(from, at);
-    out += isWord(beforeChar) || isWord(after) ? secret : "***";
-    from = at + secret.length;
+  for (const at of occurrences(text, secret)) {
+    if (at < from) continue;
+    const end = at + secret.length;
+    if (boundaryBefore(text, at) && boundaryAfter(text, end)) {
+      out += text.slice(from, at) + "***";
+      from = end;
+    }
   }
   return out + text.slice(from);
 }
 
-/** Splits long text into pieces at a line break where there is one, so no secret is cut. */
-function windows(text: string): string[] {
+/** Whether a decoded view of the text still holds the short secret as a whole token. */
+function decodedTokenRemains(text: string, secret: string): boolean {
+  for (const view of decodedViews(text)) {
+    if (view === text) continue;
+    for (const at of occurrences(view, secret)) {
+      const plainBefore = at === 0 || !isWordChar([...view.slice(Math.max(0, at - 2), at)].pop());
+      const plainAfter = !isWordChar([...view.slice(at + secret.length, at + secret.length + 2)][0]);
+      if (plainBefore && plainAfter) return true;
+    }
+  }
+  return false;
+}
+
+/** Splits long text into pieces of about `size` characters at a line break where there is one. */
+function windows(text: string, size: number): string[] {
   const pieces: string[] = [];
   let start = 0;
   while (start < text.length) {
-    let end = Math.min(text.length, start + WINDOW_CHARS);
+    let end = Math.min(text.length, start + size);
     if (end < text.length) {
       const lineBreak = text.lastIndexOf("\n", end - 1);
-      if (lineBreak > start + WINDOW_CHARS / 2) end = lineBreak + 1;
+      if (lineBreak > start + size / 2) end = lineBreak + 1;
       else if ((text.charCodeAt(end - 1) & 0xfc00) === 0xd800) end -= 1;
     }
     pieces.push(text.slice(start, end));
@@ -705,10 +766,42 @@ function windows(text: string): string[] {
   return pieces;
 }
 
+/** The longest spelling of a secret: 16 characters per character (\\U{1F600} escapes, %25XX twice) plus slack. */
+const spellingSpan = (length: number) => 16 * length + 64;
+
+/**
+ * Applies `mask` to long text in windows, then once more over each seam (the
+ * last `overlap` characters of one window with the first `overlap` of the next),
+ * so a spelling split by a window boundary is masked whole. Windows are at
+ * least 4 x overlap long. Linear in the length of the text.
+ */
+function maskInWindows(text: string, overlap: number, mask: (piece: string) => string): string {
+  const size = Math.max(WINDOW_CHARS, 4 * overlap);
+  if (text.length <= size) return mask(text);
+  const pieces = windows(text, size).map(mask);
+  const parts: string[] = [];
+  let current = pieces[0];
+  for (let i = 1; i < pieces.length; i += 1) {
+    const next = pieces[i];
+    let tail = Math.min(overlap, current.length);
+    if (tail < current.length && (current.charCodeAt(current.length - tail) & 0xfc00) === 0xdc00) tail += 1;
+    let head = Math.min(overlap, next.length);
+    if (head < next.length && (next.charCodeAt(head - 1) & 0xfc00) === 0xd800) head -= 1;
+    parts.push(current.slice(0, current.length - tail));
+    current = mask(current.slice(current.length - tail) + next.slice(0, head)) + next.slice(head);
+  }
+  parts.push(current);
+  return parts.join("");
+}
+
 /**
  * The final pass over a tool result's text, success or error: every form of every
  * secret of the call replaced with ***, for text of any length (long text is
- * masked in windows after one pass over the whole of it for the plain spellings).
+ * masked in overlapping windows after one pass over the whole of it for the
+ * plain spellings). A secret shorter than WHOLE_TEXT_MIN_SECRET_LENGTH is masked
+ * as a whole token only (any case, any non-alphanumeric boundary, an escape such
+ * as %3D or \\n counting as its character); one that a decoded view of the text
+ * still shows as a whole token replaces the text by a fixed message.
  */
 export function redactResultText(text: string, secrets: string[]): string {
   const present = [...new Set(secrets.filter((s) => typeof s === "string" && s !== ""))];
@@ -723,11 +816,17 @@ export function redactResultText(text: string, secrets: string[]): string {
       for (const secret of long) {
         for (const form of secretForms(secret)) out = out.split(form).join("***");
       }
-      out = windows(out)
-        .map((piece) => redactSecrets(piece, long))
-        .join("");
+      const overlap = spellingSpan(Math.max(...long.map((s) => s.length)));
+      out = maskInWindows(out, overlap, (piece) => redactSecrets(piece, long));
     }
   }
-  for (const secret of short) out = maskWholeTokens(out, secret);
+  if (short.length) {
+    const maskShort = (piece: string) => {
+      let masked = piece;
+      for (const secret of short) masked = maskWholeTokens(masked, secret);
+      return short.some((secret) => decodedTokenRemains(masked, secret)) ? CREDENTIAL_OMITTED_MESSAGE : masked;
+    };
+    out = maskInWindows(out, spellingSpan(WHOLE_TEXT_MIN_SECRET_LENGTH), maskShort);
+  }
   return out;
 }

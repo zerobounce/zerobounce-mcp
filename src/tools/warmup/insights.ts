@@ -12,6 +12,7 @@ import {
   createTextResponse,
   createErrorResponse,
   requireString,
+  requireEmail,
 } from '../types.js';
 
 export const warmupGetSeedsTool: ToolHandler = {
@@ -136,7 +137,7 @@ export const warmupGetStatisticsTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.getStatistics(
-        requireString(args.fromAddress, 'fromAddress')
+        requireEmail(args.fromAddress, 'fromAddress')
       );
       return createSuccessResponse(result);
     } catch (error) {
@@ -164,7 +165,7 @@ export const warmupGetStatisticsPerDayTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.getStatisticsPerDay({
-        fromAddress: requireString(args.fromAddress, 'fromAddress'),
+        fromAddress: requireEmail(args.fromAddress, 'fromAddress'),
         startDate: requireString(args.startDate, 'startDate'),
         endDate: requireString(args.endDate, 'endDate'),
       });
@@ -242,7 +243,7 @@ export const warmupGetFromAddressStatisticsTool: ToolHandler = {
   handler: async (client: ZeroBounceClient, args) => {
     try {
       const result = await client.warmup.getFromAddressStatistics(
-        requireString(args.fromAddress, 'fromAddress')
+        requireEmail(args.fromAddress, 'fromAddress')
       );
       return createSuccessResponse(result);
     } catch (error) {

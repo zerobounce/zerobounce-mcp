@@ -66,19 +66,41 @@ function htmlTitle(page: string): string {
   return text.length > HTML_TITLE_MAX ? '' : text;
 }
 
+/** What a thrown value says: an Error's message, a string, else a capped one-line description (never "[object Object]"). */
+function describeThrown(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error !== null && typeof error === 'object') {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message) return message;
+    try {
+      const json = JSON.stringify(error);
+      if (json && json !== '{}') return json.slice(0, MAX_ERROR_MESSAGE_LENGTH + 1);
+    } catch {
+      // Circular or throwing toJSON: fall through to the fixed text.
+    }
+    return 'Unknown error';
+  }
+  if (typeof error === 'symbol' || typeof error === 'function') return 'Unknown error';
+  return String(error);
+}
+
 /**
  * Turns an SDK or API error into one short line. The SDK wraps errors repeatedly
  * ("Error: [Error]: api_key is invalid") and passes non-JSON error bodies through
  * verbatim, which for blocked requests is a full HTML page.
  */
 export function formatErrorMessage(error: unknown, secrets: string[] = currentSecrets()): string {
-  let message = (error instanceof Error ? error.message : String(error)).trim();
+  let message = describeThrown(error).trim();
   message = message.replace(/^(?:(?:Error|\[Error\]):\s*)+/i, '');
   // Mask before anything is read out of the text: a title is taken from the
   // masked page, and a cut for length never leaves the start of a secret.
   message = redactResultText(message, secrets);
 
-  if (looksLikeHtml(message)) {
+  // The message is the SDK's extraction, not the body: a real HTML page is
+  // already its fixed text, so only a message that itself starts with `<` is
+  // a page here (a tag further in is text, as in a JSON error string).
+  if (looksLikeHtmlDownload(message)) {
     const title = htmlTitle(message);
     return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ''} instead of an API response. Check the API key and request parameters.`;
   }

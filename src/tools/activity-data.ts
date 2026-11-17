@@ -4,7 +4,7 @@
  */
 
 import type { ZeroBounceClient } from '../zerobounce-client.js';
-import { ToolHandler, createSuccessResponse, createErrorResponse, requireString } from './types.js';
+import { ToolHandler, createSuccessResponse, createErrorResponse, requireEmail } from './types.js';
 
 export const getActivityDataTool: ToolHandler = {
   definition: {
@@ -23,7 +23,7 @@ export const getActivityDataTool: ToolHandler = {
   },
   handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
     try {
-      const email = requireString(args.email, 'email');
+      const email = requireEmail(args.email, 'email');
 
       const result = await client.getActivityData(email);
       return createSuccessResponse(result);

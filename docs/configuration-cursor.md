@@ -26,15 +26,13 @@ npm install -g @zerobounce/mcp
 
 ### 2. Configure Cursor
 
-1. **Open Cursor and navigate to Settings → Cursor Settings**
-   - Click on the Cursor menu
-   - Select "Settings" → "Cursor Settings"
+1. **Open the MCP configuration**
+   - Cursor manages MCP servers from **Customize** in the sidebar
+   - For a custom server, edit `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (one project)
+   - Menu names change between Cursor versions; see [Cursor's MCP documentation](https://cursor.com/docs/context/mcp) if yours differ
 
-2. **Select the MCP tab**
-   - Look for the "MCP" section in settings
-
-3. **Click "Add new global MCP server"**
-   - This will open a configuration editor
+2. **Add a custom server**
+   - Open the `mcp.json` file in an editor
 
 4. **Copy the configuration**
    You can copy and paste the configuration below:
@@ -143,7 +141,7 @@ Show me my ZeroBounce account credits and recent usage
 - Ensure you're using Cursor v1 or greater (check Help → About)
 - Verify Node.js 22 or later is installed: run `node --version` in terminal
 - Restart Cursor completely (quit and reopen)
-- Check the MCP configuration in Settings → Cursor Settings → MCP
+- Check the MCP configuration under **Customize** in the sidebar
 
 #### Invalid API Key
 
@@ -179,9 +177,9 @@ Show me my ZeroBounce account credits and recent usage
 
 To see detailed error messages:
 
-1. Open Cursor Settings (⌘/Ctrl + ,)
-2. Navigate to Cursor Settings → MCP
-3. Click on "View Logs" for the zerobounce server
+1. Open **Customize** in the sidebar
+2. Select the zerobounce server
+3. Open its logs (or the "MCP Logs" output channel)
 4. Look for error messages or connection issues
 
 ### Still Having Issues?
