@@ -673,7 +673,8 @@ export class ZeroBounceClient {
     }
 
     if (typeof result === 'string') {
-      // A blocked or failed download can come back as an HTML page with status 200.
+      // A blocked or failed download can come back as an HTML page with status 200,
+      // including when spaces, tabs, a BOM, or U+00A0 sit in front of the tag.
       if (looksLikeHtml(result)) {
         throw new Error(result);
       }

@@ -2049,6 +2049,18 @@ async function testBindHost() {
   check(bogus.status === 1 && /Invalid API URL/i.test(bogus.stderr),
     'a malformed API URL is refused', bogus.stderr.slice(0, 120));
 
+  const userinfo = runCli(
+    [SERVER_PATH, '--http', '--url=https://user:secret@127.0.0.1/v2'],
+    { encoding: 'utf8' }
+  );
+  check(
+    userinfo.status === 1 &&
+      /must not contain a username or password/i.test(userinfo.stderr) &&
+      !userinfo.stderr.includes('secret'),
+    'an API URL with a username or password is refused without quoting it',
+    userinfo.stderr.slice(0, 160)
+  );
+
   console.log('\nWarmup base URL');
   // There is no regional Warmup host: warmup-api-us and warmup-api-eu do not
   // resolve, so only the default and an explicit https URL are accepted.

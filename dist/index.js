@@ -903,6 +903,43 @@ import { createServer } from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
+// src/errors.ts
+var MAX_ERROR_MESSAGE_LENGTH = 1e3;
+var HTML_TAG = /<(?:!doctype\s+html|html|head|body)\b/i;
+function skipLeadingHtmlPadding(text) {
+  let index = 0;
+  if (text.charCodeAt(0) === 65279) index = 1;
+  while (index < text.length) {
+    const code = text.charCodeAt(index);
+    if (code === 32 || code === 9 || code === 10 || code === 13 || code === 11 || code === 12 || code === 160) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  return text.slice(index);
+}
+function looksLikeHtml(text) {
+  return HTML_TAG.test(skipLeadingHtmlPadding(text).slice(0, 2e3));
+}
+function formatErrorMessage(error) {
+  let message = (error instanceof Error ? error.message : String(error)).trim();
+  message = message.replace(/^(?:(?:Error|\[Error\]):\s*)+/i, "");
+  if (looksLikeHtml(message)) {
+    const title = message.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+    return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ""} instead of an API response. Check the API key and request parameters.`;
+  }
+  if (message.length > MAX_ERROR_MESSAGE_LENGTH) {
+    let end = MAX_ERROR_MESSAGE_LENGTH;
+    const last = message.charCodeAt(end - 1);
+    if (last >= 55296 && last <= 56319) {
+      end -= 1;
+    }
+    return `${message.slice(0, end)}\u2026 (truncated)`;
+  }
+  return message || "Unknown error";
+}
+
 // src/security/bulk-input.ts
 import { isIP } from "node:net";
 var MAX_BULK_FILE_CONTENT_BYTES = 32 * 1024 * 1024;
@@ -1055,31 +1092,6 @@ import {
 
 // src/zerobounce-client.ts
 import { AsyncLocalStorage } from "node:async_hooks";
-
-// src/errors.ts
-var MAX_ERROR_MESSAGE_LENGTH = 1e3;
-function looksLikeHtml(text) {
-  return /<(?:!doctype\s+html|html|head|body)\b/i.test(text.slice(0, 2e3));
-}
-function formatErrorMessage(error) {
-  let message = (error instanceof Error ? error.message : String(error)).trim();
-  message = message.replace(/^(?:(?:Error|\[Error\]):\s*)+/i, "");
-  if (looksLikeHtml(message)) {
-    const title = message.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
-    return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ""} instead of an API response. Check the API key and request parameters.`;
-  }
-  if (message.length > MAX_ERROR_MESSAGE_LENGTH) {
-    let end = MAX_ERROR_MESSAGE_LENGTH;
-    const last = message.charCodeAt(end - 1);
-    if (last >= 55296 && last <= 56319) {
-      end -= 1;
-    }
-    return `${message.slice(0, end)}\u2026 (truncated)`;
-  }
-  return message || "Unknown error";
-}
-
-// src/zerobounce-client.ts
 var responseBodyLengths = new AsyncLocalStorage();
 var bodyLengthProbeInstalled = false;
 function installBodyLengthProbe() {
@@ -2578,7 +2590,7 @@ var listFiltersTool = {
   },
   handler: async (client, args) => {
     try {
-      const usePost = Boolean(args.usePost);
+      const usePost = optionalBoolean(args.usePost, "usePost") ?? false;
       const result = await client.listFilters(usePost);
       return createSuccessResponse(result);
     } catch (error) {
@@ -4062,37 +4074,69 @@ var REGIONAL_API_BASE_URLS = {
   us: "https://api-us.zerobounce.net/v2",
   eu: "https://api-eu.zerobounce.net/v2"
 };
+function authorityHasUserinfo(raw) {
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.username || parsed.password) return true;
+  const afterScheme = raw.trim().replace(/^https?:/i, "");
+  const authority = afterScheme.replace(/^[/\\]+/, "").split(/[/\\?#]/)[0] || "";
+  return authority.includes("@");
+}
+function requireExplicitHttpsBase(raw, label) {
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid ${label}. Use an https:// URL.`);
+  }
+  if (authorityHasUserinfo(raw)) {
+    throw new Error(`The ${label} must not contain a username or password.`);
+  }
+  if (parsed.search || parsed.hash || raw.includes("?") || raw.includes("#")) {
+    throw new Error(`The ${label} must not contain a query string or a fragment.`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new Error(`The ${label} must use https.`);
+  }
+  return raw.replace(/\/+$/, "");
+}
 function resolveApiBaseUrl(value) {
   const raw = value?.trim();
   if (!raw) return DEFAULT_API_BASE_URL;
   const region = REGIONAL_API_BASE_URLS[raw.toLowerCase()];
   if (region) return region;
-  let parsed;
   try {
-    parsed = new URL(raw);
-  } catch {
-    throw new Error(
-      `Invalid API URL: ${raw}. Use us, eu, or an https:// URL.`
-    );
+    return requireExplicitHttpsBase(raw, "API URL");
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Invalid API URL")) throw error;
+    if (!(error instanceof Error) || !error.message.startsWith("Invalid ")) throw error;
+    throw new Error("Invalid API URL. Use us, eu, or an https:// URL.");
   }
-  if (parsed.protocol !== "https:") {
-    throw new Error(`The API URL must use https, got: ${raw}`);
-  }
-  return raw.replace(/\/+$/, "");
 }
 function resolveWarmupBaseUrl(value) {
   const raw = value?.trim();
   if (!raw) return DEFAULT_WARMUP_BASE_URL;
-  let parsed;
   try {
-    parsed = new URL(raw);
-  } catch {
-    throw new Error(`Invalid Warmup API URL: ${raw}. Use an https:// URL.`);
+    return requireExplicitHttpsBase(raw, "Warmup API URL");
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("Invalid Warmup API URL")) throw error;
+    if (!(error instanceof Error) || !error.message.startsWith("Invalid ")) throw error;
+    throw new Error("Invalid Warmup API URL. Use an https:// URL.");
   }
-  if (parsed.protocol !== "https:") {
-    throw new Error(`The Warmup API URL must use https, got: ${raw}`);
+}
+function assertSafeApiKey(key, label) {
+  for (const char of key) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code === 32) continue;
+    const invisible = code <= 31 || code >= 127 && code <= 159 || code === 160 || code === 173 || code === 1536 || code === 2192 || code === 2193 || code === 6155 || code === 6156 || code === 6157 || code === 6158 || code === 6159 || code === 8203 || code === 8238 || code === 8294 || code === 65279 || code === 65529 || code === 119155 || isHttpWhitespace(char);
+    if (invisible) {
+      throw new Error(`${label} must not contain control characters or invisible characters.`);
+    }
   }
-  return raw.replace(/\/+$/, "");
 }
 async function runStdio(config) {
   const server = new ZeroBounceMCPServer(config);
@@ -4157,6 +4201,14 @@ async function handleMcpRequest(req, res, baseUrl, warmupBaseUrl) {
     );
     return;
   }
+  try {
+    assertSafeApiKey(apiKey, "ZeroBounce API key");
+    const warmupKey = getRequestWarmupApiKey(req);
+    if (warmupKey) assertSafeApiKey(warmupKey, "ZeroBounce Warmup API key");
+  } catch (error) {
+    sendJsonRpcError(res, 401, formatErrorMessage(error));
+    return;
+  }
   const server = new ZeroBounceMCPServer({
     apiKey,
     baseUrl,
@@ -4186,7 +4238,7 @@ async function runHttp(host, port, baseUrl, warmupBaseUrl) {
       return;
     }
     handleMcpRequest(req, res, baseUrl, warmupBaseUrl).catch((error) => {
-      console.error("Error handling MCP request:", error);
+      console.error("Error handling MCP request:", formatErrorMessage(error));
       if (!res.headersSent) {
         sendJsonRpcError(res, 500, "Internal server error.");
       }
@@ -4292,6 +4344,8 @@ function parseArgs() {
       "ZeroBounce API key is required. Provide it via the --api-key flag or the ZEROBOUNCE_API_KEY environment variable."
     );
   }
+  assertSafeApiKey(config.apiKey, "ZeroBounce API key");
+  if (config.warmupApiKey) assertSafeApiKey(config.warmupApiKey, "ZeroBounce Warmup API key");
   return config;
 }
 async function main() {
@@ -4314,6 +4368,6 @@ async function main() {
   }
 }
 main().catch((error) => {
-  console.error("Fatal error:", error);
+  console.error("Fatal error:", formatErrorMessage(error));
   process.exit(1);
 });

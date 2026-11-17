@@ -32,8 +32,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing loads it at run time, so `npm install @zerobounce/mcp` no longer installs an unused
   copy. Which SDK version a release carries is set by the lockfile when it is built.
 
+### Security
+
+- A base URL with a username, a password, a query, or a fragment is refused before the server starts. The error does not include the URL. `zerobounce://config` therefore cannot return a credential that was embedded in the URL.
+- An API key that contains a control character, an invisible character, or Unicode whitespace is refused. An ordinary space in the middle of the key is still allowed.
+
 ### Fixed
 
+- Bulk get-file treats an HTML page as an error when spaces, tabs, a BOM, or U+00A0 come before `<html`. A file that really begins with spaces is still returned.
+- `list_filters` reads `usePost` with the same strict boolean rules as the other tools. The string `"false"` is no longer sent as POST.
 - The API key is no longer a property of the MCP's own client objects. `ZeroBounceClient`
   kept it in an ordinary `apiKey` property, and the server kept the whole config, so
   `JSON.stringify`, `util.inspect` and `%o` of those objects printed it. Both now hold only

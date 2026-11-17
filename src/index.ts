@@ -6,6 +6,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { formatErrorMessage } from './errors.js';
 import { HTTP_MAX_REQUEST_BODY_BYTES } from './security/bulk-input.js';
 import { DEFAULT_WARMUP_BASE_URL } from './warmup-client.js';
 import { ZeroBounceMCPServer, type ServerConfig } from './server.js';
@@ -32,6 +33,42 @@ const REGIONAL_API_BASE_URLS: Record<string, string> = {
   eu: 'https://api-eu.zerobounce.net/v2',
 };
 
+function authorityHasUserinfo(raw: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (parsed.username || parsed.password) return true;
+  const afterScheme = raw.trim().replace(/^https?:/i, '');
+  const authority = afterScheme.replace(/^[/\\]+/, '').split(/[/\\?#]/)[0] || '';
+  return authority.includes('@');
+}
+
+/**
+ * An explicit base URL must be https, with no username, password, query, or
+ * fragment. The error does not include the URL: it can hold a credential.
+ */
+function requireExplicitHttpsBase(raw: string, label: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`Invalid ${label}. Use an https:// URL.`);
+  }
+  if (authorityHasUserinfo(raw)) {
+    throw new Error(`The ${label} must not contain a username or password.`);
+  }
+  if (parsed.search || parsed.hash || raw.includes('?') || raw.includes('#')) {
+    throw new Error(`The ${label} must not contain a query string or a fragment.`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`The ${label} must use https.`);
+  }
+  return raw.replace(/\/+$/, '');
+}
+
 /** Accepts `us`, `eu`, `default`, or an explicit https URL (for a test host). */
 function resolveApiBaseUrl(value: string | undefined): string {
   const raw = value?.trim();
@@ -40,20 +77,13 @@ function resolveApiBaseUrl(value: string | undefined): string {
   const region = REGIONAL_API_BASE_URLS[raw.toLowerCase()];
   if (region) return region;
 
-  let parsed: URL;
   try {
-    parsed = new URL(raw);
-  } catch {
-    throw new Error(
-      `Invalid API URL: ${raw}. Use us, eu, or an https:// URL.`
-    );
+    return requireExplicitHttpsBase(raw, 'API URL');
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Invalid API URL')) throw error;
+    if (!(error instanceof Error) || !error.message.startsWith('Invalid ')) throw error;
+    throw new Error('Invalid API URL. Use us, eu, or an https:// URL.');
   }
-  if (parsed.protocol !== 'https:') {
-    // Never silently fall back to production here: a caller who asked for one
-    // host and got another would send their key somewhere they did not choose.
-    throw new Error(`The API URL must use https, got: ${raw}`);
-  }
-  return raw.replace(/\/+$/, '');
 }
 
 /**
@@ -64,17 +94,44 @@ function resolveApiBaseUrl(value: string | undefined): string {
 function resolveWarmupBaseUrl(value: string | undefined): string {
   const raw = value?.trim();
   if (!raw) return DEFAULT_WARMUP_BASE_URL;
-
-  let parsed: URL;
   try {
-    parsed = new URL(raw);
-  } catch {
-    throw new Error(`Invalid Warmup API URL: ${raw}. Use an https:// URL.`);
+    return requireExplicitHttpsBase(raw, 'Warmup API URL');
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Invalid Warmup API URL')) throw error;
+    if (!(error instanceof Error) || !error.message.startsWith('Invalid ')) throw error;
+    throw new Error('Invalid Warmup API URL. Use an https:// URL.');
   }
-  if (parsed.protocol !== 'https:') {
-    throw new Error(`The Warmup API URL must use https, got: ${raw}`);
+}
+
+/** A key with a control, an invisible character, or Unicode whitespace is refused. A mid-key space stays allowed. */
+function assertSafeApiKey(key: string, label: string): void {
+  for (const char of key) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code === 0x20) continue;
+    const invisible =
+      code <= 0x1f ||
+      (code >= 0x7f && code <= 0x9f) ||
+      code === 0xa0 ||
+      code === 0xad ||
+      code === 0x600 ||
+      code === 0x890 ||
+      code === 0x891 ||
+      code === 0x180b ||
+      code === 0x180c ||
+      code === 0x180d ||
+      code === 0x180e ||
+      code === 0x180f ||
+      code === 0x200b ||
+      code === 0x202e ||
+      code === 0x2066 ||
+      code === 0xfeff ||
+      code === 0xfff9 ||
+      code === 0x1d173 ||
+      isHttpWhitespace(char);
+    if (invisible) {
+      throw new Error(`${label} must not contain control characters or invisible characters.`);
+    }
   }
-  return raw.replace(/\/+$/, '');
 }
 
 
@@ -182,6 +239,14 @@ async function handleMcpRequest(
     );
     return;
   }
+  try {
+    assertSafeApiKey(apiKey, 'ZeroBounce API key');
+    const warmupKey = getRequestWarmupApiKey(req);
+    if (warmupKey) assertSafeApiKey(warmupKey, 'ZeroBounce Warmup API key');
+  } catch (error) {
+    sendJsonRpcError(res, 401, formatErrorMessage(error));
+    return;
+  }
 
   // A fresh server per request keeps each caller's API key isolated: an SDK Server
   // can only be connected to one transport at a time, and sharing one instance
@@ -225,7 +290,7 @@ async function runHttp(
     }
 
     handleMcpRequest(req, res, baseUrl, warmupBaseUrl).catch((error) => {
-      console.error('Error handling MCP request:', error);
+      console.error('Error handling MCP request:', formatErrorMessage(error));
       if (!res.headersSent) {
         sendJsonRpcError(res, 500, 'Internal server error.');
       }
@@ -343,6 +408,8 @@ function parseArgs(): CliConfig {
       'ZeroBounce API key is required. Provide it via the --api-key flag or the ZEROBOUNCE_API_KEY environment variable.'
     );
   }
+  assertSafeApiKey(config.apiKey, 'ZeroBounce API key');
+  if (config.warmupApiKey) assertSafeApiKey(config.warmupApiKey, 'ZeroBounce Warmup API key');
 
   return config;
 }
@@ -369,6 +436,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error('Fatal error:', error);
+  console.error('Fatal error:', formatErrorMessage(error));
   process.exit(1);
 });

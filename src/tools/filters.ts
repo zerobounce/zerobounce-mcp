@@ -1,5 +1,11 @@
 import type { ZeroBounceClient } from '../zerobounce-client.js';
-import { ToolHandler, createSuccessResponse, createErrorResponse, requireString } from './types.js';
+import {
+  ToolHandler,
+  createSuccessResponse,
+  createErrorResponse,
+  optionalBoolean,
+  requireString,
+} from './types.js';
 
 export const addFilterTool: ToolHandler = {
   sdkMethods: ['addFilter'],
@@ -44,7 +50,7 @@ export const listFiltersTool: ToolHandler = {
   },
   handler: async (client: ZeroBounceClient, args) => {
     try {
-      const usePost = Boolean(args.usePost);
+      const usePost = optionalBoolean(args.usePost, 'usePost') ?? false;
       const result = await client.listFilters(usePost);
       return createSuccessResponse(result);
     } catch (error) {

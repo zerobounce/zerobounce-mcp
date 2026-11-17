@@ -11,6 +11,7 @@
  */
 import assert from 'node:assert/strict';
 import util from 'node:util';
+import { looksLikeHtml } from '../src/errors.js';
 import { ZeroBounceClient } from '../src/zerobounce-client.js';
 import { ZeroBounceMCPServer } from '../src/server.js';
 
@@ -91,4 +92,10 @@ const serverDumps = [
 for (const shown of serverDumps) {
   assert.ok(!shown.includes(KEY) && !shown.includes(WARMUP_KEY), 'a server dump carries a key');
 }
+const html = '<html><head><title>x</title></head></html>';
+assert.equal(looksLikeHtml(html), true);
+assert.equal(looksLikeHtml(`${' '.repeat(2500)}${html}`), true);
+assert.equal(looksLikeHtml(`${'\t'.repeat(2500)}${html}`), true);
+assert.equal(looksLikeHtml(`${'\u00a0'.repeat(2500)}${html}`), true);
+assert.equal(looksLikeHtml(`  email\na@b.c\n`), false);
 console.log('client-key: ok');

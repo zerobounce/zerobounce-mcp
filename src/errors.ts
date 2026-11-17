@@ -5,8 +5,33 @@
 /** Longest error message returned to MCP clients; API error bodies can be megabytes. */
 export const MAX_ERROR_MESSAGE_LENGTH = 1000;
 
+const HTML_TAG = /<(?:!doctype\s+html|html|head|body)\b/i;
+
+/** Spaces, tabs, CR, LF, VT, FF, a leading BOM, and U+00A0. The tag is sought after these. */
+function skipLeadingHtmlPadding(text: string): string {
+  let index = 0;
+  if (text.charCodeAt(0) === 0xfeff) index = 1;
+  while (index < text.length) {
+    const code = text.charCodeAt(index);
+    if (
+      code === 0x20 ||
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0d ||
+      code === 0x0b ||
+      code === 0x0c ||
+      code === 0xa0
+    ) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  return text.slice(index);
+}
+
 export function looksLikeHtml(text: string): boolean {
-  return /<(?:!doctype\s+html|html|head|body)\b/i.test(text.slice(0, 2000));
+  return HTML_TAG.test(skipLeadingHtmlPadding(text).slice(0, 2000));
 }
 
 /**
