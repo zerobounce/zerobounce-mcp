@@ -95,7 +95,10 @@ jobs:
       - name: Checkout tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.validate-tag.outputs.tag_sha }}
+          # The tag by name (a ruleset protects v* tags from moves); the next step checks it is
+          # still the commit validate-tag checked. Checking out a job output instead is flagged by
+          # CodeQL as untrusted (actions/cache-poisoning).
+          ref: refs/tags/${{ github.event.inputs.tag }}
           persist-credentials: false
 
       - name: Verify checkout matches validated SHA
