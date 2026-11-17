@@ -356,7 +356,12 @@ function buildAllowedHosts(bindHost: string, extra: string[]): Set<string> | nul
   const names = new Set<string>();
   for (const name of extra) {
     const host = hostnameOf(name);
-    if (host) names.add(host);
+    if (!host || !/^[a-z0-9._:-]+$/.test(host)) {
+      throw new Error(
+        `Invalid allowed host ${JSON.stringify(name)}: use a host name such as mcp.example.org (optionally with :port), not a URL.`
+      );
+    }
+    names.add(host);
   }
   if (LOOPBACK_NAMES.includes(bind)) {
     for (const name of LOOPBACK_NAMES) names.add(name);
@@ -420,6 +425,12 @@ async function runHttp(
       const pathname = requestPath(req.url);
       if (pathname === undefined) {
         res.writeHead(400, { 'Content-Type': 'application/json' }).end('{"error":"Bad request target."}');
+        return;
+      }
+
+      // RFC 9112 section 3.2: a request with more than one Host header is refused.
+      if (req.rawHeaders.filter((_, i) => i % 2 === 0 && _.toLowerCase() === 'host').length > 1) {
+        res.writeHead(400, { 'Content-Type': 'application/json' }).end('{"error":"Duplicate Host header."}');
         return;
       }
 

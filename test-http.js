@@ -2469,6 +2469,11 @@ async function testHttpHardening(origin, names) {
     'https://a.b.sslip.io/hook',
     'https://metadata.google.internal/hook',
     'https://metadata.google.internal./hook',
+    'https://metadata.goog/hook',
+    'https://192.31.196.1/hook',
+    'https://192.52.193.1/hook',
+    'https://192.175.48.1/hook',
+    'https://[2620:4f:8000::1]/hook',
     'https://user:pw@example.com/hook',
     'https://user@example.com/hook',
     'https://example.com:8443/hook',
@@ -2627,6 +2632,56 @@ async function testAllowedHosts() {
   await stopServer(open);
 }
 
+async function testTransportEdges() {
+  console.log('\nTransport edges: allowed-host validation, duplicate Host, Origin, limits');
+  for (const bad of ['https://mcp.example.org', ':::', 'a/b']) {
+    const r = runCli([SERVER_PATH, '--http', '--allowed-host', bad], { encoding: 'utf8', env: { ...process.env } });
+    check(r.status === 1 && /Invalid allowed host/.test(r.stderr), `--allowed-host ${bad} stops startup`, `${r.status} ${r.stderr.slice(0, 120)}`);
+  }
+  const envBad = runCli([SERVER_PATH, '--http', '--host', '0.0.0.0'], {
+    encoding: 'utf8',
+    env: { ...process.env, MCP_TLS_TERMINATED: 'true', MCP_ALLOWED_HOSTS: 'https://mcp.example.org' },
+  });
+  check(envBad.status === 1 && /Invalid allowed host/.test(envBad.stderr), 'MCP_ALLOWED_HOSTS with a URL stops startup');
+
+  const port = await freePort();
+  const server = await startServer(['--port', String(port)]);
+  const key = ['X-ZeroBounce-Api-Key', 'edge-key'];
+  const dupHost = await rawRequest(
+    server.origin,
+    `GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n`
+  );
+  check(/^HTTP\/1\.1 400/.test(dupHost), 'two Host headers are refused with 400', dupHost.slice(0, 40));
+  const ws = await postWithHeaders(server.origin, [...key, 'Host', `127.0.0.1:${port}`, 'Origin', `ws://127.0.0.1:${port}`]);
+  check(ws.status === 403, 'a ws:// Origin is refused even when its host is allowed');
+  const dot = await postWithHeaders(server.origin, [...key, 'Host', 'localhost.']);
+  check(dot.status === 200, 'a trailing dot on the Host name is ignored');
+  await stopServer(server);
+
+  const cfgPort = await freePort();
+  const child = spawn(process.execPath, ['--import', FAKE_API, '--import', join(__dirname, 'test', 'inspect-http.mjs'), SERVER_PATH, '--http', '--port', String(cfgPort)], {
+    env: { ...process.env, FAKE_ZB_LOG: LOG_FILE },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let err = '';
+  child.stderr.on('data', (c) => (err += c));
+  for (let i = 0; i < 100 && !/HTTPCFG/.test(err); i++) await new Promise((r) => setTimeout(r, 100));
+  child.kill();
+  const cfg = JSON.parse((err.match(/HTTPCFG (\{.*\})/) ?? [, 'null'])[1]);
+  check(cfg?.headersTimeout === 15000, 'headersTimeout is 15 s', JSON.stringify(cfg));
+  check(cfg?.requestTimeout === 120000, 'requestTimeout is 120 s');
+  check(cfg?.maxConnections === 512, 'maxConnections is 512');
+
+  const openPort = await freePort();
+  const open = await startServer(['--port', String(openPort), '--host', '0.0.0.0'], { MCP_TLS_TERMINATED: 'true' });
+  const base = open.origin.replace('0.0.0.0', '127.0.0.1');
+  const cross = await postWithHeaders(base, [...key, 'Host', 'whatever.example', 'Origin', 'https://evil.example']);
+  check(cross.status === 403, 'unrestricted wildcard bind: a cross-origin Origin is refused');
+  const same = await postWithHeaders(base, [...key, 'Host', 'whatever.example', 'Origin', 'https://whatever.example']);
+  check(same.status === 200, 'unrestricted wildcard bind: a same-origin Origin is accepted');
+  await stopServer(open);
+}
+
 async function main() {
   if (!existsSync(SERVER_PATH)) {
     console.error(`Server not found at ${SERVER_PATH}. Run npm run build first.`);
@@ -2653,6 +2708,7 @@ async function main() {
   }
   await testBindHost();
   await testAllowedHosts();
+  await testTransportEdges();
 
   console.log(`\n${passes} passed, ${failures} failed`);
   rmSync(workDir, { recursive: true, force: true });

@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `--allowed-host` / `MCP_ALLOWED_HOSTS` entries that are not host names (a URL such as `https://mcp.example.org`, `:::`) stop the server at startup with `Invalid allowed host ...` (exit 1); 0.3.1-era builds of this branch dropped them silently, leaving a wildcard bind unrestricted.
+- HTTP mode refuses (400) a request with more than one `Host` header (RFC 9112 section 3.2).
+- Bulk `returnUrl` / `webhookUrl` also refuse 192.31.196.0/24, 192.52.193.0/24, 192.175.48.0/24, 2620:4f:8000::/48 and `metadata.goog`.
 - Docs: README documents the command-line options and the bulk `returnUrl` rules; the test lists name all four suites; `.env.example` and SECURITY.md cover `MCP_ALLOWED_HOSTS` / `--allowed-host` (DNS rebinding on a `0.0.0.0` bind); the Cursor guide follows Cursor's current docs (Customize in the sidebar, `~/.cursor/mcp.json`); AGENTS.md says a new secret-bearing argument must reach the final masking pass.
 - CI and the publish workflow install the packed tarball into a clean directory and run `--version` (checked against `package.json` and the tag) and `--help`.
 - `@modelcontextprotocol/sdk` is required at `^1.32.1` (was `^1.29.0`); 1.29 to 1.31 carry published advisories, two of them on request size limits in the HTTP transport this server uses. `@types/node` follows the `engines` floor (22).

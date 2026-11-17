@@ -2354,7 +2354,13 @@ var IPV4_BLOCKS = [
   ["172.16.0.0", 12],
   ["192.0.0.0", 24],
   ["192.0.2.0", 24],
+  ["192.31.196.0", 24],
+  // AS112-v4
+  ["192.52.193.0", 24],
+  // AMT
   ["192.88.99.0", 24],
+  ["192.175.48.0", 24],
+  // direct delegation AS112
   ["192.168.0.0", 16],
   ["198.18.0.0", 15],
   ["198.51.100.0", 24],
@@ -2436,6 +2442,7 @@ function isPrivateIpv6(host) {
   if (a === 256 && b === 0 && c === 0 && d === 0) return true;
   if (a === 8193 && b < 512) return true;
   if (a === 8193 && b === 3512) return true;
+  if (a === 9760 && b === 79 && c === 32768) return true;
   if (a === 16383 && b < 4096) return true;
   if (a === 24320) return true;
   if (a >= 64512 && a <= 65023) return true;
@@ -2458,7 +2465,7 @@ var BLOCKED_NAME_SUFFIXES = [
   "localtest.me",
   "lvh.me"
 ];
-var BLOCKED_NAMES = /* @__PURE__ */ new Set(["metadata", "instance-data", "metadata.google.internal"]);
+var BLOCKED_NAMES = /* @__PURE__ */ new Set(["metadata", "instance-data", "metadata.google.internal", "metadata.goog"]);
 function isPrivateOrLocalHost(hostname) {
   const host = normalizeHost(hostname);
   if (BLOCKED_NAMES.has(host)) return true;
@@ -5799,7 +5806,12 @@ function buildAllowedHosts(bindHost, extra) {
   const names = /* @__PURE__ */ new Set();
   for (const name of extra) {
     const host = hostnameOf(name);
-    if (host) names.add(host);
+    if (!host || !/^[a-z0-9._:-]+$/.test(host)) {
+      throw new Error(
+        `Invalid allowed host ${JSON.stringify(name)}: use a host name such as mcp.example.org (optionally with :port), not a URL.`
+      );
+    }
+    names.add(host);
   }
   if (LOOPBACK_NAMES.includes(bind)) {
     for (const name of LOOPBACK_NAMES) names.add(name);
@@ -5849,6 +5861,10 @@ async function runHttp(host, port, baseUrl, warmupBaseUrl, allowedHostNames = []
       const pathname = requestPath(req.url);
       if (pathname === void 0) {
         res.writeHead(400, { "Content-Type": "application/json" }).end('{"error":"Bad request target."}');
+        return;
+      }
+      if (req.rawHeaders.filter((_, i) => i % 2 === 0 && _.toLowerCase() === "host").length > 1) {
+        res.writeHead(400, { "Content-Type": "application/json" }).end('{"error":"Duplicate Host header."}');
         return;
       }
       if (pathname === "/health") {

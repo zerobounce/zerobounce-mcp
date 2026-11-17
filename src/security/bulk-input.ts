@@ -30,7 +30,10 @@ const IPV4_BLOCKS: Array<[string, number]> = [
   ['172.16.0.0', 12],
   ['192.0.0.0', 24],
   ['192.0.2.0', 24],
+  ['192.31.196.0', 24], // AS112-v4
+  ['192.52.193.0', 24], // AMT
   ['192.88.99.0', 24],
+  ['192.175.48.0', 24], // direct delegation AS112
   ['192.168.0.0', 16],
   ['198.18.0.0', 15],
   ['198.51.100.0', 24],
@@ -130,6 +133,7 @@ function isPrivateIpv6(host: string): boolean {
   if (a === 0x100 && b === 0 && c === 0 && d === 0) return true; // 100::/64 discard
   if (a === 0x2001 && b < 0x200) return true; // 2001::/23 IETF protocol assignments, Teredo
   if (a === 0x2001 && b === 0xdb8) return true; // documentation
+  if (a === 0x2620 && b === 0x4f && c === 0x8000) return true; // 2620:4f:8000::/48 direct delegation AS112
   if (a === 0x3fff && b < 0x1000) return true; // 3fff::/20 documentation
   if (a === 0x5f00) return true; // 5f00::/16 SRv6 SIDs
   if (a >= 0xfc00 && a <= 0xfdff) return true; // fc00::/7 unique local
@@ -154,7 +158,7 @@ const BLOCKED_NAME_SUFFIXES = [
   'localtest.me',
   'lvh.me',
 ];
-const BLOCKED_NAMES = new Set(['metadata', 'instance-data', 'metadata.google.internal']);
+const BLOCKED_NAMES = new Set(['metadata', 'instance-data', 'metadata.google.internal', 'metadata.goog']);
 
 function isPrivateOrLocalHost(hostname: string): boolean {
   const host = normalizeHost(hostname);
