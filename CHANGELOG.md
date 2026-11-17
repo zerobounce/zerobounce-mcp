@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-18
+
 ### Breaking changes
 
-- Bundled ZeroBounce SDK 5.0.0 (was 4.0.0). Behaviour a 0.3.1 user can notice through the tools:
+- Bundled ZeroBounce SDK 5.0.1 (was 4.0.0). Behaviour a 0.3.1 user can notice through the tools:
   a 2xx body that carries only a `message`, a `success` flag that is not true (`false`, `0`,
   `"0"`, `" False "`, `null`) or no data at all (`{}`, an unrecognised object) is now an error
   instead of a successful result; `get_credits` returns `Credits` as a decimal string (a numeric
@@ -353,7 +355,8 @@ hosted HTTP deployments.
 - Initial release: stdio MCP server with email validation, batch validation, credits and API
   usage, bulk validation and AI scoring files, email finder, domain search, and activity data tools.
 
-[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.1.12...v0.2.0
