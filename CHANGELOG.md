@@ -45,11 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `--allowed-host` / `MCP_ALLOWED_HOSTS` entries that are not host names (a URL such as `https://mcp.example.org`, `:::`) stop the server at startup with `Invalid allowed host ...` (exit 1); 0.3.1-era builds of this branch dropped them silently, leaving a wildcard bind unrestricted.
+- `--allowed-host` / `MCP_ALLOWED_HOSTS` entries that are not valid host names (a URL such as `https://mcp.example.org`, `:::`, `[::]`, `0.0.0.0`, `-`, `a_b`, `host:99999`) stop the server at startup with `Invalid allowed host ...` (exit 1); a valid entry is a DNS name (letters, digits and inner hyphens, at most 253 characters), an IPv4 address other than 0.0.0.0 or a bracketed IPv6 address other than `::`, with an optional port from 1 to 65535. 0.3.1-era builds of this branch dropped them silently, leaving a wildcard bind unrestricted.
 - HTTP mode refuses (400) a request with more than one `Host` header (RFC 9112 section 3.2).
 - Bulk `returnUrl` / `webhookUrl` also refuse 192.31.196.0/24, 192.52.193.0/24, 192.175.48.0/24, 2620:4f:8000::/48 and `metadata.goog`.
 - Docs: README documents the command-line options and the bulk `returnUrl` rules; the test lists name all four suites; `.env.example` and SECURITY.md cover `MCP_ALLOWED_HOSTS` / `--allowed-host` (DNS rebinding on a `0.0.0.0` bind); the Cursor guide follows Cursor's current docs (Customize in the sidebar, `~/.cursor/mcp.json`); AGENTS.md says a new secret-bearing argument must reach the final masking pass.
-- CI and the publish workflow install the packed tarball into a clean directory and run `--version` (checked against `package.json` and the tag) and `--help`.
+- CI and the publish workflow install the packed tarball into a clean directory, run `--version` (checked against `package.json` and the tag) and `--help`, and start the installed server over stdio with a dummy key as an MCP client: `tools/list` must return at least 49 tools (no network call).
 - `@modelcontextprotocol/sdk` is required at `^1.32.1` (was `^1.29.0`); 1.29 to 1.31 carry published advisories, two of them on request size limits in the HTTP transport this server uses. `@types/node` follows the `engines` floor (22).
 - `--help` / `-h` and `--version` / `-v` print and exit without a key; `--help` now lists `MCP_TLS_TERMINATED`.
 - Client setup docs follow each client's current format: VS Code `mcp.json` uses `servers` and has MCP built in (no extension), Cursor reads `~/.cursor/mcp.json`, Zed uses `context_servers`, Continue uses `.continue/mcpServers/*.yaml`. `server.json` declares the optional `ZEROBOUNCE_WARMUP_API_KEY` (secret) and `ZEROBOUNCE_API_URL`.
@@ -71,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - DNS-rebinding protection for HTTP mode (Host and Origin checks, above).
 - The API key and Warmup key check covers every invisible, format, bidi, C1 and lone-surrogate character and a key of combining marks only (as JavaScript SDK 5.0.0 `checkApiKey`).
 - HTTP server limits: headers within 15 s, a whole request within 120 s, at most 512 connections.
-- The final masking pass now masks a secret's spelling (upper case, all-%XX, &#x;, \xHH, \U{}, %25, NFD plus a combining mark) even when it straddles a window boundary in a long single-line text, such as a bulk get_file CSV: windows are masked again over each seam (16 characters per secret character plus 64 on each side). A 3 MB result takes about 0.5 s (ASCII) to 1.3 s (non-ASCII), down from 6.3 s.
+- The final masking pass masks a secret's spelling (upper case, all-%XX, &#x;, \xHH, \U{}, %25, layered entity-over-%-escapes, zero-padded entities, NFD plus a combining mark) wherever it falls in a long single-line text, such as a bulk get_file CSV: windows end only after whitespace, a double quote or a comma (none of which any spelling of a secret contains), so no spelling is ever split. A value with no such character within a window is checked whole; one over 64 KiB replaces the result with a fixed message. When any part of a long result has to be omitted, the whole result is replaced by the fixed message (never returned with a gap or cut short). A 3 MB result takes about 0.5 s (ASCII) to 1.3 s (non-ASCII), down from 6.3 s.
 - A secret shorter than 8 characters (a short SMTP username) is masked as a whole token with any non-alphanumeric boundary (an underscore, a quote, "%3D", "\n" and "&quot;" count as boundaries), in any case; a result whose decoded form still shows it as a whole token is replaced by "ZeroBounce: the response text was omitted because it contained a credential."
 - "Unknown tool: <name>" and "Unknown resource: <uri>" go through the final masking pass, so a key sent as a tool name or resource URI is not echoed.
 
@@ -104,10 +104,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `delete_inbox_placement_test`: the server no longer wraps global `fetch` to detect a 204; the SDK 5.0.0 resolves an empty 2xx to `{}` itself (a whitespace-only body is still an error).
 - A tool that throws is reported as a masked tool error, never a raw exception message.
 - Text taken from a response body (a bulk get_file error object, an unexpected response) no longer cuts a short secret out of the words around it ("a***th failed … ***ser"); it follows the same whole-token rule as the final pass.
-- An error whose message starts with `<` is reported as "ZeroBounce returned an HTML error page ("<title>")…" (a page with only a `<title>` included); a `<html>` tag further into a message is text, not a page.
+- An error whose message starts with `<` and holds an `<html>`, `<head>`, `<body>` or doctype tag or a `<title>` element is reported as "ZeroBounce returned an HTML error page ("<title>")…"; a message that merely starts with a tag (`<b>bold</b> api key ...`) is text and is returned as such, as is a tag further into a message.
 - A thrown value that is not an Error is described safely: its message, else its JSON (capped, masked), else "Unknown error"; never "[object Object]".
 - Email addresses are limited to 320 characters on every tool that takes one: score_email, get_activity_data, create_inbox_placement_test (senderEmail) and every Warmup fromAddress, oldFromAddress and newFromAddress (message: "<field> must be at most 320 characters"), not only validate_email and validate_batch.
 - list_inbox_placement_tests createdAfter and createdBefore must be a real ISO 8601 date (YYYY-MM-DD) or datetime ("<field> must be a real ISO 8601 date (YYYY-MM-DD) or datetime"); 2024-02-30 or "yesterday" is refused before any request.
+- A short secret followed by combining marks ("bob1" + U+0301) is masked with the marks, not left in the result.
 
 ## [0.3.1] - 2026-11-12
 

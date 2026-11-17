@@ -56,6 +56,18 @@ export function looksLikeHtmlDownload(text: string): boolean {
   return skipLeadingHtmlPadding(text).startsWith('<');
 }
 
+/**
+ * Whether an error message is a page: it starts with `<` and holds an html, head,
+ * body or doctype tag or a title element. A message that merely starts with a tag
+ * (`<b>bold</b> api key ...`) is text, and is returned as such.
+ */
+export function looksLikeHtmlPage(message: string): boolean {
+  const body = skipLeadingHtmlPadding(message);
+  if (!body.startsWith('<')) return false;
+  const head = body.slice(0, HTML_PROBE_CHARS);
+  return HTML_TAG.test(head) || /<title[\s>]/i.test(head);
+}
+
 const HTML_TITLE_WINDOW = 65536;
 const HTML_TITLE_MAX = 1000;
 
@@ -100,7 +112,7 @@ export function formatErrorMessage(error: unknown, secrets: string[] = currentSe
   // The message is the SDK's extraction, not the body: a real HTML page is
   // already its fixed text, so only a message that itself starts with `<` is
   // a page here (a tag further in is text, as in a JSON error string).
-  if (looksLikeHtmlDownload(message)) {
+  if (looksLikeHtmlPage(message)) {
     const title = htmlTitle(message);
     return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ''} instead of an API response. Check the API key and request parameters.`;
   }

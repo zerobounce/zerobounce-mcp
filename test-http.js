@@ -2634,7 +2634,7 @@ async function testAllowedHosts() {
 
 async function testTransportEdges() {
   console.log('\nTransport edges: allowed-host validation, duplicate Host, Origin, limits');
-  for (const bad of ['https://mcp.example.org', ':::', 'a/b']) {
+  for (const bad of ['https://mcp.example.org', ':::', 'a/b', '[::]', '[:::]', '0.0.0.0', '-', 'a_b', 'host:99999', 'host:0', '-a.example', 'a-.example', 'a..example', '[::]:80']) {
     const r = runCli([SERVER_PATH, '--http', '--allowed-host', bad], { encoding: 'utf8', env: { ...process.env } });
     check(r.status === 1 && /Invalid allowed host/.test(r.stderr), `--allowed-host ${bad} stops startup`, `${r.status} ${r.stderr.slice(0, 120)}`);
   }
@@ -2642,6 +2642,11 @@ async function testTransportEdges() {
     encoding: 'utf8',
     env: { ...process.env, MCP_TLS_TERMINATED: 'true', MCP_ALLOWED_HOSTS: 'https://mcp.example.org' },
   });
+  for (const good of ['mcp.example.org', 'mcp.example.org:8443', 'EXAMPLE.org.', '10.0.0.5', '[2001:db8::1]:443']) {
+    const goodServer = await startServer(['--port', String(await freePort()), '--allowed-host', good]);
+    check(true, `--allowed-host ${good} is accepted`);
+    await stopServer(goodServer);
+  }
   check(envBad.status === 1 && /Invalid allowed host/.test(envBad.stderr), 'MCP_ALLOWED_HOSTS with a URL stops startup');
 
   const port = await freePort();

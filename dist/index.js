@@ -1614,6 +1614,7 @@ var require_zeroBounceSDK = __commonJS({
 });
 
 // src/index.ts
+import { isIPv4, isIPv6 } from "node:net";
 import { createServer } from "node:http";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -2150,6 +2151,10 @@ function collectArgSecrets(args, depth = 0) {
 var WHOLE_TEXT_MIN_SECRET_LENGTH = 8;
 var WINDOW_CHARS = 16384;
 var isWordChar = (ch) => ch !== void 0 && /[\p{L}\p{N}\p{M}]/u.test(ch);
+var isBaseWordChar = (ch) => ch !== void 0 && /[\p{L}\p{N}]/u.test(ch);
+function marksLength(text) {
+  return /^\p{M}*/u.exec(text)?.[0].length ?? 0;
+}
 var ESCAPE_AT_END = /(?:%[0-9a-f]{2}|\\(?:[nrtbf"'/\\]|x[0-9a-f]{2}|[uU]\{[0-9a-f]{1,8}\}|u[0-9a-f]{4}|[0-7]{1,3})|&(?:#x[0-9a-f]+|#[0-9]+|[a-z]+);?)$/i;
 var ESCAPE_AT_START = /^(?:%[0-9a-f]{2}|\\(?:[nrtbf"'/\\]|x[0-9a-f]{2}|[uU]\{[0-9a-f]{1,8}\}|u[0-9a-f]{4}|[0-7]{1,3})|&(?:#x[0-9a-f]+|#[0-9]+|[a-z]+);?)/i;
 function escapeChars(escape2) {
@@ -2167,7 +2172,7 @@ function boundaryAfter(text, end) {
   const suffix = text.slice(end, end + 16);
   const escape2 = ESCAPE_AT_START.exec(suffix)?.[0];
   const ch = escape2 ? [...escapeChars(escape2)][0] : [...suffix][0];
-  return !isWordChar(ch);
+  return !isBaseWordChar(ch);
 }
 function occurrences(text, secret) {
   const lower = text.toLowerCase();
@@ -2185,7 +2190,7 @@ function maskWholeTokens(text, secret) {
   let from = 0;
   for (const at of occurrences(text, secret)) {
     if (at < from) continue;
-    const end = at + secret.length;
+    const end = at + secret.length + marksLength(text.slice(at + secret.length));
     if (boundaryBefore(text, at) && boundaryAfter(text, end)) {
       out += text.slice(from, at) + "***";
       from = end;
@@ -2198,45 +2203,63 @@ function decodedTokenRemains(text, secret) {
     if (view === text) continue;
     for (const at of occurrences(view, secret)) {
       const plainBefore = at === 0 || !isWordChar([...view.slice(Math.max(0, at - 2), at)].pop());
-      const plainAfter = !isWordChar([...view.slice(at + secret.length, at + secret.length + 2)][0]);
+      const plainAfter = !isBaseWordChar([...view.slice(at + secret.length, at + secret.length + 2)][0]);
       if (plainBefore && plainAfter) return true;
     }
   }
   return false;
 }
-function windows(text, size) {
+var VALUE_TOO_LONG_MESSAGE = "ZeroBounce: the result was omitted because a single value in it was too long to check for a credential.";
+function cutCharacters(secrets) {
+  const cuts = /* @__PURE__ */ new Set([" ", "\n", "\r", "	", '"', ","]);
+  for (const secret of secrets) {
+    for (const form of [secret, secret.normalize("NFKC"), secret.toLowerCase(), secret.toUpperCase()]) {
+      for (const ch of form) cuts.delete(ch);
+    }
+  }
+  return cuts;
+}
+function windows(text, size, cuts) {
   const pieces = [];
   let start = 0;
   while (start < text.length) {
     let end = Math.min(text.length, start + size);
     if (end < text.length) {
-      const lineBreak = text.lastIndexOf("\n", end - 1);
-      if (lineBreak > start + size / 2) end = lineBreak + 1;
-      else if ((text.charCodeAt(end - 1) & 64512) === 55296) end -= 1;
+      let cut = -1;
+      for (let i = end - 1; i >= start; i -= 1) {
+        if (cuts.has(text[i])) {
+          cut = i;
+          break;
+        }
+      }
+      if (cut < 0) {
+        for (let i = end; i < text.length; i += 1) {
+          if (cuts.has(text[i])) {
+            cut = i;
+            break;
+          }
+        }
+      }
+      end = cut < 0 ? text.length : cut + 1;
     }
-    pieces.push(text.slice(start, end));
+    const piece = text.slice(start, end);
+    if (piece.length > WINDOW_CHARS && utf8Length(piece) > MAX_REDACTED_LENGTH) return null;
+    pieces.push(piece);
     start = end;
   }
   return pieces;
 }
-var spellingSpan = (length) => 16 * length + 64;
-function maskInWindows(text, overlap, mask) {
-  const size = Math.max(WINDOW_CHARS, 4 * overlap);
-  if (text.length <= size) return mask(text);
-  const pieces = windows(text, size).map(mask);
-  const parts = [];
-  let current = pieces[0];
-  for (let i = 1; i < pieces.length; i += 1) {
-    const next = pieces[i];
-    let tail = Math.min(overlap, current.length);
-    if (tail < current.length && (current.charCodeAt(current.length - tail) & 64512) === 56320) tail += 1;
-    let head = Math.min(overlap, next.length);
-    if (head < next.length && (next.charCodeAt(head - 1) & 64512) === 55296) head -= 1;
-    parts.push(current.slice(0, current.length - tail));
-    current = mask(current.slice(current.length - tail) + next.slice(0, head)) + next.slice(head);
+function maskInWindows(text, secrets, mask) {
+  if (text.length <= WINDOW_CHARS) return mask(text);
+  const pieces = windows(text, WINDOW_CHARS, cutCharacters(secrets));
+  if (!pieces) return VALUE_TOO_LONG_MESSAGE;
+  const masked = [];
+  for (const piece of pieces) {
+    const result = mask(piece);
+    if (result === CREDENTIAL_OMITTED_MESSAGE || result === TEXT_TOO_LONG_MESSAGE) return result;
+    masked.push(result);
   }
-  parts.push(current);
-  return parts.join("");
+  return masked.join("");
 }
 function redactResultText(text, secrets) {
   const present = [...new Set(secrets.filter((s) => typeof s === "string" && s !== ""))];
@@ -2251,8 +2274,7 @@ function redactResultText(text, secrets) {
       for (const secret of long) {
         for (const form of secretForms(secret)) out = out.split(form).join("***");
       }
-      const overlap = spellingSpan(Math.max(...long.map((s) => s.length)));
-      out = maskInWindows(out, overlap, (piece) => redactSecrets(piece, long));
+      out = maskInWindows(out, long, (piece) => redactSecrets(piece, long));
     }
   }
   if (short.length) {
@@ -2261,7 +2283,7 @@ function redactResultText(text, secrets) {
       for (const secret of short) masked = maskWholeTokens(masked, secret);
       return short.some((secret) => decodedTokenRemains(masked, secret)) ? CREDENTIAL_OMITTED_MESSAGE : masked;
     };
-    out = maskInWindows(out, spellingSpan(WHOLE_TEXT_MIN_SECRET_LENGTH), maskShort);
+    out = maskInWindows(out, short, maskShort);
   }
   return out;
 }
@@ -2293,6 +2315,12 @@ function looksLikeHtml(text) {
 function looksLikeHtmlDownload(text) {
   return skipLeadingHtmlPadding(text).startsWith("<");
 }
+function looksLikeHtmlPage(message) {
+  const body = skipLeadingHtmlPadding(message);
+  if (!body.startsWith("<")) return false;
+  const head = body.slice(0, HTML_PROBE_CHARS);
+  return HTML_TAG.test(head) || /<title[\s>]/i.test(head);
+}
 var HTML_TITLE_WINDOW = 65536;
 var HTML_TITLE_MAX = 1e3;
 function htmlTitle(page) {
@@ -2320,7 +2348,7 @@ function formatErrorMessage(error, secrets = currentSecrets()) {
   let message = describeThrown(error).trim();
   message = message.replace(/^(?:(?:Error|\[Error\]):\s*)+/i, "");
   message = redactResultText(message, secrets);
-  if (looksLikeHtmlDownload(message)) {
+  if (looksLikeHtmlPage(message)) {
     const title = htmlTitle(message);
     return `ZeroBounce returned an HTML error page${title ? ` ("${title}")` : ""} instead of an API response. Check the API key and request parameters.`;
   }
@@ -5801,13 +5829,42 @@ function hostnameOf(value) {
   host = host.replace(/\.+$/, "");
   return host || void 0;
 }
+function isValidAllowedHost(value) {
+  const text = value.trim().toLowerCase();
+  if (text.startsWith("[")) {
+    const match = /^\[([0-9a-f:.]+)\](?::(\d+))?$/.exec(text);
+    if (!match || !isIPv6(match[1])) return false;
+    let normalized;
+    try {
+      normalized = new URL(`http://[${match[1]}]/`).hostname;
+    } catch {
+      return false;
+    }
+    if (normalized === "[::]") return false;
+    return portInRange(match[2]);
+  }
+  const parts = text.split(":");
+  if (parts.length > 2) return false;
+  let host = parts[0];
+  if (parts.length === 2 && !portInRange(parts[1])) return false;
+  if (isIPv4(host)) return host !== "0.0.0.0";
+  if (host.endsWith(".")) host = host.slice(0, -1);
+  if (!host || host.length > 253) return false;
+  return host.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
+}
+function portInRange(port) {
+  if (port === void 0) return true;
+  if (!/^\d{1,5}$/.test(port)) return false;
+  const n = Number(port);
+  return n >= 1 && n <= 65535;
+}
 function buildAllowedHosts(bindHost, extra) {
   const bind = hostnameOf(bindHost) ?? bindHost.toLowerCase();
   const wildcard = bind === "0.0.0.0" || bind === "::";
   const names = /* @__PURE__ */ new Set();
   for (const name of extra) {
     const host = hostnameOf(name);
-    if (!host || !/^[a-z0-9._:-]+$/.test(host)) {
+    if (!host || !isValidAllowedHost(name)) {
       throw new Error(
         `Invalid allowed host ${JSON.stringify(name)}: use a host name such as mcp.example.org (optionally with :port), not a URL.`
       );

@@ -3,6 +3,7 @@
  * Model Context Protocol server for ZeroBounce email validation
  */
 
+import { isIPv4, isIPv6 } from 'node:net';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -346,6 +347,44 @@ function hostnameOf(value: string): string | undefined {
 }
 
 /**
+ * Whether an `--allowed-host` value is a host name a Host header can carry: a DNS
+ * name (letters, digits and inner hyphens in each label, at most 253 characters,
+ * one trailing dot allowed), an IPv4 address that is not 0.0.0.0, or a bracketed
+ * IPv6 address that parses and is not the unspecified address, each with an
+ * optional :port from 1 to 65535.
+ */
+function isValidAllowedHost(value: string): boolean {
+  const text = value.trim().toLowerCase();
+  if (text.startsWith('[')) {
+    const match = /^\[([0-9a-f:.]+)\](?::(\d+))?$/.exec(text);
+    if (!match || !isIPv6(match[1])) return false;
+    let normalized: string;
+    try {
+      normalized = new URL(`http://[${match[1]}]/`).hostname;
+    } catch {
+      return false;
+    }
+    if (normalized === '[::]') return false;
+    return portInRange(match[2]);
+  }
+  const parts = text.split(':');
+  if (parts.length > 2) return false;
+  let host = parts[0];
+  if (parts.length === 2 && !portInRange(parts[1])) return false;
+  if (isIPv4(host)) return host !== '0.0.0.0';
+  if (host.endsWith('.')) host = host.slice(0, -1);
+  if (!host || host.length > 253) return false;
+  return host.split('.').every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
+}
+
+function portInRange(port: string | undefined): boolean {
+  if (port === undefined) return true;
+  if (!/^\d{1,5}$/.test(port)) return false;
+  const n = Number(port);
+  return n >= 1 && n <= 65535;
+}
+
+/**
  * The Host names this server answers to, against DNS rebinding: the bound host
  * (loopback names for a loopback bind) plus any `--allowed-host` / MCP_ALLOWED_HOSTS
  * names. Null means "not restricted": a wildcard bind with nothing configured.
@@ -356,7 +395,7 @@ function buildAllowedHosts(bindHost: string, extra: string[]): Set<string> | nul
   const names = new Set<string>();
   for (const name of extra) {
     const host = hostnameOf(name);
-    if (!host || !/^[a-z0-9._:-]+$/.test(host)) {
+    if (!host || !isValidAllowedHost(name)) {
       throw new Error(
         `Invalid allowed host ${JSON.stringify(name)}: use a host name such as mcp.example.org (optionally with :port), not a URL.`
       );

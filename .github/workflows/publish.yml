@@ -142,7 +142,7 @@ jobs:
         run: npm test
 
       # Install the packed tarball into a clean directory, as a consumer would, and run it.
-      # Dependencies come from the npm cache that `npm ci` filled, so this needs no network.
+      # `npm install` of the tarball needs the registry (for @modelcontextprotocol/sdk); the run below does not.
       - name: Install-test the packed tarball
         shell: bash
         env:
@@ -163,6 +163,22 @@ jobs:
             exit 1
           fi
           node "$CONSUMER/node_modules/@zerobounce/mcp/dist/index.js" --help | grep -q 'Usage: zerobounce-mcp'
+          # MCP client smoke: spawn the installed bin over stdio with a dummy key, no network
+          # (a dead proxy refuses any outgoing connection), and expect the full tool list.
+          (cd "$CONSUMER" && ZEROBOUNCE_API_KEY=dummy-smoke-key HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 node --input-type=module -e '
+            import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+            import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+            const client = new Client({ name: "smoke", version: "1.0.0" });
+            await client.connect(new StdioClientTransport({
+              command: process.execPath,
+              args: ["node_modules/@zerobounce/mcp/dist/index.js"],
+              env: { ...process.env },
+            }));
+            const { tools } = await client.listTools();
+            await client.close();
+            if (tools.length < 49) { console.error("::error::tools/list returned " + tools.length + " tools, expected at least 49."); process.exit(1); }
+            console.log("MCP smoke: " + tools.length + " tools");
+          ')
 
       - name: Check npm publishes package.json unchanged
         # npm silently rewrites package.json entries it considers invalid at publish time,

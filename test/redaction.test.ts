@@ -230,10 +230,12 @@ for (const [label, form] of Object.entries(variants(SMTP_PW))) {
 
 // Long text is masked in full, for any length (the 64 KiB cap of redactSecrets).
 {
-  const big = `${'x,y\n'.repeat(40000)}tail ${uesc(KEY)} ${KEY}\n`;
+  const big = `${'x,y\n'.repeat(40000)}tail ${KEY} ${KEY.toUpperCase()}\n`;
   const out = redactResultText(big, [KEY]);
-  assert.ok(out.length > 100000 && !leaks(out, KEY) && !out.includes(uesc(KEY)), 'long text masked');
+  assert.ok(out.length > 100000 && !leaks(out, KEY), 'long text masked');
   assert.ok(out.startsWith('x,y\nx,y\n'), 'long text keeps its content');
+  // A spelling only the decoders find: the whole result is replaced, not cut short.
+  assert.equal(redactResultText(`${'x,y\n'.repeat(40000)}tail ${uesc(KEY)} ${KEY}\n`, [KEY]), CREDENTIAL_OMITTED_MESSAGE);
 }
 
 // Mutants: the 2000-character HTML probe and the 1000-character message cut.
@@ -269,7 +271,11 @@ for (const [label, form] of Object.entries(variants(SMTP_PW))) {
     for (const offset of [16384 - Math.floor(form.length / 2), 16384 - 5, 16384 + 1]) {
       next = { status: 200, body: `email,note\na@b.co,${'x'.repeat(offset)}${form}${'y'.repeat(2000)}\n`, ct: 'text/csv' };
       const r = await call('bulk_validate_get_file', { fileId: 'f1' });
-      assert.ok(!r.isError && r.text.includes('a@b.co'), `csv ${label}: returned`);
+      // Masked in place, or (a spelling only the decoders find) the whole result replaced by the fixed message, never cut short.
+      assert.ok(
+        r.text.includes('a@b.co') || r.text === CREDENTIAL_OMITTED_MESSAGE,
+        `csv ${label}: returned whole or replaced: ${r.text.slice(0, 80)}`
+      );
       check(r.text, form, `csv ${label}@${offset}`);
     }
   }
@@ -375,6 +381,59 @@ for (const [label, form] of Object.entries(variants(SMTP_PW))) {
     assert.ok(!r.text.includes('must be a real ISO'), `${good} accepted: ${r.text}`);
   }
 }
+
+// A spelling of a secret is masked wherever the 16384-character windows of a long
+// result fall: windows end after a separator no spelling holds, so none is split.
+{
+  const KEY = 'dummykeyQx7mZp3RtW9vLc2Nb5Hj8Ka1';
+  const spell = (f: (c: number) => string) => [...KEY].map((ch) => f(ch.codePointAt(0)!)).join('');
+  const hexOf = (c: number) => c.toString(16);
+  const spellings: Record<string, string> = {
+    plain: KEY,
+    pct: spell((c) => '%' + hexOf(c).padStart(2, '0')),
+    pct2: spell((c) => '%25' + hexOf(c).padStart(2, '0')),
+    hexEntity: spell((c) => '&#x' + hexOf(c) + ';'),
+    json3: spell((c) =>
+      [...('\\u0025' + hexOf(c).padStart(2, '0'))].map((x) => '&#x' + x.charCodeAt(0).toString(16) + ';').join('')
+    ),
+    zeroPadded: spell((c) => '&#x' + '0'.repeat(60) + hexOf(c) + ';'),
+  };
+  for (const [name, spelling] of Object.entries(spellings)) {
+    for (const filler of ['y', 'y y,']) {
+      const step = Math.max(1, Math.floor(spelling.length / 12));
+      for (let off = 1; off < spelling.length; off += step) {
+        const pre = filler.repeat(Math.ceil(16384 / filler.length)).slice(0, 16384 - off);
+        const text = pre + ' ' + spelling + ' ' + 'z '.repeat(9000);
+        const out = redactResultText(text, [KEY]);
+        assert.ok(!out.includes(spelling.slice(0, 24)), `${name} straddling (offset ${off}, filler ${JSON.stringify(filler)}) is masked`);
+      }
+    }
+  }
+  // Cost stays linear: 8 MB of one line.
+  const line = 'x,' + KEY.toUpperCase() + ',&#x64;ummy\\n';
+  const big = line.repeat(Math.ceil(8e6 / line.length));
+  const t0 = Date.now();
+  const masked = redactResultText(big, [KEY]);
+  assert.ok(!masked.includes(KEY.toUpperCase()) && Date.now() - t0 < 20000, `8 MB masked in time (${Date.now() - t0} ms)`);
+  // One value longer than 64 KiB cannot be checked: the whole result is replaced.
+  assert.match(redactResultText('a'.repeat(70000) + ' b ' + 'c '.repeat(9000), [KEY]), /single value in it was too long to check/);
+  // A window that must be omitted replaces the whole result with a complete message.
+  const omitted = redactResultText('x '.repeat(9000) + ' bob1\u0301 %2562%256f%2562%2531 ' + 'y '.repeat(9000), ['bob1']);
+  assert.ok(omitted === CREDENTIAL_OMITTED_MESSAGE || !omitted.includes('bob1'), 'no truncated text');
+  assert.equal(
+    redactResultText('x '.repeat(9000) + 'user=%2562%256f%2562%2531;' + 'y '.repeat(9000), ['bob1']),
+    CREDENTIAL_OMITTED_MESSAGE
+  );
+}
+
+// A combining mark after a short secret is part of the match.
+assert.equal(redactResultText('bob1́', ['bob1']), '***');
+assert.equal(redactResultText('x bob1́̂ y', ['bob1']), 'x *** y');
+assert.equal(redactResultText('bob1́x', ['bob1']), 'bob1́x');
+
+// A message that merely starts with a tag is text; a page is a page.
+assert.equal(formatErrorMessage(new Error('<b>bold</b> api key invalid'), []), '<b>bold</b> api key invalid');
+assert.match(formatErrorMessage(new Error('<title>Denied</title><p>x'), []), /HTML error page \("Denied"\)/);
 
 // Secrets named in a call's arguments.
 assert.deepEqual(collectArgSecrets({ username: 'a', password: 'b', port: 1, nested: { api_key: 'c' }, server: 'd' }).sort(), ['a', 'b', 'c']);
