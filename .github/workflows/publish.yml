@@ -258,14 +258,10 @@ jobs:
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@11.19.1
 
+      # Trusted publishing only: npm exchanges this job's OIDC token for a short-lived
+      # publish token. No npm token is stored in the repository.
       - name: Publish to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
-            npm config set //registry.npmjs.org/:_authToken "$NODE_AUTH_TOKEN"
-          fi
-          npm publish "$RUNNER_TEMP"/tarball/*.tgz --access public --provenance
+        run: npm publish "$RUNNER_TEMP"/tarball/*.tgz --access public --provenance
 
   release:
     name: Create GitHub Release
