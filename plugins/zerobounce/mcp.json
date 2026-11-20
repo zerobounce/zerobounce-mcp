@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "zerobounce": {
+      "type": "http",
       "url": "https://mcp.zerobounce.net/mcp"
     }
   }

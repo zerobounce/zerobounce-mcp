@@ -1,0 +1,13 @@
+---
+description: How to use the hosted ZeroBounce MCP server when an email, list, credit, finder, inbox placement, or Warmup question comes up.
+alwaysApply: false
+---
+
+When the user is working with email addresses, lists, or ZeroBounce:
+
+- Use the `zerobounce` MCP server at `https://mcp.zerobounce.net/mcp`. Do not invent API calls.
+- Call `get_credits` before a large credit-spending run.
+- Confirm before delete tools and before spending credits on data the user did not provide.
+- Prefer bulk file tools over hundreds of single validations.
+- Treat found emails and AI scores as estimates.
+- Do not put ZeroBounce API keys in the repository, chat, or plugin config. Hosted sign-in is OAuth.

@@ -1,0 +1,11 @@
+---
+description: Keep email lists and ZeroBounce results out of git commits and logs.
+alwaysApply: false
+globs: "**/*.{csv,txt,json,env}"
+---
+
+Email lists and validation exports are customer data.
+
+- Do not commit CSV or TXT lists, validation results, or API keys.
+- Summarize counts and statuses in chat instead of pasting a whole file into a commit or a log.
+- Redact addresses in examples unless the user asked for a specific address to remain.
