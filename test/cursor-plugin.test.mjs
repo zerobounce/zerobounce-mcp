@@ -23,6 +23,13 @@ assert.equal(server.url, "https://mcp.zerobounce.net/mcp");
 assert.ok(!server.command, "hosted plugin should not spawn a local command");
 assert.ok(!("headers" in server));
 
+const marketplace = JSON.parse(
+  readFileSync(join(root, ".cursor-plugin", "marketplace.json"), "utf8"),
+);
+const entry = marketplace.plugins.find((plugin) => plugin.name === "zerobounce");
+assert.ok(entry, "marketplace.json must list the zerobounce plugin");
+assert.equal(entry.source, ".");
+
 const skill = readFileSync(join(root, "skills", "zerobounce", "SKILL.md"), "utf8");
 assert.ok(skill.startsWith("---\n"));
 const fm = skill.split("---\n")[1];
