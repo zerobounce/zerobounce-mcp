@@ -7,12 +7,12 @@
     "url": "https://github.com/zerobounce/zerobounce-mcp",
     "source": "github"
   },
-  "version": "0.4.0",
+  "version": "0.5.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@zerobounce/mcp",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "transport": {
         "type": "stdio"
       },
@@ -25,7 +25,7 @@
         },
         {
           "name": "ZEROBOUNCE_WARMUP_API_KEY",
-          "description": "ZeroBounce Warmup API key. Optional: enables the Warmup tools (26 tools); without it they are not registered.",
+          "description": "ZeroBounce Warmup API key. Optional: enables the Warmup tools (25 tools); without it they are not registered.",
           "isRequired": false,
           "isSecret": true
         },
