@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Cursor plugin now registers the hosted MCP server as HTTP (`https://mcp.zerobounce.net/mcp`) and ships skills, rules, agents, and commands under `plugins/zerobounce`. The marketplace entry source is `plugins/zerobounce`.
+
 ## [0.5.1] - 2026-11-20
 
 ### Added

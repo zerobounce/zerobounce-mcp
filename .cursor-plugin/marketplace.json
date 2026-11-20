@@ -6,22 +6,13 @@
     "email": "integrations@zerobounce.net"
   },
   "metadata": {
-    "description": "ZeroBounce email verification for Cursor",
-    "version": "0.5.0",
-    "pluginRoot": "plugins"
+    "description": "ZeroBounce email verification for Cursor"
   },
   "plugins": [
     {
       "name": "zerobounce",
-      "source": "zerobounce",
-      "description": "Email validation, scoring, finders, bulk lists, inbox placement and Warmup via the hosted ZeroBounce MCP server (OAuth sign-in).",
-      "version": "0.5.0",
-      "author": {
-        "name": "ZeroBounce"
-      },
-      "homepage": "https://www.zerobounce.net",
-      "repository": "https://github.com/zerobounce/zerobounce-mcp",
-      "keywords": ["email", "validation", "deliverability", "zerobounce"]
+      "source": "plugins/zerobounce",
+      "description": "Hosted ZeroBounce MCP (OAuth), plus skills, rules, agents, and commands for validation, list cleaning, finders, inbox placement, and Warmup."
     }
   ]
 }
