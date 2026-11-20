@@ -1,8 +1,12 @@
 import { createBulkFileTools } from './bulk-file-helpers.js';
 
 export const bulkDomainSearchTools = createBulkFileTools({
-  name: 'bulk_domain_search',
-  description: 'bulk domain search',
+  names: {
+    sendFile: 'send_domain_search_file',
+    fileStatus: 'domain_search_file_status',
+    getFile: 'domain_search_get_file',
+    deleteFile: 'domain_search_delete_file',
+  },
   sendFileMethod: (
     client,
     fileContent,

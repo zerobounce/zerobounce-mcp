@@ -13,6 +13,8 @@ import {
   optionalColumn,
   optionalBoolean,
 } from './types.js';
+import { describeTool, type ToolName } from './catalog.js';
+import type { BulkGetFileOptions } from '../zerobounce-client.js';
 import {
   assertBulkFileContentWithinLimit,
   validateBulkReturnUrl,
@@ -29,8 +31,10 @@ export interface BulkSendFileOptions {
 }
 
 export interface BulkFileToolConfig {
-  name: string;
-  description: string;
+  /** The four tools' names, as the hosted server names them. */
+  names: { sendFile: ToolName; fileStatus: ToolName; getFile: ToolName; deleteFile: ToolName };
+  /** The optional getfile query values this download takes. */
+  getFileOptions?: { downloadType?: boolean; activityData?: boolean };
   sendFileMethod: (
     client: ZeroBounceClient,
     fileContent: string,
@@ -46,7 +50,11 @@ export interface BulkFileToolConfig {
     options?: BulkSendFileOptions
   ) => Promise<unknown>;
   getStatusMethod: (client: ZeroBounceClient, fileId: string) => Promise<unknown>;
-  getFileMethod: (client: ZeroBounceClient, fileId: string) => Promise<unknown>;
+  getFileMethod: (
+    client: ZeroBounceClient,
+    fileId: string,
+    options?: BulkGetFileOptions
+  ) => Promise<unknown>;
   deleteFileMethod: (client: ZeroBounceClient, fileId: string) => Promise<unknown>;
   /** SDK methods the four tools need; see ToolHandler.sdkMethods. */
   sdkMethods?: string[];
@@ -65,14 +73,15 @@ export interface BulkFileToolConfig {
   supportsAllowPhase2?: boolean;
 }
 
+/** The bulk getfile `download_type` values. */
+const DOWNLOAD_TYPES = ['phase_1', 'phase_2', 'combined'];
+
 export function createBulkFileTools(config: BulkFileToolConfig): {
   sendFile: ToolHandler;
   fileStatus: ToolHandler;
   getFile: ToolHandler;
   deleteFile: ToolHandler;
 } {
-  // Some configs already say "bulk ..." ("bulk email finder"); the descriptions add "bulk" themselves.
-  const kind = config.description.replace(/^bulk /, '');
   const sendFileProperties: Record<string, object> = {
     fileContent: {
       type: 'string',
@@ -168,11 +177,30 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
     };
   }
 
+  const getFileProperties: Record<string, object> = {
+    fileId: {
+      type: 'string',
+      description: `File ID returned from ${config.names.sendFile}`,
+    },
+  };
+  if (config.getFileOptions?.downloadType) {
+    getFileProperties.downloadType = {
+      type: 'string',
+      enum: DOWNLOAD_TYPES,
+      description: 'Which results to download: phase_1, phase_2 or combined (sent as download_type).',
+    };
+  }
+  if (config.getFileOptions?.activityData) {
+    getFileProperties.activityData = {
+      type: 'boolean',
+      description: 'Include activity data columns (sent as activity_data).',
+    };
+  }
+
   const sendFileTool: ToolHandler = {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: `${config.name}_send_file`,
-      description: `Send a CSV file for bulk ${kind}. Returns a file ID for tracking.`,
+      ...describeTool(config.names.sendFile),
       inputSchema: {
         type: 'object',
         properties: sendFileProperties,
@@ -229,14 +257,13 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   const fileStatusTool: ToolHandler = {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: `${config.name}_file_status`,
-      description: `Get the status of a bulk ${kind} file upload.`,
+      ...describeTool(config.names.fileStatus),
       inputSchema: {
         type: 'object',
         properties: {
           fileId: {
             type: 'string',
-            description: `File ID returned from ${config.name}_send_file`,
+            description: `File ID returned from ${config.names.sendFile}`,
           },
         },
         required: ['fileId'],
@@ -257,24 +284,29 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   const getFileTool: ToolHandler = {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: `${config.name}_get_file`,
-      description: `Get the results of a completed bulk ${kind} file.`,
+      ...describeTool(config.names.getFile),
       inputSchema: {
         type: 'object',
-        properties: {
-          fileId: {
-            type: 'string',
-            description: `File ID returned from ${config.name}_send_file`,
-          },
-        },
+        properties: getFileProperties,
         required: ['fileId'],
       },
     },
     handler: async (client: ZeroBounceClient, args: Record<string, unknown>) => {
       try {
         const fileId = requireString(args.fileId, 'fileId');
+        const options: BulkGetFileOptions = {};
+        if (config.getFileOptions?.downloadType) {
+          const downloadType = optionalString(args.downloadType, 'downloadType');
+          if (downloadType !== undefined && !DOWNLOAD_TYPES.includes(downloadType)) {
+            throw new Error(`downloadType must be one of ${DOWNLOAD_TYPES.join(', ')}`);
+          }
+          options.downloadType = downloadType;
+        }
+        if (config.getFileOptions?.activityData) {
+          options.activityData = optionalBoolean(args.activityData, 'activityData');
+        }
 
-        const result = await config.getFileMethod(client, fileId);
+        const result = await config.getFileMethod(client, fileId, options);
         return createSuccessResponse(result);
       } catch (error) {
         return createErrorResponse(error);
@@ -285,9 +317,7 @@ export function createBulkFileTools(config: BulkFileToolConfig): {
   const deleteFileTool: ToolHandler = {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: `${config.name}_delete_file`,
-      description: `Delete a bulk ${kind} file from your account.`,
-      annotations: { destructiveHint: true, readOnlyHint: false },
+      ...describeTool(config.names.deleteFile),
       inputSchema: {
         type: 'object',
         properties: {

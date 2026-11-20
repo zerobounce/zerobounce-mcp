@@ -14,6 +14,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { ZeroBounceClient } from './zerobounce-client.js';
 import { getAllTools, getToolRegistry } from './tools/index.js';
+import { SERVER_INSTRUCTIONS } from './tools/catalog.js';
 import { createErrorResponse } from './tools/types.js';
 import { redactResultText, withSecrets } from './security/redact.js';
 
@@ -65,6 +66,7 @@ export class ZeroBounceMCPServer {
           tools: {},
           resources: {},
         },
+        instructions: SERVER_INSTRUCTIONS,
       }
     );
 
@@ -100,7 +102,7 @@ export class ZeroBounceMCPServer {
       }
 
       // One final pass over everything the model is shown, success or error,
-      // with every secret of the call: the API key, the Warmup key, and any SMTP
+      // with every secret of the call: the API key, the Warmup key, and any
       // username/password or token in the arguments.
       const secrets = this.client.secretsForCall(args || {});
       return withSecrets(secrets, async () => {

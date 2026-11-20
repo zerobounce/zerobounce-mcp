@@ -14,15 +14,14 @@ import {
   optionalBoolean,
   assertEmailLength,
 } from './types.js';
+import { describeTool } from './catalog.js';
 
 /** The validatebatch endpoint takes at most 200 emails per request. */
 export const MAX_BATCH_EMAILS = 200;
 
 export const validateBatchTool: ToolHandler = {
   definition: {
-    name: 'validate_batch',
-    description:
-      'Validate multiple email addresses in batch. More efficient for validating multiple emails at once.',
+    ...describeTool('validate_batch'),
     inputSchema: {
       type: 'object',
       properties: {

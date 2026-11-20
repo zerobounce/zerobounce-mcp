@@ -5,12 +5,11 @@
 
 import type { ZeroBounceClient } from '../zerobounce-client.js';
 import { ToolHandler, createSuccessResponse, createErrorResponse, requireIsoDate } from './types.js';
+import { describeTool } from './catalog.js';
 
 export const getApiUsageTool: ToolHandler = {
   definition: {
-    name: 'get_api_usage',
-    description:
-      'Get API usage statistics for a date range. Shows validation counts by status and sub-status.',
+    ...describeTool('get_api_usage'),
     inputSchema: {
       type: 'object',
       properties: {

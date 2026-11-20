@@ -89,9 +89,9 @@ the Warmup tools need a second key:
 `ZEROBOUNCE_WARMUP_API_KEY` works in place of the flag, the same way `ZEROBOUNCE_API_KEY`
 does, and the flag wins when both are set.
 
-The Warmup key is **optional**. Leave it out and the 26 `warmup_*` tools are not advertised
+The Warmup key is **optional**. Leave it out and the 25 `warmup_*` tools are not advertised
 at all, so a client never sees a tool that cannot work. Supply it and the server exposes 75
-tools instead of 49.
+tools instead of 50.
 
 In HTTP mode the Warmup key is a per-request header, `X-ZeroBounce-Warmup-Api-Key` — see
 [Remote (HTTP) Mode](#remote-http-mode).
@@ -288,14 +288,29 @@ terminates HTTPS in front of the server, because every request carries a caller'
 
 ## Tools
 
-The ZeroBounce MCP server provides the following tools, organized by category:
+The ZeroBounce MCP server provides the following tools, organized by category.
+
+Tool names, titles and annotations match the hosted ZeroBounce MCP server
+(`mcp.zerobounce.net`), so a model sees the same tools whichever server it is connected to.
+Every tool carries a `title` and `readOnlyHint` / `destructiveHint` / `idempotentHint` /
+`openWorldHint` annotations, and its description says when to use it and whether it spends
+credits (`CREDITS:`) or changes the account (`WRITE:`). Tools that delete or overwrite data
+(bulk file deletes, `delete_filter`, `delete_inbox_placement_test`, and the warmup updates
+and deletes) are marked `destructiveHint: true`, so clients ask before calling them.
+
+Two endpoints are deliberately not exposed, as on the hosted server: setting the Inbox
+Placement webhook (it applies to the whole API key and is set in the ZeroBounce dashboard),
+and the Warmup API's SMTP configuration test (it takes the mailbox's SMTP password, which
+would pass through the conversation).
 
 
 ### Validation Tools
 
-#### `validate_email`
+#### `validate` (alias `validate_email`)
 
-Validate a single email address using ZeroBounce API. Returns detailed validation results including status, sub-status, and additional metadata.
+Validate a single email address. Returns status, sub-status and hygiene fields. Optional:
+`ipAddress`, `timeout` (3-60 seconds), `activityData`, `verifyPlus`, `domainInfo` (adds
+`domain_website_exists` and the WHOIS `domain_registrant_company_name`) and `usePost`.
 
 #### `validate_batch`
 
@@ -303,7 +318,7 @@ Validate multiple email addresses in batch. More efficient for validating multip
 
 ### Account Tools
 
-#### `get_credits`
+#### `get_credits` (alias `get_account_credits`)
 
 Get the number of credits remaining in your ZeroBounce account.
 
@@ -313,7 +328,7 @@ Get API usage statistics for a date range. Shows validation counts by status and
 
 ### Bulk Validation File Tools
 
-#### `bulk_validate_send_file`
+#### `send_file`
 
 Send a CSV file for bulk email validation. Takes `fileContent` and `fileName`, plus the
 optional `returnUrl`, `hasHeaderRow` (sent as `false` when left out), `removeDuplicate`,
@@ -322,36 +337,37 @@ optional `returnUrl`, `hasHeaderRow` (sent as `false` when left out), `removeDup
 be an HTTPS callback URL on a public host (port 443, no credentials, no private or special-purpose
 address); the server refuses anything else before the request. Returns a file ID for tracking.
 
-#### `bulk_validate_file_status`
+#### `file_status`
 
 Get the status of a bulk validation file upload.
 
-#### `bulk_validate_get_file`
+#### `get_file`
 
-Get the results of a completed bulk validation file.
+Get the results of a completed bulk validation file. Optional `downloadType` (`phase_1`,
+`phase_2` or `combined`) and `activityData`. `scoring_get_file` takes `downloadType` too.
 
-#### `bulk_validate_delete_file`
+#### `delete_file`
 
 Delete a bulk validation file from your account.
 
 ### AI Scoring Tools
 
-#### `bulk_ai_scoring_send_file`
+#### `scoring_send_file`
 
 Send a CSV file for bulk AI email scoring. Takes `fileContent` and `fileName`, plus the
 optional `returnUrl`, `hasHeaderRow` (sent as `false` when left out), `removeDuplicate` and
 the 0-based `emailAddressColumn`. `returnUrl` follows the same rules as for
-`bulk_validate_send_file`: HTTPS, port 443, public host, no credentials. Returns a file ID for tracking.
+`send_file`: HTTPS, port 443, public host, no credentials. Returns a file ID for tracking.
 
-#### `bulk_ai_scoring_file_status`
+#### `scoring_file_status`
 
 Get the status of a bulk AI scoring file upload.
 
-#### `bulk_ai_scoring_get_file`
+#### `scoring_get_file`
 
 Get the results of a completed bulk AI scoring file.
 
-#### `bulk_ai_scoring_delete_file`
+#### `scoring_delete_file`
 
 Delete a bulk AI scoring file from your account.
 
@@ -363,11 +379,11 @@ of in the query string.
 
 ### Email Finder Tools
 
-#### `find_email`
+#### `find_email_format`
 
 Find an email address based on domain, name, and/or company.
 
-#### `bulk_email_finder_send_file`
+#### `send_email_finder_file`
 
 Send a CSV file for bulk email finding. Takes `fileContent` and `fileName`, plus the 0-based
 column indexes `domainColumn`, `firstNameColumn`, `middleNameColumn`, `lastNameColumn` and
@@ -375,51 +391,52 @@ column indexes `domainColumn`, `firstNameColumn`, `middleNameColumn`, `lastNameC
 `fullNameColumn` is required: the API needs a name to work from. The endpoint takes no
 callback URL. Returns a file ID for tracking.
 
-#### `bulk_email_finder_file_status`
+#### `email_finder_file_status`
 
 Get the status of a bulk email finder file upload.
 
-#### `bulk_email_finder_get_file`
+#### `email_finder_get_file`
 
 Get the results of a completed bulk email finder file.
 
-#### `bulk_email_finder_delete_file`
+#### `email_finder_delete_file`
 
 Delete a bulk email finder file from your account.
 
 ### Domain Search Tools
 
-#### `domain_search`
+#### `find_domain`
 
 Search for email addresses in a domain.
 
-#### `bulk_domain_search_send_file`
+#### `send_domain_search_file`
 
 Send a CSV file for bulk domain search. Takes `fileContent` and `fileName`, plus the 0-based
 `domainColumn` and `hasHeaderRow` (sent as `false` when left out). The endpoint takes no
 callback URL. Returns a file ID for tracking.
 
-#### `bulk_domain_search_file_status`
+#### `domain_search_file_status`
 
 Get the status of a bulk domain search file upload.
 
-#### `bulk_domain_search_get_file`
+#### `domain_search_get_file`
 
 Get the results of a completed bulk domain search file.
 
-#### `bulk_domain_search_delete_file`
+#### `domain_search_delete_file`
 
 Delete a bulk domain search file from your account.
 
 ### Activity Data Tools
 
-#### `get_activity_data`
+#### `get_activity`
 
 Get activity data for an email address to see if it has been active recently.
 
 ### Warmup Tools
 
-These 26 tools cover every documented operation of the [Warmup API](https://www.zerobounce.net/docs/warmup-api).
+These 25 tools cover every documented operation of the [Warmup API](https://www.zerobounce.net/docs/warmup-api)
+except `test_smtp_configuration`, which takes an SMTP password.
 They are only advertised when a **Warmup API key** is configured — see
 [Warmup API key](#warmup-api-key). They never use the validation key.
 
@@ -542,14 +559,6 @@ SPF, DKIM and DMARC status of a from-address's domain, with an optional `dkimSel
 > answers `Please provide a valid email address` for a bare domain, although the public docs
 > describe a domain. A bare domain is rejected before the call is made.
 
-#### `warmup_test_smtp_configuration`
-
-Check that SMTP credentials connect and hand off a message. Nothing is stored, and the test
-message goes to a ZeroBounce test recipient rather than to `fromAddress`. The username and
-password are masked in every error from this call.
-
-> The live API answers any failed SMTP login with HTTP 500 rather than a 4xx. That is an API
-> bug, not a transport failure.
 ### Inbox Placement Tester Tools
 
 The Inbox Placement Tester (`bulkapi.zerobounce.net/api/ipt`) reports where a campaign
@@ -573,7 +582,8 @@ List the supported test types and which one is the default.
 Start a test. Takes `name` (unique, at most 64 characters) and optionally `testType`
 (1 = Email, which also requires `senderEmail`; 2 = Unique ID; 3 = Auto Alias), the seeds
 to use (`providerIds`, `seedIds`, or `providers` as `[{ id, maxSeeds }]` to cap seeds
-per provider), and a `webhookUrl` the finished result is posted to.
+per provider). Results also go to the API key's saved webhook, which is set in the
+ZeroBounce dashboard.
 
 #### `get_inbox_placement_test`
 
@@ -590,19 +600,15 @@ Delete a finished test. A running test cannot be deleted.
 
 #### `get_inbox_placement_webhook`
 
-Get the webhook URL finished results are posted to for this API key.
-
-#### `set_inbox_placement_webhook`
-
-Save that webhook URL. It must be an HTTPS URL on a public host, the same rule the bulk
-`returnUrl` follows.
+Get the webhook URL finished results are posted to for this API key. No tool changes it:
+set, change or remove it in the ZeroBounce dashboard.
 ### List Evaluator Tools
 
-#### `list_evaluator_send_file`
+#### `send_list_evaluator_file`
 
 Upload a CSV to the List Evaluator and get back a `file_id`.
 
-#### `list_evaluator_result`
+#### `get_list_evaluator_result`
 
 Fetch the evaluation for a `file_id`.
 
@@ -627,26 +633,26 @@ Every job tool takes the same arguments:
 | `hasHeaderRow` | no | Defaults to `false` |
 | `removeDuplicates` | no | Omitted when not given |
 
-#### `list_s3_files`
+#### `list_s3files`
 
 List the files in your S3 bucket. Optional `bucket` and `search` filters.
 
-#### `validate_s3_file` / `score_s3_file` / `email_finder_s3_file` / `domain_search_s3_file`
+#### `validate_s3file` / `score_s3file` / `email_finder_s3file` / `domain_search_s3file`
 
 Run bulk validation, AI scoring, email finder or domain search over an object in
 your S3 bucket.
 
-#### `validate_sftp_file` / `score_sftp_file` / `email_finder_sftp_file` / `domain_search_sftp_file`
+#### `validate_sftpfile` / `score_sftpfile` / `email_finder_sftpfile` / `domain_search_sftpfile`
 
 The same four jobs over a file on your SFTP/FTP server.
 
-#### `export_s3_file`
+#### `export_s3file`
 
 Export a completed bulk job to S3. Takes `fileId` and an optional
 `exportBucket`; without a bucket the API uses the output bucket configured on
 your account.
 
-#### `export_sftp_file`
+#### `export_sftpfile`
 
 Export a completed bulk job back to your SFTP/FTP server. Takes `fileId` and an
 optional `exportPath` -- a path, not a bucket; without it the API uses the
@@ -670,8 +676,8 @@ Delete a custom filter. Takes the same `rule`, `target`, and `value` that create
 
 The ZeroBounce SDK (`@zerobounce/zero-bounce-sdk` 5.0.0) is bundled into `dist/index.js`, so
 every tool is available in every install and nothing depends on an SDK on your machine. The
-tool list changes only with the keys you supply: the 26 Warmup tools need a Warmup API key
-(see above), so a server started without one exposes 49 tools. As a safety net the server still
+tool list changes only with the keys you supply: the 25 Warmup tools need a Warmup API key
+(see above), so a server started without one exposes 50 tools. As a safety net the server still
 hides a tool whose SDK method is missing from the bundle, rather than advertise one it cannot
 run. Call the MCP `tools/list` method to see exactly what your server exposes.
 

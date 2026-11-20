@@ -6,8 +6,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { bulkEmailFinderTools } from '../src/tools/bulk-email-finder.js';
-import { bulkDomainSearchTools } from '../src/tools/bulk-domain-search.js';
+import { getAllTools } from '../src/tools/index.js';
+import { DESTRUCTIVE_TOOL_NAMES, TOOL_NAMES } from '../src/tools/catalog.js';
 
 const ENTRY = fileURLToPath(new URL('../src/index.ts', import.meta.url));
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -97,13 +97,26 @@ check('a missing key without --help is still the key error', () => {
   assert.match(r.stderr, /API key is required/);
 });
 
-check('bulk finder and domain search descriptions do not say "bulk bulk"', () => {
-  for (const tools of [bulkEmailFinderTools, bulkDomainSearchTools]) {
-    for (const tool of [tools.sendFile, tools.fileStatus, tools.getFile, tools.deleteFile]) {
-      const text = tool.definition.description;
-      assert.doesNotMatch(text, /bulk bulk/i, text);
-      assert.match(text, /bulk (email finder|domain search)/);
+check('tool definitions follow the hosted server: names, titles, hints, descriptions', () => {
+  const tools = getAllTools({ warmupConfigured: true }).map((tool) => tool.definition);
+  assert.deepEqual(
+    tools.map((tool) => tool.name).sort(),
+    [...TOOL_NAMES].sort(),
+    'every catalog tool is listed, and only those'
+  );
+  for (const tool of tools) {
+    const text = tool.description ?? '';
+    assert.ok(tool.title, `${tool.name} has a title`);
+    assert.match(text, /\nWhen to use: /, tool.name);
+    assert.match(text, /\n(CREDITS|WRITE): /, tool.name);
+    const destructive = DESTRUCTIVE_TOOL_NAMES.has(tool.name as never);
+    assert.equal(tool.annotations?.destructiveHint, destructive, `${tool.name} destructiveHint`);
+    if (destructive || /\nWRITE: /.test(text)) {
+      assert.equal(tool.annotations?.readOnlyHint, false, `${tool.name} readOnlyHint`);
     }
+  }
+  for (const name of ['warmup_update_sending_account', 'warmup_change_from_address', 'delete_file']) {
+    assert.ok(DESTRUCTIVE_TOOL_NAMES.has(name as never), `${name} is destructive`);
   }
 });
 

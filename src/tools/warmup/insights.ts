@@ -14,13 +14,13 @@ import {
   requireString,
   requireEmail,
 } from '../types.js';
+import { describeTool } from '../catalog.js';
 
 export const warmupGetSeedsTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getSeeds'],
   definition: {
-    name: 'warmup_get_seeds',
-    description: 'List the ZeroBounce Warmup seed accounts.',
+    ...describeTool('warmup_get_seeds'),
     inputSchema: { type: 'object', properties: {} },
   },
   handler: async (client: ZeroBounceClient) => {
@@ -36,10 +36,7 @@ export const warmupDownloadSeedsTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['downloadSeeds'],
   definition: {
-    name: 'warmup_download_seeds',
-    description:
-      'Download the ZeroBounce Warmup seed list as CSV text (columns seed,provider). Returns ' +
-      'the CSV itself, not JSON.',
+    ...describeTool('warmup_download_seeds'),
     inputSchema: { type: 'object', properties: {} },
   },
   handler: async (client: ZeroBounceClient) => {
@@ -55,8 +52,7 @@ export const warmupGetSeedCountTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getSeedCount'],
   definition: {
-    name: 'warmup_get_seed_count',
-    description: 'Get the number of ZeroBounce Warmup seed accounts.',
+    ...describeTool('warmup_get_seed_count'),
     inputSchema: { type: 'object', properties: {} },
   },
   handler: async (client: ZeroBounceClient) => {
@@ -72,8 +68,7 @@ export const warmupGetProgressTodayTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getProgressToday'],
   definition: {
-    name: 'warmup_get_progress_today',
-    description: "Get today's ZeroBounce Warmup progress.",
+    ...describeTool('warmup_get_progress_today'),
     inputSchema: { type: 'object', properties: {} },
   },
   handler: async (client: ZeroBounceClient) => {
@@ -89,8 +84,7 @@ export const warmupGetSentTodayTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getSentToday'],
   definition: {
-    name: 'warmup_get_sent_today',
-    description: 'Get the number of ZeroBounce Warmup messages sent today.',
+    ...describeTool('warmup_get_sent_today'),
     inputSchema: { type: 'object', properties: {} },
   },
   handler: async (client: ZeroBounceClient) => {
@@ -106,8 +100,7 @@ export const warmupGetEmailsPerDayTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getEmailsPerDay'],
   definition: {
-    name: 'warmup_get_emails_per_day',
-    description: 'Get the current ZeroBounce Warmup daily sending volume.',
+    ...describeTool('warmup_get_emails_per_day'),
     inputSchema: { type: 'object', properties: {} },
   },
   handler: async (client: ZeroBounceClient) => {
@@ -123,9 +116,7 @@ export const warmupGetStatisticsTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getStatistics'],
   definition: {
-    name: 'warmup_get_statistics',
-    description:
-      'Get ZeroBounce Warmup statistics for a from-address. An address with no history returns zeros.',
+    ...describeTool('warmup_get_statistics'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -150,8 +141,7 @@ export const warmupGetStatisticsPerDayTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getStatisticsPerDay'],
   definition: {
-    name: 'warmup_get_statistics_per_day',
-    description: 'Get daily ZeroBounce Warmup statistics between two dates, inclusive.',
+    ...describeTool('warmup_get_statistics_per_day'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -180,8 +170,7 @@ export const warmupGetStatisticsDetailedTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getStatisticsDetailed'],
   definition: {
-    name: 'warmup_get_statistics_detailed',
-    description: 'Get detailed ZeroBounce Warmup statistics for an address.',
+    ...describeTool('warmup_get_statistics_detailed'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -204,10 +193,7 @@ export const warmupDownloadStatisticsTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['downloadStatistics'],
   definition: {
-    name: 'warmup_download_statistics',
-    description:
-      "Download an address's ZeroBounce Warmup statistics as CSV text. Returns the CSV itself, " +
-      'not JSON.',
+    ...describeTool('warmup_download_statistics'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -230,8 +216,7 @@ export const warmupGetFromAddressStatisticsTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getFromAddressStatistics'],
   definition: {
-    name: 'warmup_get_from_address_statistics',
-    description: 'Get ZeroBounce Warmup statistics for one from-address.',
+    ...describeTool('warmup_get_from_address_statistics'),
     inputSchema: {
       type: 'object',
       properties: {

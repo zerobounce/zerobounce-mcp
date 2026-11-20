@@ -15,14 +15,11 @@ import {
   optionalBoolean,
 } from './types.js';
 import { assertSafeFileName, validateBulkReturnUrl } from '../security/bulk-input.js';
+import { describeTool, type ToolName } from './catalog.js';
 
 export interface BulkRootJobToolConfig {
-  /** MCP tool name, e.g. `validate_s3_file`. */
-  name: string;
-  /** API endpoint the SDK posts to, e.g. `validateS3file`, for the description. */
-  endpoint: string;
-  /** What the job does, e.g. `bulk validation`. */
-  description: string;
+  /** MCP tool name, e.g. `validate_s3file`. */
+  name: ToolName;
   /** Where the file comes from, for argument descriptions. */
   source: 'S3' | 'SFTP/FTP';
   sdkMethods: string[];
@@ -41,10 +38,7 @@ export function createBulkRootJobTool(config: BulkRootJobToolConfig): ToolHandle
   return {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: config.name,
-      description:
-        `Submit a file from your ${config.source} storage for ${config.description} ` +
-        `(POST /${config.endpoint}). The server and bucket come from your ZeroBounce settings.`,
+      ...describeTool(config.name),
       inputSchema: {
         type: 'object',
         properties: {

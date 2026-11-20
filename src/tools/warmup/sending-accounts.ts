@@ -19,13 +19,13 @@ import {
   optionalBoolean,
   optionalObject,
 } from '../types.js';
+import { describeTool } from '../catalog.js';
 
 export const warmupListSendingAccountsTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['listSendingAccounts'],
   definition: {
-    name: 'warmup_list_sending_accounts',
-    description: "List every ZeroBounce Warmup sending account belonging to the Warmup key's team.",
+    ...describeTool('warmup_list_sending_accounts'),
     inputSchema: {
       type: 'object',
       properties: {},
@@ -44,8 +44,7 @@ export const warmupGetSendingAccountTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getSendingAccount'],
   definition: {
-    name: 'warmup_get_sending_account',
-    description: 'Get one ZeroBounce Warmup sending account by its from-address.',
+    ...describeTool('warmup_get_sending_account'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -70,11 +69,7 @@ export const warmupAddSendingAccountTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['addSendingAccount'],
   definition: {
-    name: 'warmup_add_sending_account',
-    description:
-      'Add a from-address to ZeroBounce Warmup. "self_managed" runs your own mailbox and ' +
-      'requires engagementRuleId (0-4). "zb_managed" has ZeroBounce provision the mailbox and ' +
-      'takes emailContent and managedSending instead; it rejects engagementRuleId.',
+    ...describeTool('warmup_add_sending_account'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -130,9 +125,7 @@ export const warmupUpdateSendingAccountTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['updateSendingAccount'],
   definition: {
-    name: 'warmup_update_sending_account',
-    description:
-      "Update a ZeroBounce Warmup sending account's engagement rule, status and auto-enable flag.",
+    ...describeTool('warmup_update_sending_account'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -166,10 +159,7 @@ export const warmupDeleteSendingAccountTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['deleteSendingAccount'],
   definition: {
-    name: 'warmup_delete_sending_account',
-    description:
-      'Remove a sending account from ZeroBounce Warmup. Destructive: the account and its ' +
-      'warmup history are deleted.',
+    ...describeTool('warmup_delete_sending_account'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -194,10 +184,7 @@ export const warmupChangeFromAddressTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['changeFromAddress'],
   definition: {
-    name: 'warmup_change_from_address',
-    description:
-      'Move a ZeroBounce Warmup account and its history to a new from-address. Despite the ' +
-      'underlying /smtp-credentials path, no SMTP credentials are stored.',
+    ...describeTool('warmup_change_from_address'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -224,8 +211,7 @@ export const warmupListFromAddressesTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['listFromAddresses'],
   definition: {
-    name: 'warmup_list_from_addresses',
-    description: 'List the from-addresses registered with ZeroBounce Warmup.',
+    ...describeTool('warmup_list_from_addresses'),
     inputSchema: {
       type: 'object',
       properties: {

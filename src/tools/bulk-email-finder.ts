@@ -1,8 +1,12 @@
 import { createBulkFileTools } from './bulk-file-helpers.js';
 
 export const bulkEmailFinderTools = createBulkFileTools({
-  name: 'bulk_email_finder',
-  description: 'bulk email finder',
+  names: {
+    sendFile: 'send_email_finder_file',
+    fileStatus: 'email_finder_file_status',
+    getFile: 'email_finder_get_file',
+    deleteFile: 'email_finder_delete_file',
+  },
   sendFileMethod: (
     client,
     fileContent,

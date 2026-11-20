@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking changes
+
+- Tools are renamed to match the hosted ZeroBounce MCP server (`mcp.zerobounce.net`), so a
+  model sees the same tool names on both. Update any prompt, allow-list or client config that
+  names a tool:
+
+  | 0.4.0 | now |
+  | --- | --- |
+  | `validate_email` | `validate` (`validate_email` stays as an alias) |
+  | `bulk_validate_send_file` / `_file_status` / `_get_file` / `_delete_file` | `send_file` / `file_status` / `get_file` / `delete_file` |
+  | `bulk_ai_scoring_send_file` / `_file_status` / `_get_file` / `_delete_file` | `scoring_send_file` / `scoring_file_status` / `scoring_get_file` / `scoring_delete_file` |
+  | `bulk_email_finder_send_file` / `_file_status` / `_get_file` / `_delete_file` | `send_email_finder_file` / `email_finder_file_status` / `email_finder_get_file` / `email_finder_delete_file` |
+  | `bulk_domain_search_send_file` / `_file_status` / `_get_file` / `_delete_file` | `send_domain_search_file` / `domain_search_file_status` / `domain_search_get_file` / `domain_search_delete_file` |
+  | `find_email` | `find_email_format` |
+  | `domain_search` | `find_domain` |
+  | `get_activity_data` | `get_activity` |
+  | `list_evaluator_send_file` / `list_evaluator_result` | `send_list_evaluator_file` / `get_list_evaluator_result` |
+  | `list_s3_files`, `validate_s3_file`, `score_s3_file`, `email_finder_s3_file`, `domain_search_s3_file`, `export_s3_file` | `list_s3files`, `validate_s3file`, `score_s3file`, `email_finder_s3file`, `domain_search_s3file`, `export_s3file` |
+  | `validate_sftp_file`, `score_sftp_file`, `email_finder_sftp_file`, `domain_search_sftp_file`, `export_sftp_file` | `validate_sftpfile`, `score_sftpfile`, `email_finder_sftpfile`, `domain_search_sftpfile`, `export_sftpfile` |
+
+  Argument names are unchanged.
+- Removed, as on the hosted server: `set_inbox_placement_webhook` and `create_inbox_placement_test`'s
+  `webhookUrl` (the webhook applies to the whole API key, cannot be cleared through the API, and
+  a URL picked by a model could keep receiving results; set it in the ZeroBounce dashboard), and
+  `warmup_test_smtp_configuration` (it takes the mailbox's SMTP password, which would pass
+  through the conversation).
+
+### Added
+
+- Every tool has a `title` and `readOnlyHint`, `destructiveHint`, `idempotentHint` and
+  `openWorldHint` annotations, as on the hosted server. Deletes and the warmup updates that
+  overwrite live settings (`warmup_update_sending_account`, `warmup_change_from_address`,
+  `warmup_set_engagement_rule`, `warmup_update_custom_engagement`) are destructive, so clients
+  ask before calling them.
+- Descriptions in the hosted server's shape: what the tool does, when to use it, its
+  parameters, and a `CREDITS:` or `WRITE:` line.
+- Server `instructions`: credit use, the bulk upload / poll / download flow, and never
+  deleting or changing settings unasked.
+- `get_account_credits`, an alias of `get_credits`.
+- `validate` / `validate_email`: `domainInfo` (website availability and WHOIS registrant).
+- `get_file`: `downloadType` and `activityData`; `scoring_get_file`: `downloadType`.
+
 ## [0.4.0] - 2026-11-18
 
 ### Breaking changes

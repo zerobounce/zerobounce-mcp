@@ -7,12 +7,12 @@ import {
   optionalString,
 } from './types.js';
 import { createBulkRootJobTool } from './bulk-root-job-helpers.js';
+import { describeTool } from './catalog.js';
 
 export const listS3FilesTool: ToolHandler = {
   sdkMethods: ['listS3files'],
   definition: {
-    name: 'list_s3_files',
-    description: 'List S3 bucket files available for validation or scoring (GET /listS3files)',
+    ...describeTool('list_s3files'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -35,36 +35,28 @@ export const listS3FilesTool: ToolHandler = {
 };
 
 export const validateS3FileTool = createBulkRootJobTool({
-  name: 'validate_s3_file',
-  endpoint: 'validateS3file',
-  description: 'bulk validation',
+  name: 'validate_s3file',
   source: 'S3',
   sdkMethods: ['validateS3file'],
   jobMethod: (client, request) => client.validateS3File(request),
 });
 
 export const scoreS3FileTool = createBulkRootJobTool({
-  name: 'score_s3_file',
-  endpoint: 'scoreS3file',
-  description: 'bulk AI scoring',
+  name: 'score_s3file',
   source: 'S3',
   sdkMethods: ['scoreS3file', '_bulkRootFileJob'],
   jobMethod: (client, request) => client.scoreS3File(request),
 });
 
 export const emailFinderS3FileTool = createBulkRootJobTool({
-  name: 'email_finder_s3_file',
-  endpoint: 'emailFinderS3file',
-  description: 'bulk email finder',
+  name: 'email_finder_s3file',
   source: 'S3',
   sdkMethods: ['emailFinderS3file'],
   jobMethod: (client, request) => client.emailFinderS3File(request),
 });
 
 export const domainSearchS3FileTool = createBulkRootJobTool({
-  name: 'domain_search_s3_file',
-  endpoint: 'domainSearchS3file',
-  description: 'bulk domain search',
+  name: 'domain_search_s3file',
   source: 'S3',
   sdkMethods: ['domainSearchS3file'],
   jobMethod: (client, request) => client.domainSearchS3File(request),
@@ -73,8 +65,7 @@ export const domainSearchS3FileTool = createBulkRootJobTool({
 export const exportS3FileTool: ToolHandler = {
   sdkMethods: ['exportS3file', '_sendBulkRootFormPost'],
   definition: {
-    name: 'export_s3_file',
-    description: 'Export a completed bulk job to an S3 bucket (POST /exportS3file)',
+    ...describeTool('export_s3file'),
     inputSchema: {
       type: 'object',
       properties: {

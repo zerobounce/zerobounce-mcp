@@ -6,8 +6,13 @@
 import { createBulkFileTools } from './bulk-file-helpers.js';
 
 export const bulkAIScoringTools = createBulkFileTools({
-  name: 'bulk_ai_scoring',
-  description: 'AI email scoring',
+  names: {
+    sendFile: 'scoring_send_file',
+    fileStatus: 'scoring_file_status',
+    getFile: 'scoring_get_file',
+    deleteFile: 'scoring_delete_file',
+  },
+  getFileOptions: { downloadType: true },
   sendFileMethod: (
     client,
     fileContent,
@@ -27,7 +32,7 @@ export const bulkAIScoringTools = createBulkFileTools({
       removeDuplicate: options?.removeDuplicate,
     }),
   getStatusMethod: (client, fileId) => client.bulkAIScoringFileStatus(fileId),
-  getFileMethod: (client, fileId) => client.bulkAIScoringGetFile(fileId),
+  getFileMethod: (client, fileId, options) => client.bulkAIScoringGetFile(fileId, options),
   deleteFileMethod: (client, fileId) => client.bulkAIScoringDeleteFile(fileId),
   supportsEmailAddressColumn: true,
   supportsRemoveDuplicate: true,

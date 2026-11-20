@@ -11,13 +11,12 @@ import {
   requireEmail,
   optionalBoolean,
 } from './types.js';
+import { describeTool } from './catalog.js';
 
 export const scoreEmailTool: ToolHandler = {
   sdkMethods: ['scoreEmail'],
   definition: {
-    name: 'score_email',
-    description:
-      'Real-time AI scoring for a single email address (ZeroBounce GET or POST /v2/scoring). Returns email and numeric score.',
+    ...describeTool('score_email'),
     inputSchema: {
       type: 'object',
       properties: {
