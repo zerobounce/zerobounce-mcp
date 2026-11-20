@@ -4,12 +4,13 @@ This repository includes a **single Cursor plugin** at the repo root (see [Curso
 
 | File | Role |
 | --- | --- |
+| `.cursor-plugin/marketplace.json` | What Cursor reads when you import this GitHub URL |
 | `.cursor-plugin/plugin.json` | Plugin manifest (`name`: `zerobounce`) |
 | `mcp.json` | Hosted MCP: `https://mcp.zerobounce.net/mcp` (OAuth) |
 | `skills/zerobounce/SKILL.md` | When and how to use ZeroBounce tools |
 | `assets/logo.svg` | Marketplace logo |
 
-There is no `.cursor-plugin/marketplace.json` — one plugin, one repo.
+GitHub import looks at the default branch and requires `.cursor-plugin/marketplace.json`. The plugin itself is this repository root (`"source": "."`).
 
 ## Local check
 
