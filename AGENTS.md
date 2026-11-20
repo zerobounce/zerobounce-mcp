@@ -22,6 +22,7 @@ written in TypeScript on `@modelcontextprotocol/sdk` and the official
 - `test-http.js` and `test/fake-zerobounce-api.mjs`: offline HTTP test against a fake API.
 - `test/cursor-plugin.test.mjs`: Cursor Marketplace layout (manifest, `mcp.json`, skill).
 - `.cursor-plugin/marketplace.json` and `plugins/zerobounce/`: Cursor marketplace plugin (hosted MCP URL); see `docs/CURSOR_MARKETPLACE.md`.
+- `gemini-extension.json`: Gemini CLI extension (hosted MCP URL); `test/gemini-extension.test.mjs` checks it.
 - `dist/index.js`: committed esbuild bundle (see below).
 
 ## Commands

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Gemini CLI extension: `gemini-extension.json` at the repo root connects to the hosted server (`httpUrl` `https://mcp.zerobounce.net/mcp`, OAuth discovered from the server). The repository carries the `gemini-cli-extension` topic so the Gemini CLI extension gallery lists it.
 - Cursor Marketplace plugin under `plugins/zerobounce` (`.cursor-plugin/marketplace.json` with `pluginRoot`). See `docs/CURSOR_MARKETPLACE.md`.
 
 ## [0.5.0] - 2026-11-20
