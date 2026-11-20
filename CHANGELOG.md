@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-20
+
 ### Added
 
+- Gemini CLI extension: `gemini-extension.json` at the repo root connects to the hosted server (`httpUrl` `https://mcp.zerobounce.net/mcp`, OAuth discovered from the server). The repository carries the `gemini-cli-extension` topic so the Gemini CLI extension gallery lists it.
 - Cursor Marketplace plugin under `plugins/zerobounce` (`.cursor-plugin/marketplace.json` with `pluginRoot`). See `docs/CURSOR_MARKETPLACE.md`.
 
 ## [0.5.0] - 2026-11-20
@@ -403,7 +406,8 @@ hosted HTTP deployments.
 - Initial release: stdio MCP server with email validation, batch validation, credits and API
   usage, bulk validation and AI scoring files, email finder, domain search, and activity data tools.
 
-[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.3.0...v0.3.1

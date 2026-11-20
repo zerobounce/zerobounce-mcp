@@ -1,6 +1,6 @@
 {
   "name": "@zerobounce/mcp",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Model Context Protocol server for ZeroBounce email validation, verification, and intelligence. Provides comprehensive email validation, AI scoring, email finder, domain search, and bulk processing capabilities for AI coding assistants.",
   "type": "module",
   "main": "dist/index.js",
@@ -16,7 +16,7 @@
     "build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@modelcontextprotocol/sdk --define:__PACKAGE_VERSION__=\\\"$npm_package_version\\\" --banner:js='#!/usr/bin/env node' && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "test": "node test-http.js && tsx test/client-key.test.ts && tsx test/cli.test.ts && tsx test/redaction.test.ts && node test/cursor-plugin.test.mjs",
+    "test": "node test-http.js && tsx test/client-key.test.ts && tsx test/cli.test.ts && tsx test/redaction.test.ts && node test/cursor-plugin.test.mjs && node test/gemini-extension.test.mjs",
     "lint": "eslint src --ext .ts --max-warnings 0",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepublishOnly": "npm run build",

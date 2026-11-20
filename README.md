@@ -74,6 +74,13 @@ Or add the URL manually in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a proje
 }
 ```
 
+**Gemini CLI** — install the extension from this repo; it connects to the hosted server and
+signs you in with OAuth on first use:
+
+```bash
+gemini extensions install https://github.com/zerobounce/zerobounce-mcp
+```
+
 Then ask your assistant, for example:
 
 ```
