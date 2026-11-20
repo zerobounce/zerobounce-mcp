@@ -21,7 +21,7 @@ written in TypeScript on `@modelcontextprotocol/sdk` and the official
 - `test-mcp.js`: stdio test against the live API.
 - `test-http.js` and `test/fake-zerobounce-api.mjs`: offline HTTP test against a fake API.
 - `test/cursor-plugin.test.mjs`: Cursor Marketplace layout (manifest, `mcp.json`, skill).
-- `.cursor-plugin/`, `mcp.json`, `skills/zerobounce/`, `assets/logo.svg`: Cursor plugin (hosted MCP URL); see `docs/CURSOR_MARKETPLACE.md`.
+- `.cursor-plugin/marketplace.json` and `plugins/zerobounce/`: Cursor marketplace plugin (hosted MCP URL); see `docs/CURSOR_MARKETPLACE.md`.
 - `dist/index.js`: committed esbuild bundle (see below).
 
 ## Commands

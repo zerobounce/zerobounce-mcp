@@ -1,17 +1,19 @@
 {
   "name": "zerobounce",
+  "displayName": "ZeroBounce",
   "owner": {
     "name": "ZeroBounce",
     "email": "integrations@zerobounce.net"
   },
   "metadata": {
     "description": "ZeroBounce email verification for Cursor",
-    "version": "0.5.0"
+    "version": "0.5.0",
+    "pluginRoot": "plugins"
   },
   "plugins": [
     {
       "name": "zerobounce",
-      "source": ".",
+      "source": "zerobounce",
       "description": "Email validation, scoring, finders, bulk lists, inbox placement and Warmup via the hosted ZeroBounce MCP server (OAuth sign-in).",
       "version": "0.5.0",
       "author": {

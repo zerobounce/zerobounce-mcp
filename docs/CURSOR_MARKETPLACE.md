@@ -1,16 +1,14 @@
 # Cursor Marketplace plugin
 
-This repository includes a **single Cursor plugin** at the repo root (see [Cursor plugins reference](https://cursor.com/docs/reference/plugins)):
+Importing this GitHub repository adds a marketplace. Cursor only lists plugins that live under `plugins/` and are named in `.cursor-plugin/marketplace.json` (`pluginRoot` + `source`). A plugin at the repository root, or `"source": "."`, does not appear.
 
 | File | Role |
 | --- | --- |
-| `.cursor-plugin/marketplace.json` | What Cursor reads when you import this GitHub URL |
-| `.cursor-plugin/plugin.json` | Plugin manifest (`name`: `zerobounce`) |
-| `mcp.json` | Hosted MCP: `https://mcp.zerobounce.net/mcp` (OAuth) |
-| `skills/zerobounce/SKILL.md` | When and how to use ZeroBounce tools |
-| `assets/logo.svg` | Marketplace logo |
-
-GitHub import looks at the default branch and requires `.cursor-plugin/marketplace.json`. The plugin itself is this repository root (`"source": "."`).
+| `.cursor-plugin/marketplace.json` | Marketplace index (`pluginRoot`: `plugins`) |
+| `plugins/zerobounce/.cursor-plugin/plugin.json` | Plugin manifest |
+| `plugins/zerobounce/mcp.json` | Hosted MCP: `https://mcp.zerobounce.net/mcp` (OAuth) |
+| `plugins/zerobounce/skills/zerobounce/SKILL.md` | When and how to use ZeroBounce tools |
+| `plugins/zerobounce/assets/logo.svg` | Plugin logo |
 
 ## Local check
 
@@ -18,12 +16,15 @@ GitHub import looks at the default branch and requires `.cursor-plugin/marketpla
 node test/cursor-plugin.test.mjs
 ```
 
-Install in Cursor: **Customize → Plugins → Import from GitHub** → `zerobounce/zerobounce-mcp`, or import this folder after clone. Complete OAuth on first MCP use.
+## Install
+
+1. Customize → Add Marketplace → import `https://github.com/zerobounce/zerobounce-mcp`.
+2. Open the ZeroBounce marketplace and install **ZeroBounce**.
+3. If the list is empty, use Manage → Refresh after this layout is on `main`.
+4. Connect the MCP server and complete ZeroBounce sign-in.
 
 ## Publish
 
-1. Merge to `main` on the public GitHub repo.
-2. Submit `https://github.com/zerobounce/zerobounce-mcp` at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish).
-3. Smoke: connect MCP, `get_credits`, validate `valid@example.com`.
+Submit `https://github.com/zerobounce/zerobounce-mcp` at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish). Smoke: `get_credits`, then validate `valid@example.com`.
 
-Self-hosted npm usage remains documented in `README.md` and `docs/configuration-cursor.md`; the published plugin wires the **hosted** server, matching the README's recommended Cursor path.
+Self-hosted npm usage stays in `README.md` and `docs/configuration-cursor.md`. The plugin wires the hosted server.
