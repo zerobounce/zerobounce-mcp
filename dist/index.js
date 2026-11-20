@@ -5979,7 +5979,7 @@ function getToolRegistry(availability = {}) {
 }
 
 // src/server.ts
-var SERVER_VERSION = true ? "0.5.0" : "0.0.0-dev";
+var SERVER_VERSION = true ? "0.5.1" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
   client;
@@ -6578,7 +6578,7 @@ function handleInfoFlags(args) {
       return true;
     }
     if (arg === "--version" || arg === "-v") {
-      process.stdout.write(`${true ? "0.5.0" : "0.0.0-dev"}
+      process.stdout.write(`${true ? "0.5.1" : "0.0.0-dev"}
 `);
       return true;
     }
