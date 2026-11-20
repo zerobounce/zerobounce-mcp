@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Cursor Marketplace plugin at the repository root (`.cursor-plugin/plugin.json`, `mcp.json`, `skills/zerobounce/SKILL.md`, `assets/logo.svg`). See `docs/CURSOR_MARKETPLACE.md`.
+
 ## [0.5.0] - 2026-11-20
 
 ### Breaking changes
