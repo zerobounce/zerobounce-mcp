@@ -146,6 +146,14 @@ export interface BulkFileGetResponse {
   csv: string;
 }
 
+/** Optional query values for a bulk getfile download. */
+export interface BulkGetFileOptions {
+  /** `phase_1`, `phase_2` or `combined`. */
+  downloadType?: string;
+  /** Include activity columns (validation downloads only). */
+  activityData?: boolean;
+}
+
 export interface BulkFileDeleteResponse {
   success: boolean;
   message?: string;
@@ -288,7 +296,6 @@ export interface CreateInboxPlacementTestOptions {
   providerIds?: number[];
   seedIds?: number[];
   providers?: InboxPlacementProviderSelection[];
-  webhookUrl?: string;
 }
 
 export interface ListInboxPlacementTestsOptions {
@@ -458,6 +465,7 @@ export class ZeroBounceClient {
       timeout?: number;
       activityData?: boolean;
       verifyPlus?: boolean;
+      domainInfo?: boolean;
       usePost?: boolean;
     }
   ): Promise<EmailValidationResult> {
@@ -466,6 +474,7 @@ export class ZeroBounceClient {
       (options.timeout != null ||
         options.activityData != null ||
         options.verifyPlus != null ||
+        options.domainInfo != null ||
         options.usePost);
     const sdkArg = hasExtended
       ? {
@@ -473,6 +482,7 @@ export class ZeroBounceClient {
           timeout: options?.timeout,
           activityData: options?.activityData,
           verifyPlus: options?.verifyPlus,
+          domainInfo: options?.domainInfo,
           ...(options?.usePost ? { method: 'POST' as const } : {}),
         }
       : (options?.ipAddress ?? null);
@@ -593,8 +603,8 @@ export class ZeroBounceClient {
   /**
    * Get bulk validation file results
    */
-  async bulkValidateGetFile(fileId: string): Promise<BulkFileGetResponse> {
-    const result = await this.sdk.getFile(fileId);
+  async bulkValidateGetFile(fileId: string, options?: BulkGetFileOptions): Promise<BulkFileGetResponse> {
+    const result = await this.sdk.getFile(fileId, this.getFileOptions(options));
     return this.normalizeBulkFileResult(result);
   }
 
@@ -644,9 +654,18 @@ export class ZeroBounceClient {
   /**
    * Get bulk AI scoring file results
    */
-  async bulkAIScoringGetFile(fileId: string): Promise<BulkFileGetResponse> {
-    const result = await this.sdk.getScoringFile(fileId);
+  async bulkAIScoringGetFile(fileId: string, options?: BulkGetFileOptions): Promise<BulkFileGetResponse> {
+    const result = await this.sdk.getScoringFile(fileId, this.getFileOptions(options));
     return this.normalizeBulkFileResult(result);
+  }
+
+  /** The SDK's optional getfile query values, or nothing when none is set. */
+  private getFileOptions(options?: BulkGetFileOptions): BulkGetFileOptions | undefined {
+    if (options?.downloadType == null && options?.activityData == null) return undefined;
+    return {
+      ...(options.downloadType != null ? { downloadType: options.downloadType } : {}),
+      ...(options.activityData != null ? { activityData: options.activityData } : {}),
+    };
   }
 
   private normalizeBulkFileResult(result: unknown): BulkFileGetResponse {
@@ -1111,14 +1130,6 @@ export class ZeroBounceClient {
     return this.requireSdkResult(
       await this.sdk.getInboxPlacementWebhook(),
       'inbox placement webhook'
-    );
-  }
-
-  /** Save the URL finished results are posted to. PUT /api/ipt/webhook */
-  async setInboxPlacementWebhook(webhookUrl: string): Promise<unknown> {
-    return this.requireSdkResult(
-      await this.sdk.setInboxPlacementWebhook(webhookUrl),
-      'set inbox placement webhook'
     );
   }
 

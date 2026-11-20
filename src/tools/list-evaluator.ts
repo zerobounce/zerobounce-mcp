@@ -7,12 +7,12 @@ import {
   optionalColumn,
 } from './types.js';
 import { assertBulkFileContentWithinLimit, assertSafeFileName } from '../security/bulk-input.js';
+import { describeTool } from './catalog.js';
 
 export const listEvaluatorSendFileTool: ToolHandler = {
   sdkMethods: ['sendListEvaluatorFileStream'],
   definition: {
-    name: 'list_evaluator_send_file',
-    description: 'Upload a CSV for list evaluator (bulkapi listevaluator)',
+    ...describeTool('send_list_evaluator_file'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -44,8 +44,7 @@ export const listEvaluatorSendFileTool: ToolHandler = {
 export const listEvaluatorResultTool: ToolHandler = {
   sdkMethods: ['getListEvaluatorResult'],
   definition: {
-    name: 'list_evaluator_result',
-    description: 'Get list evaluator job status/result by file_id',
+    ...describeTool('get_list_evaluator_result'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -73,10 +72,7 @@ export const listEvaluatorResultTool: ToolHandler = {
 export const sendEvaluatedFileTool: ToolHandler = {
   sdkMethods: ['sendEvaluatedFile'],
   definition: {
-    name: 'send_evaluated_file',
-    description:
-      'Submit a finished list evaluation for bulk validation (POST /send-evaluated-file/). ' +
-      'Takes the List Evaluator file_id, not a file upload. Returns the new validation job.',
+    ...describeTool('send_evaluated_file'),
     inputSchema: {
       type: 'object',
       properties: {

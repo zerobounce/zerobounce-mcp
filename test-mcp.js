@@ -410,13 +410,13 @@ async function testMCPServer() {
         // Test 8: Email Finder Tools
         log('\n=== Email Finder Tools ===');
         
-        await testTool('find_email', {
+        await testTool('find_email_format', {
           domain: 'example.com',
           firstName: 'John',
           lastName: 'Doe',
         }, 'Find Email (by name and domain)', true);
 
-        await testTool('find_email', {
+        await testTool('find_email_format', {
           domain: 'example.com',
           company: 'Example Corp',
         }, 'Find Email (by company)', true);
@@ -424,11 +424,11 @@ async function testMCPServer() {
         // Test 9: Domain Search Tools
         log('\n=== Domain Search Tools ===');
         
-        await testTool('domain_search', {
+        await testTool('find_domain', {
           domain: 'example.com',
         }, 'Domain Search (basic)', true);
 
-        await testTool('domain_search', {
+        await testTool('find_domain', {
           domain: 'example.com',
           firstName: 'John',
           lastName: 'Doe',
@@ -437,7 +437,7 @@ async function testMCPServer() {
         // Test 10: Activity Data Tools
         log('\n=== Activity Data Tools ===');
         
-        await testTool('get_activity_data', {
+        await testTool('get_activity', {
           email: TEST_EMAILS.valid,
         }, 'Get Activity Data', false);
 
@@ -463,7 +463,7 @@ async function testMCPServer() {
         const bulkCsv = 'email_address\nvalid@example.com\ninvalid@example.com';
 
         const bulkValidateSendResponse = await testTool(
-          'bulk_validate_send_file',
+          'send_file',
           {
             fileContent: bulkCsv,
             fileName: 'mcp-bulk-validate.csv',
@@ -488,7 +488,7 @@ async function testMCPServer() {
         }
 
         await testTool(
-          'bulk_validate_file_status',
+          'file_status',
           {
             fileId: bulkValidateFileId,
           },
@@ -500,7 +500,7 @@ async function testMCPServer() {
 
         // Skip getfile tests - they return 403 (Cloudflare protection) even with valid file IDs
         // await testTool(
-        //   'bulk_validate_get_file',
+        //   'get_file',
         //   {
         //     fileId: 'non-existent-file-id',
         //   },
@@ -511,7 +511,7 @@ async function testMCPServer() {
         // );
 
         await testTool(
-          'bulk_validate_delete_file',
+          'delete_file',
           {
             fileId: bulkValidateFileId,
           },
@@ -525,7 +525,7 @@ async function testMCPServer() {
         log('\n=== Bulk AI Scoring File Tools ===');
 
         const bulkScoringSendResponse = await testTool(
-          'bulk_ai_scoring_send_file',
+          'scoring_send_file',
           {
             fileContent: bulkCsv,
             fileName: 'mcp-bulk-scoring.csv',
@@ -550,7 +550,7 @@ async function testMCPServer() {
         }
 
         await testTool(
-          'bulk_ai_scoring_file_status',
+          'scoring_file_status',
           {
             fileId: bulkScoringFileId,
           },
@@ -562,7 +562,7 @@ async function testMCPServer() {
 
         // Skip getfile tests - they return 403 (Cloudflare protection) even with valid file IDs
         // await testTool(
-        //   'bulk_ai_scoring_get_file',
+        //   'scoring_get_file',
         //   {
         //     fileId: 'non-existent-file-id',
         //   },
@@ -573,7 +573,7 @@ async function testMCPServer() {
         // );
 
         await testTool(
-          'bulk_ai_scoring_delete_file',
+          'scoring_delete_file',
           {
             fileId: bulkScoringFileId,
           },

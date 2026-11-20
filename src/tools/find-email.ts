@@ -10,11 +10,11 @@ import {
   createErrorResponse,
   optionalString,
 } from './types.js';
+import { describeTool } from './catalog.js';
 
 export const findEmailTool: ToolHandler = {
   definition: {
-    name: 'find_email',
-    description: 'Find an email address by person name and domain or company name.',
+    ...describeTool('find_email_format'),
     inputSchema: {
       type: 'object',
       properties: {

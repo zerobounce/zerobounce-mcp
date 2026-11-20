@@ -6,12 +6,12 @@ import {
   optionalBoolean,
   requireString,
 } from './types.js';
+import { describeTool } from './catalog.js';
 
 export const addFilterTool: ToolHandler = {
   sdkMethods: ['addFilter'],
   definition: {
-    name: 'add_filter',
-    description: 'Add a custom allow/block list filter',
+    ...describeTool('add_filter'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -39,8 +39,7 @@ export const addFilterTool: ToolHandler = {
 export const listFiltersTool: ToolHandler = {
   sdkMethods: ['listFilters'],
   definition: {
-    name: 'list_filters',
-    description: 'List custom filters (GET by default; set usePost for POST)',
+    ...describeTool('list_filters'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -62,8 +61,7 @@ export const listFiltersTool: ToolHandler = {
 export const deleteFilterTool: ToolHandler = {
   sdkMethods: ['deleteFilter'],
   definition: {
-    name: 'delete_filter',
-    description: 'Delete a custom filter',
+    ...describeTool('delete_filter'),
     inputSchema: {
       type: 'object',
       properties: {

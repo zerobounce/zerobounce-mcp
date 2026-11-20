@@ -10,12 +10,11 @@ import {
   createErrorResponse,
   optionalString,
 } from './types.js';
+import { describeTool } from './catalog.js';
 
 export const domainSearchTool: ToolHandler = {
   definition: {
-    name: 'domain_search',
-    description:
-      'Get the likely email address format for a domain or company (Domain Search API).',
+    ...describeTool('find_domain'),
     inputSchema: {
       type: 'object',
       properties: {

@@ -6,6 +6,7 @@
 import { ToolHandler } from './types.js';
 import { isSdkMethodAvailable } from '../zerobounce-client.js';
 import { isWarmupMethodAvailable } from '../warmup-client.js';
+import { describeTool, type ToolName } from './catalog.js';
 
 // Validation tools
 import { validateEmailTool } from './validate-email.js';
@@ -84,6 +85,11 @@ export interface ToolAvailability {
   warmupConfigured?: boolean;
 }
 
+/** The same tool under a second name, as the hosted server lists it. */
+function alias(tool: ToolHandler, name: ToolName): ToolHandler {
+  return { ...tool, definition: { ...tool.definition, ...describeTool(name) } };
+}
+
 /**
  * Get all tools as an array
  */
@@ -91,9 +97,11 @@ function listTools(): ToolHandler[] {
   return [
     // Validation
     validateEmailTool,
+    alias(validateEmailTool, 'validate_email'),
     validateBatchTool,
     // Account
     getCreditsTool,
+    alias(getCreditsTool, 'get_account_credits'),
     getApiUsageTool,
     // Bulk Validation
     bulkValidateTools.sendFile,
@@ -141,7 +149,6 @@ function listTools(): ToolHandler[] {
     inboxPlacementTools.listTests,
     inboxPlacementTools.deleteTest,
     inboxPlacementTools.getWebhook,
-    inboxPlacementTools.setWebhook,
     // SFTP/FTP bulk
     validateSftpFileTool,
     scoreSftpFileTool,

@@ -5,11 +5,11 @@
 
 import type { ZeroBounceClient } from '../zerobounce-client.js';
 import { ToolHandler, createSuccessResponse, createErrorResponse, requireEmail } from './types.js';
+import { describeTool } from './catalog.js';
 
 export const getActivityDataTool: ToolHandler = {
   definition: {
-    name: 'get_activity_data',
-    description: 'Get activity data for an email address to see if it has been active recently.',
+    ...describeTool('get_activity'),
     inputSchema: {
       type: 'object',
       properties: {

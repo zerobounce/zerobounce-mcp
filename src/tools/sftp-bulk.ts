@@ -12,38 +12,31 @@ import {
   optionalString,
 } from './types.js';
 import { createBulkRootJobTool } from './bulk-root-job-helpers.js';
+import { describeTool } from './catalog.js';
 
 export const validateSftpFileTool = createBulkRootJobTool({
-  name: 'validate_sftp_file',
-  endpoint: 'validateSFTPfile',
-  description: 'bulk validation',
+  name: 'validate_sftpfile',
   source: 'SFTP/FTP',
   sdkMethods: ['validateSFTPfile'],
   jobMethod: (client, request) => client.validateSftpFile(request),
 });
 
 export const scoreSftpFileTool = createBulkRootJobTool({
-  name: 'score_sftp_file',
-  endpoint: 'scoreSFTPfile',
-  description: 'bulk AI scoring',
+  name: 'score_sftpfile',
   source: 'SFTP/FTP',
   sdkMethods: ['scoreSFTPfile'],
   jobMethod: (client, request) => client.scoreSftpFile(request),
 });
 
 export const emailFinderSftpFileTool = createBulkRootJobTool({
-  name: 'email_finder_sftp_file',
-  endpoint: 'emailFinderSFTPfile',
-  description: 'bulk email finder',
+  name: 'email_finder_sftpfile',
   source: 'SFTP/FTP',
   sdkMethods: ['emailFinderSFTPfile'],
   jobMethod: (client, request) => client.emailFinderSftpFile(request),
 });
 
 export const domainSearchSftpFileTool = createBulkRootJobTool({
-  name: 'domain_search_sftp_file',
-  endpoint: 'domainSearchSFTPfile',
-  description: 'bulk domain search',
+  name: 'domain_search_sftpfile',
   source: 'SFTP/FTP',
   sdkMethods: ['domainSearchSFTPfile'],
   jobMethod: (client, request) => client.domainSearchSftpFile(request),
@@ -52,8 +45,7 @@ export const domainSearchSftpFileTool = createBulkRootJobTool({
 export const exportSftpFileTool: ToolHandler = {
   sdkMethods: ['exportSFTPfile'],
   definition: {
-    name: 'export_sftp_file',
-    description: 'Export a completed bulk job back to your SFTP/FTP server (POST /exportSFTPfile)',
+    ...describeTool('export_sftpfile'),
     inputSchema: {
       type: 'object',
       properties: {

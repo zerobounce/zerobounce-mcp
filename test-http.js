@@ -188,63 +188,63 @@ const BULK_ROOT = 'https://bulkapi.zerobounce.net';
 // The eight S3 / SFTP file jobs (ops 31-34, 36-39): one shared set of fields,
 // one endpoint each.
 const BULK_ROOT_JOBS = [
-  ['validate_s3_file', '/validateS3file'],
-  ['score_s3_file', '/scoreS3file'],
-  ['email_finder_s3_file', '/emailFinderS3file'],
-  ['domain_search_s3_file', '/domainSearchS3file'],
-  ['validate_sftp_file', '/validateSFTPfile'],
-  ['score_sftp_file', '/scoreSFTPfile'],
-  ['email_finder_sftp_file', '/emailFinderSFTPfile'],
-  ['domain_search_sftp_file', '/domainSearchSFTPfile'],
+  ['validate_s3file', '/validateS3file'],
+  ['score_s3file', '/scoreS3file'],
+  ['email_finder_s3file', '/emailFinderS3file'],
+  ['domain_search_s3file', '/domainSearchS3file'],
+  ['validate_sftpfile', '/validateSFTPfile'],
+  ['score_sftpfile', '/scoreSFTPfile'],
+  ['email_finder_sftpfile', '/emailFinderSFTPfile'],
+  ['domain_search_sftpfile', '/domainSearchSFTPfile'],
 ];
 
 const WARMUP_FROM = 'sender@example.com';
-// Not a credential: the fixture never connects to anything and nothing is stored.
-const SMTP_PLACEHOLDER = 'placeholder-not-a-real-password';
 
 // Valid arguments for every tool the server can expose.
 const TOOL_ARGS = {
+  validate: { email: 'valid@example.com' },
   validate_email: { email: 'valid@example.com' },
   validate_batch: { emails: ['a@example.com', 'b@example.com'] },
   get_credits: {},
+  get_account_credits: {},
   get_api_usage: { startDate: '2026-01-01', endDate: '2026-01-31' },
-  bulk_validate_send_file: { fileContent: CSV, fileName: 'list.csv' },
-  bulk_validate_file_status: { fileId: 'f1' },
-  bulk_validate_get_file: { fileId: 'f1' },
-  bulk_validate_delete_file: { fileId: 'f1' },
-  bulk_ai_scoring_send_file: { fileContent: CSV, fileName: 'list.csv' },
-  bulk_ai_scoring_file_status: { fileId: 'f1' },
-  bulk_ai_scoring_get_file: { fileId: 'f1' },
-  bulk_ai_scoring_delete_file: { fileId: 'f1' },
+  send_file: { fileContent: CSV, fileName: 'list.csv' },
+  file_status: { fileId: 'f1' },
+  get_file: { fileId: 'f1' },
+  delete_file: { fileId: 'f1' },
+  scoring_send_file: { fileContent: CSV, fileName: 'list.csv' },
+  scoring_file_status: { fileId: 'f1' },
+  scoring_get_file: { fileId: 'f1' },
+  scoring_delete_file: { fileId: 'f1' },
   score_email: { email: 'valid@example.com' },
-  find_email: { firstName: 'Alice', domain: 'example.com' },
-  domain_search: { domain: 'example.com' },
-  get_activity_data: { email: 'valid@example.com' },
-  bulk_email_finder_send_file: {
+  find_email_format: { firstName: 'Alice', domain: 'example.com' },
+  find_domain: { domain: 'example.com' },
+  get_activity: { email: 'valid@example.com' },
+  send_email_finder_file: {
     fileContent: CSV,
     fileName: 'list.csv',
     domainColumn: 3,
     firstNameColumn: 1,
   },
-  bulk_email_finder_file_status: { fileId: 'f1' },
-  bulk_email_finder_get_file: { fileId: 'f1' },
-  bulk_email_finder_delete_file: { fileId: 'f1' },
-  bulk_domain_search_send_file: { fileContent: CSV, fileName: 'list.csv', domainColumn: 3 },
-  bulk_domain_search_file_status: { fileId: 'f1' },
-  bulk_domain_search_get_file: { fileId: 'f1' },
-  bulk_domain_search_delete_file: { fileId: 'f1' },
-  list_evaluator_send_file: { fileContent: CSV, fileName: 'list.csv' },
-  list_evaluator_result: { fileId: 'f1' },
+  email_finder_file_status: { fileId: 'f1' },
+  email_finder_get_file: { fileId: 'f1' },
+  email_finder_delete_file: { fileId: 'f1' },
+  send_domain_search_file: { fileContent: CSV, fileName: 'list.csv', domainColumn: 3 },
+  domain_search_file_status: { fileId: 'f1' },
+  domain_search_get_file: { fileId: 'f1' },
+  domain_search_delete_file: { fileId: 'f1' },
+  send_list_evaluator_file: { fileContent: CSV, fileName: 'list.csv' },
+  get_list_evaluator_result: { fileId: 'f1' },
   add_filter: { rule: 'allow', target: 'email', value: 'alice@example.com' },
   list_filters: {},
   delete_filter: { rule: 'allow', target: 'email', value: 'alice@example.com' },
   send_evaluated_file: { fileId: 'f1' },
-  list_s3_files: {},
-  validate_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
-  score_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
-  email_finder_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
-  domain_search_s3_file: { fileName: 'input/list.csv', returnUrl: HOOK },
-  export_s3_file: { fileId: 'f1', exportBucket: 'results-bucket' },
+  list_s3files: {},
+  validate_s3file: { fileName: 'input/list.csv', returnUrl: HOOK },
+  score_s3file: { fileName: 'input/list.csv', returnUrl: HOOK },
+  email_finder_s3file: { fileName: 'input/list.csv', returnUrl: HOOK },
+  domain_search_s3file: { fileName: 'input/list.csv', returnUrl: HOOK },
+  export_s3file: { fileId: 'f1', exportBucket: 'results-bucket' },
 
   // Warmup API (operations 49-74). Separate host, separate key.
   warmup_list_sending_accounts: {},
@@ -298,13 +298,6 @@ const TOOL_ARGS = {
   warmup_download_statistics: { cFrom: WARMUP_FROM },
   warmup_get_from_address_statistics: { fromAddress: WARMUP_FROM },
   warmup_check_domain_dmarc: { fromAddress: WARMUP_FROM },
-  warmup_test_smtp_configuration: {
-    fromAddress: WARMUP_FROM,
-    username: 'smtp-user',
-    password: SMTP_PLACEHOLDER,
-    server: 'smtp.example.com',
-    port: 587,
-  },
   get_inbox_placement_providers: {},
   get_inbox_placement_test_types: {},
   create_inbox_placement_test: {
@@ -316,12 +309,11 @@ const TOOL_ARGS = {
   list_inbox_placement_tests: {},
   delete_inbox_placement_test: { testId: '42' },
   get_inbox_placement_webhook: {},
-  set_inbox_placement_webhook: { webhookUrl: 'https://hooks.example.com/ipt' },
-  validate_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
-  score_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
-  email_finder_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
-  domain_search_sftp_file: { fileName: 'in/list.csv', returnUrl: HOOK },
-  export_sftp_file: { fileId: 'f1', exportPath: '/out' },
+  validate_sftpfile: { fileName: 'in/list.csv', returnUrl: HOOK },
+  score_sftpfile: { fileName: 'in/list.csv', returnUrl: HOOK },
+  email_finder_sftpfile: { fileName: 'in/list.csv', returnUrl: HOOK },
+  domain_search_sftpfile: { fileName: 'in/list.csv', returnUrl: HOOK },
+  export_sftpfile: { fileId: 'f1', exportPath: '/out' },
 };
 
 const WARMUP_TOOLS = Object.keys(TOOL_ARGS).filter((n) => n.startsWith('warmup_'));
@@ -329,26 +321,26 @@ const WARMUP_TOOLS = Object.keys(TOOL_ARGS).filter((n) => n.startsWith('warmup_'
 // Tools that only exist with a newer ZeroBounce SDK.
 const SDK_GATED = new Set([
   'score_email',
-  'bulk_email_finder_send_file',
-  'bulk_email_finder_file_status',
-  'bulk_email_finder_get_file',
-  'bulk_email_finder_delete_file',
-  'bulk_domain_search_send_file',
-  'bulk_domain_search_file_status',
-  'bulk_domain_search_get_file',
-  'bulk_domain_search_delete_file',
-  'list_evaluator_send_file',
-  'list_evaluator_result',
+  'send_email_finder_file',
+  'email_finder_file_status',
+  'email_finder_get_file',
+  'email_finder_delete_file',
+  'send_domain_search_file',
+  'domain_search_file_status',
+  'domain_search_get_file',
+  'domain_search_delete_file',
+  'send_list_evaluator_file',
+  'get_list_evaluator_result',
   'add_filter',
   'list_filters',
   'delete_filter',
   'send_evaluated_file',
-  'list_s3_files',
-  'validate_s3_file',
-  'score_s3_file',
-  'email_finder_s3_file',
-  'domain_search_s3_file',
-  'export_s3_file',
+  'list_s3files',
+  'validate_s3file',
+  'score_s3file',
+  'email_finder_s3file',
+  'domain_search_s3file',
+  'export_s3file',
   'get_inbox_placement_providers',
   'get_inbox_placement_test_types',
   'create_inbox_placement_test',
@@ -356,12 +348,11 @@ const SDK_GATED = new Set([
   'list_inbox_placement_tests',
   'delete_inbox_placement_test',
   'get_inbox_placement_webhook',
-  'set_inbox_placement_webhook',
-  'validate_sftp_file',
-  'score_sftp_file',
-  'email_finder_sftp_file',
-  'domain_search_sftp_file',
-  'export_sftp_file',
+  'validate_sftpfile',
+  'score_sftpfile',
+  'email_finder_sftpfile',
+  'domain_search_sftpfile',
+  'export_sftpfile',
 ]);
 
 async function testRoutingAndAuth(origin) {
@@ -475,9 +466,20 @@ async function testTools(origin) {
     `listed ${warmupListed.length} of ${WARMUP_TOOLS.length}`
   );
   check(
-    !fullWarmup || warmupListed.length === 26,
-    'all 26 documented Warmup operations are exposed',
+    !fullWarmup || warmupListed.length === 25,
+    'all 26 documented Warmup operations but test_smtp_configuration are exposed',
     `listed ${warmupListed.length}`
+  );
+  check(
+    !names.includes('warmup_test_smtp_configuration') && !names.includes('set_inbox_placement_webhook'),
+    'tools that take an SMTP password or set the account webhook are not exposed',
+    names.filter((n) => /smtp|set_inbox_placement_webhook/.test(n)).join(', ')
+  );
+  check(
+    list.message?.result?.tools?.every(
+      (t) => typeof t.title === 'string' && typeof t.annotations?.readOnlyHint === 'boolean'
+    ),
+    'every tool has a title and readOnlyHint'
   );
   const expected = Object.keys(TOOL_ARGS).filter(
     (n) => (fullSdk || !SDK_GATED.has(n)) && (fullWarmup || !n.startsWith('warmup_'))
@@ -514,7 +516,7 @@ async function testArgumentHandling(origin, names) {
   check(/email is required/.test(toolText(missing)), 'missing required argument is rejected');
   check(loggedRequests('missing-arg').length === 0, 'rejected call does not reach the API');
 
-  const badUrl = await callTool(origin, 'bad-return-url', 'bulk_validate_send_file', {
+  const badUrl = await callTool(origin, 'bad-return-url', 'send_file', {
     fileContent: CSV,
     fileName: 'list.csv',
     returnUrl: 'http://127.0.0.1/hook',
@@ -534,7 +536,7 @@ async function testArgumentHandling(origin, names) {
     ['https://[::ffff:10.1.2.3]/hook', 'mapped-private'],
   ];
   for (const [returnUrl, label] of privateIpv6) {
-    const result = await callTool(origin, `ipv6-${label}`, 'bulk_validate_send_file', {
+    const result = await callTool(origin, `ipv6-${label}`, 'send_file', {
       fileContent: CSV,
       fileName: 'list.csv',
       returnUrl,
@@ -566,7 +568,7 @@ async function testArgumentHandling(origin, names) {
   ];
   for (const [host, isPrivate] of ipv4Hosts) {
     const key = `ipv4-${host}`;
-    const result = await callTool(origin, key, 'bulk_validate_send_file', {
+    const result = await callTool(origin, key, 'send_file', {
       fileContent: CSV,
       fileName: 'list.csv',
       returnUrl: `https://${host}/hook`,
@@ -582,7 +584,7 @@ async function testArgumentHandling(origin, names) {
   // A hostname must be fully qualified: "intranet" names a host on the local network.
   for (const [host, accepted] of [['intranet', false], ['hooks.example.com', true]]) {
     const key = `fqdn-${host}`;
-    const result = await callTool(origin, key, 'bulk_validate_send_file', {
+    const result = await callTool(origin, key, 'send_file', {
       fileContent: CSV,
       fileName: 'list.csv',
       returnUrl: `https://${host}/hook`,
@@ -595,7 +597,7 @@ async function testArgumentHandling(origin, names) {
     );
   }
 
-  const publicV6 = await callTool(origin, 'ipv6-public', 'bulk_validate_send_file', {
+  const publicV6 = await callTool(origin, 'ipv6-public', 'send_file', {
     fileContent: CSV,
     fileName: 'list.csv',
     returnUrl: 'https://[2606:4700::1111]/hook',
@@ -609,7 +611,7 @@ async function testArgumentHandling(origin, names) {
   );
 
   const midSize = `email\n${'a'.repeat(5 * 1024 * 1024)}@example.com\n`;
-  const midFile = await callTool(origin, 'mid-file', 'bulk_validate_send_file', {
+  const midFile = await callTool(origin, 'mid-file', 'send_file', {
     fileContent: midSize,
     fileName: 'mid.csv',
   });
@@ -622,7 +624,7 @@ async function testArgumentHandling(origin, names) {
   );
 
   const overCap = 'x'.repeat(32 * 1024 * 1024 + 1);
-  const hugeFile = await callTool(origin, 'huge-file', 'bulk_validate_send_file', {
+  const hugeFile = await callTool(origin, 'huge-file', 'send_file', {
     fileContent: overCap,
     fileName: 'huge.csv',
   });
@@ -650,8 +652,8 @@ async function testArgumentHandling(origin, names) {
     check(/rule is required/.test(toolText(noRule)), 'add_filter without rule is rejected');
   }
 
-  if (has('export_s3_file')) {
-    await callTool(origin, 's3-export', 'export_s3_file', TOOL_ARGS.export_s3_file);
+  if (has('export_s3file')) {
+    await callTool(origin, 's3-export', 'export_s3file', TOOL_ARGS.export_s3file);
     const [req] = loggedRequests('s3-export');
     check(
       req?.method === 'POST' &&
@@ -661,23 +663,23 @@ async function testArgumentHandling(origin, names) {
         req?.bodyFields.export_bucket === 'results-bucket' &&
         req?.bodyFields.api_key === 's3-export' &&
         keysOf(req?.query) === '',
-      'export_s3_file POSTs file_id, export_bucket and the key in the form body',
+      'export_s3file POSTs file_id, export_bucket and the key in the form body',
       `${req?.method} ${req?.url} ${JSON.stringify(req?.bodyFields)}`
     );
 
     // The spec makes the bucket optional: without it the API falls back to the
     // bucket configured on the account, so an empty export_bucket must not go out.
-    await callTool(origin, 's3-export-default', 'export_s3_file', { fileId: 'f1' });
+    await callTool(origin, 's3-export-default', 'export_s3file', { fileId: 'f1' });
     const [bare] = loggedRequests('s3-export-default');
     check(
       keysOf(bare?.bodyFields) === 'api_key,file_id',
-      'export_s3_file omits export_bucket when it is not given',
+      'export_s3file omits export_bucket when it is not given',
       JSON.stringify(bare?.bodyFields)
     );
   }
 
-  if (has('export_sftp_file')) {
-    await callTool(origin, 'sftp-export', 'export_sftp_file', TOOL_ARGS.export_sftp_file);
+  if (has('export_sftpfile')) {
+    await callTool(origin, 'sftp-export', 'export_sftpfile', TOOL_ARGS.export_sftpfile);
     const [req] = loggedRequests('sftp-export');
     check(
       req?.method === 'POST' &&
@@ -685,15 +687,15 @@ async function testArgumentHandling(origin, names) {
         keysOf(req?.bodyFields) === 'api_key,export_path,file_id' &&
         req?.bodyFields.file_id === 'f1' &&
         req?.bodyFields.export_path === '/out',
-      'export_sftp_file POSTs file_id and export_path (not export_bucket)',
+      'export_sftpfile POSTs file_id and export_path (not export_bucket)',
       `${req?.method} ${req?.url} ${JSON.stringify(req?.bodyFields)}`
     );
 
-    await callTool(origin, 'sftp-export-default', 'export_sftp_file', { fileId: 'f1' });
+    await callTool(origin, 'sftp-export-default', 'export_sftpfile', { fileId: 'f1' });
     const [bare] = loggedRequests('sftp-export-default');
     check(
       keysOf(bare?.bodyFields) === 'api_key,file_id',
-      'export_sftp_file omits export_path when it is not given',
+      'export_sftpfile omits export_path when it is not given',
       JSON.stringify(bare?.bodyFields)
     );
   }
@@ -789,15 +791,15 @@ async function testArgumentHandling(origin, names) {
     );
   }
 
-  if (has('list_evaluator_send_file')) {
-    await callTool(origin, 'evaluator-column', 'list_evaluator_send_file', {
-      ...TOOL_ARGS.list_evaluator_send_file,
+  if (has('send_list_evaluator_file')) {
+    await callTool(origin, 'evaluator-column', 'send_list_evaluator_file', {
+      ...TOOL_ARGS.send_list_evaluator_file,
       emailAddressColumn: 2,
     });
     const [req] = loggedRequests('evaluator-column');
     check(
       String(req?.fields.email_address_column) === '3',
-      'list_evaluator_send_file honours emailAddressColumn (0-based 2 -> API 3)',
+      'send_list_evaluator_file honours emailAddressColumn (0-based 2 -> API 3)',
       JSON.stringify(req?.fields)
     );
   }
@@ -811,7 +813,7 @@ async function testArgumentHandling(origin, names) {
     (sendFileList.message?.result?.tools ?? []).map((tool) => [tool.name, tool])
   );
   const SEND_FILE_TOOLS = {
-    bulk_validate_send_file: {
+    send_file: {
       args: {
         hasHeaderRow: true,
         removeDuplicate: true,
@@ -831,12 +833,12 @@ async function testArgumentHandling(origin, names) {
         allow_phase_2: 'true',
       },
     },
-    bulk_ai_scoring_send_file: {
+    scoring_send_file: {
       args: { hasHeaderRow: true, removeDuplicate: true },
       fields: { has_header_row: 'true', remove_duplicate: 'true' },
     },
-    bulk_email_finder_send_file: { args: { hasHeaderRow: true }, fields: { has_header_row: 'true' } },
-    bulk_domain_search_send_file: { args: { hasHeaderRow: true }, fields: { has_header_row: 'true' } },
+    send_email_finder_file: { args: { hasHeaderRow: true }, fields: { has_header_row: 'true' } },
+    send_domain_search_file: { args: { hasHeaderRow: true }, fields: { has_header_row: 'true' } },
   };
   for (const [name, { args, fields }] of Object.entries(SEND_FILE_TOOLS)) {
     if (!has(name)) {
@@ -898,7 +900,7 @@ async function testArgumentHandling(origin, names) {
   }
   // The email finder and domain search sendfile endpoints take no return_url,
   // so the tools do not offer one they would drop.
-  for (const name of ['bulk_email_finder_send_file', 'bulk_domain_search_send_file']) {
+  for (const name of ['send_email_finder_file', 'send_domain_search_file']) {
     if (has(name)) {
       check(
         !('returnUrl' in toolsByName[name].inputSchema.properties),
@@ -907,16 +909,16 @@ async function testArgumentHandling(origin, names) {
     }
   }
 
-  if (has('bulk_email_finder_send_file')) {
-    await callTool(origin, 'finder-column-zero', 'bulk_email_finder_send_file', {
-      ...TOOL_ARGS.bulk_email_finder_send_file,
+  if (has('send_email_finder_file')) {
+    await callTool(origin, 'finder-column-zero', 'send_email_finder_file', {
+      ...TOOL_ARGS.send_email_finder_file,
       firstNameColumn: 0,
       lastNameColumn: 2,
     });
     const [req] = loggedRequests('finder-column-zero');
     check(
       String(req?.fields.first_name_column) === '1' && String(req?.fields.last_name_column) === '3',
-      'bulk_email_finder_send_file keeps column 0 (first_name_column -> 1)',
+      'send_email_finder_file keeps column 0 (first_name_column -> 1)',
       JSON.stringify(req?.fields)
     );
   }
@@ -941,7 +943,7 @@ async function testErrorReporting(origin, names) {
     `${kept.length} kept, ends ${JSON.stringify(longText.slice(-20))}`
   );
 
-  const html403 = await callTool(origin, 'html-403-getfile', 'bulk_validate_get_file', {
+  const html403 = await callTool(origin, 'html-403-getfile', 'get_file', {
     fileId: 'f1',
   });
   const html403Text = toolText(html403);
@@ -955,7 +957,7 @@ async function testErrorReporting(origin, names) {
     'HTML error message keeps the page title'
   );
 
-  const html200 = await callTool(origin, 'html-200-getfile', 'bulk_ai_scoring_get_file', {
+  const html200 = await callTool(origin, 'html-200-getfile', 'scoring_get_file', {
     fileId: 'f1',
   });
   check(
@@ -979,15 +981,15 @@ async function testErrorReporting(origin, names) {
     deniedText
   );
 
-  const hasJobs = names.includes('validate_s3_file') && names.includes('validate_sftp_file');
+  const hasJobs = names.includes('validate_s3file') && names.includes('validate_sftpfile');
   if (hasJobs) {
     // The body the live API returns for an S3/SFTP job whose return_url never
     // reached the wire. It must surface as the API's own words, not a generic failure.
     const returnUrl400 = await callTool(
       origin,
       'returnurl-400-s3',
-      'validate_s3_file',
-      TOOL_ARGS.validate_s3_file
+      'validate_s3file',
+      TOOL_ARGS.validate_s3file
     );
     check(
       isError(returnUrl400) &&
@@ -1000,8 +1002,8 @@ async function testErrorReporting(origin, names) {
     const returnUrl400Sftp = await callTool(
       origin,
       'returnurl-400-sftp',
-      'validate_sftp_file',
-      TOOL_ARGS.validate_sftp_file
+      'validate_sftpfile',
+      TOOL_ARGS.validate_sftpfile
     );
     check(
       isError(returnUrl400Sftp) &&
@@ -1043,8 +1045,8 @@ async function testParityGuards(origin, names) {
   // LIVE: an invalid or drained key gets an HTTP 200 with no "success" field.
   // SDK 3.0.0 resolved these three as results, so the tools reported success.
   const deadKeyCalls = [
-    ['find_email', TOOL_ARGS.find_email],
-    ['domain_search', TOOL_ARGS.domain_search],
+    ['find_email_format', TOOL_ARGS.find_email_format],
+    ['find_domain', TOOL_ARGS.find_domain],
     ['list_filters', TOOL_ARGS.list_filters],
   ];
   for (const [name, args] of deadKeyCalls) {
@@ -1060,10 +1062,10 @@ async function testParityGuards(origin, names) {
 
   // A getfile JSON error body surfaces with the API's own message.
   for (const name of [
-    'bulk_validate_get_file',
-    'bulk_ai_scoring_get_file',
-    'bulk_email_finder_get_file',
-    'bulk_domain_search_get_file',
+    'get_file',
+    'scoring_get_file',
+    'email_finder_get_file',
+    'domain_search_get_file',
   ]) {
     if (!has(name)) continue;
     const result = await callTool(origin, `getfile-json-${name}`, name, { fileId: 'f1' });
@@ -1074,8 +1076,8 @@ async function testParityGuards(origin, names) {
     );
   }
 
-  if (has('bulk_email_finder_send_file')) {
-    await callTool(origin, 'finder-full-name', 'bulk_email_finder_send_file', {
+  if (has('send_email_finder_file')) {
+    await callTool(origin, 'finder-full-name', 'send_email_finder_file', {
       fileContent: CSV,
       fileName: 'list.csv',
       domainColumn: 3,
@@ -1084,11 +1086,11 @@ async function testParityGuards(origin, names) {
     const [req] = loggedRequests('finder-full-name');
     check(
       String(req?.fields.full_name_column) === '2' && req?.fields.first_name_column === undefined,
-      'bulk_email_finder_send_file sends fullNameColumn (0-based 1 -> API 2)',
+      'send_email_finder_file sends fullNameColumn (0-based 1 -> API 2)',
       JSON.stringify(req?.fields)
     );
 
-    const noName = await callTool(origin, 'finder-no-name', 'bulk_email_finder_send_file', {
+    const noName = await callTool(origin, 'finder-no-name', 'send_email_finder_file', {
       fileContent: CSV,
       fileName: 'list.csv',
       domainColumn: 3,
@@ -1097,7 +1099,7 @@ async function testParityGuards(origin, names) {
       isError(noName) &&
         /firstNameColumn or fullNameColumn is required/.test(toolText(noName)) &&
         loggedRequests('finder-no-name').length === 0,
-      'bulk_email_finder_send_file without a name column is refused before any request',
+      'send_email_finder_file without a name column is refused before any request',
       toolText(noName).slice(0, 160)
     );
   }
@@ -1106,7 +1108,7 @@ async function testParityGuards(origin, names) {
   // error_message body that does not mention the key or credits, and returned an
   // application/json getfile answer as if it were the file, so each of these
   // tools reported success. 0.3.0 shipped with 3.1.0 and nothing failed.
-  for (const name of ['validate_email', 'score_email', 'get_activity_data', 'get_api_usage', 'get_credits']) {
+  for (const name of ['validate_email', 'score_email', 'get_activity', 'get_api_usage', 'get_credits']) {
     if (!has(name)) continue;
     const result = await callTool(origin, `error-message-200-${name}`, name, TOOL_ARGS[name]);
     check(
@@ -1115,11 +1117,11 @@ async function testParityGuards(origin, names) {
       toolText(result).slice(0, 160)
     );
   }
-  if (has('bulk_validate_get_file')) {
-    const result = await callTool(origin, 'getfile-jsontype-validate', 'bulk_validate_get_file', { fileId: 'f1' });
+  if (has('get_file')) {
+    const result = await callTool(origin, 'getfile-jsontype-validate', 'get_file', { fileId: 'f1' });
     check(
       isError(result) && !/list\.csv/.test(toolText(result)),
-      'bulk_validate_get_file reports an application/json answer as an error, not as the file (bundled SDK >= 4.0.0)',
+      'get_file reports an application/json answer as an error, not as the file (bundled SDK >= 4.0.0)',
       toolText(result).slice(0, 160)
     );
   }
@@ -1130,8 +1132,8 @@ async function testParityGuards(origin, names) {
     ['validate_email', { email: 'valid@example.com', ipAddress: 123 }, /ipAddress must be a string/],
     ['validate_batch', { emails: [1, 2] }, /emails must contain only non-empty strings/],
     ['validate_batch', { emails: ['a@example.com', null] }, /emails must contain only non-empty strings/],
-    ['find_email', { domain: 123, firstName: 'Alice' }, /domain must be a string/],
-    ['domain_search', { domain: 'example.com', company: { name: 'x' } }, /company must be a string/],
+    ['find_email_format', { domain: 123, firstName: 'Alice' }, /domain must be a string/],
+    ['find_domain', { domain: 'example.com', company: { name: 'x' } }, /company must be a string/],
   ];
   let wrongIndex = 0;
   for (const [name, args, expected] of wrongTypes) {
@@ -1437,23 +1439,6 @@ async function testWarmup(origin) {
     customGet?.path
   );
 
-  await warmupCall('v-smtp', 'w-smtp', 'warmup_test_smtp_configuration', {
-    ...TOOL_ARGS.warmup_test_smtp_configuration,
-  });
-  const [smtp] = loggedRequests('w-smtp');
-  check(
-    smtp?.method === 'POST' &&
-      smtp?.path === '/test-smtp-configuration' &&
-      smtp?.fields.username === 'smtp-user' &&
-      smtp?.fields.port === 587,
-    'warmup_test_smtp_configuration POSTs the SMTP fields',
-    `${smtp?.method} ${smtp?.path}`
-  );
-  check(
-    !String(smtp?.url).includes(SMTP_PLACEHOLDER) && !String(smtp?.url).includes('smtp-user'),
-    'SMTP credentials go in the body, never the URL',
-    smtp?.url
-  );
 
   // -- CSV endpoints (operations 63 and 71) ----------------------------------
   const seedCsv = await warmupCall('v-seed-csv', 'w-seed-csv', 'warmup_download_seeds', {});
@@ -1595,12 +1580,6 @@ async function testInboxPlacement(origin, names) {
     ['list_inbox_placement_tests', {}, 'GET', `${BASE}/tests`],
     ['delete_inbox_placement_test', { testId: '42' }, 'DELETE', `${BASE}/test/42`],
     ['get_inbox_placement_webhook', {}, 'GET', `${BASE}/webhook`],
-    [
-      'set_inbox_placement_webhook',
-      { webhookUrl: 'https://hooks.example.com/ipt' },
-      'PUT',
-      `${BASE}/webhook`,
-    ],
   ];
 
   for (const [name, args, method, expectedUrl] of operations) {
@@ -1681,6 +1660,7 @@ async function testInboxPlacement(origin, names) {
     providerIds: [1, 2],
     seedIds: [7],
     providers: [{ id: 3, maxSeeds: 5 }],
+    // Not a parameter: the webhook is the account's, set in the ZeroBounce dashboard.
     webhookUrl: 'https://hooks.example.com/ipt',
   });
   const createBody = loggedRequests(createKey)[0]?.body ?? {};
@@ -1691,7 +1671,7 @@ async function testInboxPlacement(origin, names) {
       JSON.stringify(createBody.providerIds) === '[1,2]' &&
       JSON.stringify(createBody.seedIds) === '[7]' &&
       JSON.stringify(createBody.providers) === '[{"id":3,"maxSeeds":5}]' &&
-      createBody.webhookUrl === 'https://hooks.example.com/ipt',
+      !('webhookUrl' in createBody),
     'create_inbox_placement_test sends the whole test definition as JSON',
     JSON.stringify(createBody)
   );
@@ -1739,37 +1719,6 @@ async function testInboxPlacement(origin, names) {
     toolText(badSeeds).slice(0, 160)
   );
 
-  // Webhook URLs are callbacks ZeroBounce posts to, so they get the returnUrl checks.
-  const privateHook = await callTool(origin, 'ipt-private-hook', 'set_inbox_placement_webhook', {
-    webhookUrl: 'https://127.0.0.1/hook',
-  });
-  check(
-    /webhookUrl must not target private, link-local, or loopback addresses/.test(
-      toolText(privateHook)
-    ) && loggedRequests('ipt-private-hook').length === 0,
-    'a loopback webhookUrl is rejected before calling the API',
-    toolText(privateHook).slice(0, 160)
-  );
-
-  const insecureHook = await callTool(origin, 'ipt-http-hook', 'set_inbox_placement_webhook', {
-    webhookUrl: 'http://hooks.example.com/ipt',
-  });
-  check(
-    /webhookUrl must use HTTPS/.test(toolText(insecureHook)) &&
-      loggedRequests('ipt-http-hook').length === 0,
-    'a non-HTTPS webhookUrl is rejected before calling the API',
-    toolText(insecureHook).slice(0, 160)
-  );
-
-  const hookKey = 'ipt-webhook-body';
-  await callTool(origin, hookKey, 'set_inbox_placement_webhook', {
-    webhookUrl: 'https://hooks.example.com/ipt',
-  });
-  check(
-    loggedRequests(hookKey)[0]?.body?.webhookUrl === 'https://hooks.example.com/ipt',
-    'set_inbox_placement_webhook sends webhookUrl as a JSON body',
-    JSON.stringify(loggedRequests(hookKey)[0]?.body)
-  );
 
   // Test ids reach the path as one encoded segment, numbers included.
   await callTool(origin, 'ipt-id-encoded', 'get_inbox_placement_test', { testId: 'a/b c' });
@@ -1872,7 +1821,7 @@ async function testInboxPlacement(origin, names) {
 async function testKeyIsolation(origin, server) {
   console.log('\nPer-request API key isolation');
   const count = 60;
-  const tools = ['get_credits', 'validate_email', 'get_activity_data'];
+  const tools = ['get_credits', 'validate_email', 'get_activity'];
   const calls = Array.from({ length: count }, (_, i) => {
     const key = `concurrent-${i}`;
     const name = tools[i % tools.length];
@@ -2156,8 +2105,8 @@ async function testBindHost() {
     ZEROBOUNCE_WARMUP_API_KEY: '',
   });
   check(
-    flagTools.filter((n) => n.startsWith('warmup_')).length === 26,
-    '--warmup-api-key registers all 26 Warmup tools in stdio mode',
+    flagTools.filter((n) => n.startsWith('warmup_')).length === 25,
+    '--warmup-api-key registers all 25 Warmup tools in stdio mode',
     `${flagTools.filter((n) => n.startsWith('warmup_')).length} listed`
   );
 
@@ -2165,7 +2114,7 @@ async function testBindHost() {
     ZEROBOUNCE_WARMUP_API_KEY: 'stdio-warmup-env',
   });
   check(
-    envTools.filter((n) => n.startsWith('warmup_')).length === 26,
+    envTools.filter((n) => n.startsWith('warmup_')).length === 25,
     'ZEROBOUNCE_WARMUP_API_KEY registers the Warmup tools in stdio mode',
     `${envTools.filter((n) => n.startsWith('warmup_')).length} listed`
   );
@@ -2437,7 +2386,7 @@ async function testHttpHardening(origin, names) {
   // returnUrl / webhookUrl
   console.log('\nreturnUrl and webhookUrl');
   const send = (returnUrl, apiKey = 'url-key') =>
-    callTool(origin, apiKey, 'bulk_validate_send_file', { fileContent: 'email\na@example.com\n', fileName: 'u.csv', returnUrl });
+    callTool(origin, apiKey, 'send_file', { fileContent: 'email\na@example.com\n', fileName: 'u.csv', returnUrl });
   const refusedUrls = [
     'https://localhost./hook',
     'https://LOCALHOST/hook',
@@ -2511,17 +2460,7 @@ async function testHttpHardening(origin, names) {
       toolText(r).slice(0, 100)
     );
   }
-  if (has('set_inbox_placement_webhook')) {
-    const r = await callTool(origin, 'hook-key', 'set_inbox_placement_webhook', {
-      webhookUrl: 'https://metadata.google.internal/x',
-    });
-    check(/webhookUrl must/.test(toolText(r)), 'webhookUrl uses the same refusal');
-    const r2 = await callTool(origin, 'hook-key', 'set_inbox_placement_webhook', {
-      webhookUrl: 'https://user:pw@example.com/x',
-    });
-    check(/webhookUrl must not contain a username/.test(toolText(r2)), 'webhookUrl with userinfo is refused');
-  }
-  const rootJob = names.find((n) => /_s3_file$/.test(n) || /_sftp_file$/.test(n));
+  const rootJob = names.find((n) => /_s3file$/.test(n) || /_sftpfile$/.test(n));
   if (rootJob) {
     const r = await callTool(origin, 'root-key', rootJob, { ...TOOL_ARGS[rootJob], returnUrl: 'https://example.com/h\nx' });
     check(/returnUrl must not contain control/.test(toolText(r)), `${rootJob} refuses CR/LF in returnUrl`, toolText(r).slice(0, 100));
@@ -2531,7 +2470,7 @@ async function testHttpHardening(origin, names) {
 
   console.log('\nInput limits');
   const bulk = (args) =>
-    callTool(origin, 'limit-key', 'bulk_validate_send_file', { fileContent: 'email\na@example.com\n', fileName: 'l.csv', ...args });
+    callTool(origin, 'limit-key', 'send_file', { fileContent: 'email\na@example.com\n', fileName: 'l.csv', ...args });
   for (const [label, args, re] of [
     ['CRLF in fileName', { fileName: 'a\r\nX: 1.csv' }, /fileName must not contain control/],
     ['NUL in fileName', { fileName: 'a\u0000.csv' }, /fileName must not contain control/],
@@ -2545,19 +2484,19 @@ async function testHttpHardening(origin, names) {
     const r = await bulk(args);
     check(re.test(toolText(r)) && loggedRequests('limit-key').length === 0, `${label} is refused`, toolText(r).slice(0, 120));
   }
-  const col999 = await callTool(origin, 'col-ok', 'bulk_validate_send_file', {
+  const col999 = await callTool(origin, 'col-ok', 'send_file', {
     fileContent: 'email\na@example.com\n', fileName: 'l.csv', emailAddressColumn: 999,
   });
   check(loggedRequests('col-ok').length === 1, 'column 999 (the last) is accepted', toolText(col999).slice(0, 100));
-  if (has('list_evaluator_send_file')) {
-    const r = await callTool(origin, 'le-key', 'list_evaluator_send_file', {
+  if (has('send_list_evaluator_file')) {
+    const r = await callTool(origin, 'le-key', 'send_list_evaluator_file', {
       fileContent: 'a@example.com\n', fileName: 'l.csv', emailAddressColumn: -1,
     });
-    check(/emailAddressColumn must be a whole number/.test(toolText(r)), 'list_evaluator_send_file refuses a negative column');
-    const r2 = await callTool(origin, 'le-key', 'list_evaluator_send_file', {
+    check(/emailAddressColumn must be a whole number/.test(toolText(r)), 'send_list_evaluator_file refuses a negative column');
+    const r2 = await callTool(origin, 'le-key', 'send_list_evaluator_file', {
       fileContent: 'a@example.com\n', fileName: 'l\n.csv',
     });
-    check(/fileName must not contain control/.test(toolText(r2)), 'list_evaluator_send_file refuses CR/LF in fileName');
+    check(/fileName must not contain control/.test(toolText(r2)), 'send_list_evaluator_file refuses CR/LF in fileName');
   }
   const batch = (args) => callTool(origin, 'batch-limit', 'validate_batch', args);
   const b1 = await batch({ emails: ['a@example.com'], emailAddressColumn: -1 });

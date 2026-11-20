@@ -36,7 +36,7 @@ import {
   warmupDownloadStatisticsTool,
   warmupGetFromAddressStatisticsTool,
 } from './insights.js';
-import { warmupCheckDomainDmarcTool, warmupTestSmtpConfigurationTool } from './diagnostics.js';
+import { warmupCheckDomainDmarcTool } from './diagnostics.js';
 
 export const warmupTools: ToolHandler[] = [
   // Sending accounts (49-55)
@@ -68,5 +68,4 @@ export const warmupTools: ToolHandler[] = [
   warmupGetFromAddressStatisticsTool,
   // Diagnostics (73-74)
   warmupCheckDomainDmarcTool,
-  warmupTestSmtpConfigurationTool,
 ];

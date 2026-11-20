@@ -10,15 +10,13 @@ import {
   requireString,
   requireNumber,
 } from '../types.js';
+import { describeTool } from '../catalog.js';
 
 export const warmupGetEngagementRulesTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getEngagementRules'],
   definition: {
-    name: 'warmup_get_engagement_rules',
-    description:
-      'List the ZeroBounce Warmup engagement rule catalogue: -1 Custom, 0 Default, 1 Slow Pace, ' +
-      '2 Repair, 3 Boost, 4 Protect.',
+    ...describeTool('warmup_get_engagement_rules'),
     inputSchema: {
       type: 'object',
       properties: {},
@@ -37,8 +35,7 @@ export const warmupSetEngagementRuleTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['setEngagementRule'],
   definition: {
-    name: 'warmup_set_engagement_rule',
-    description: 'Set a standard ZeroBounce Warmup engagement rule (0-4) on an address.',
+    ...describeTool('warmup_set_engagement_rule'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -65,10 +62,7 @@ export const warmupGetCustomEngagementTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['getCustomEngagement'],
   definition: {
-    name: 'warmup_get_custom_engagement',
-    description:
-      "Get an address's custom ZeroBounce Warmup engagement rule, including can_update and " +
-      'remaining_seconds of the update cooldown.',
+    ...describeTool('warmup_get_custom_engagement'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -91,10 +85,7 @@ export const warmupCreateCustomEngagementTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['createCustomEngagement'],
   definition: {
-    name: 'warmup_create_custom_engagement',
-    description:
-      'Create a custom ZeroBounce Warmup engagement rule. Starts a 7-day cooldown before the ' +
-      'rule can be updated again.',
+    ...describeTool('warmup_create_custom_engagement'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -128,10 +119,7 @@ export const warmupUpdateCustomEngagementTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['updateCustomEngagement'],
   definition: {
-    name: 'warmup_update_custom_engagement',
-    description:
-      'Update a custom ZeroBounce Warmup engagement rule. During the 7-day cooldown the API ' +
-      'answers with HTTP 429.',
+    ...describeTool('warmup_update_custom_engagement'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -165,9 +153,7 @@ export const warmupDeleteCustomEngagementTool: ToolHandler = {
   requiresWarmupKey: true,
   warmupMethods: ['deleteCustomEngagement'],
   definition: {
-    name: 'warmup_delete_custom_engagement',
-    description:
-      'Delete a custom ZeroBounce Warmup engagement rule and fall back to a standard rule (1-4).',
+    ...describeTool('warmup_delete_custom_engagement'),
     inputSchema: {
       type: 'object',
       properties: {

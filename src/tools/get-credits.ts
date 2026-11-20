@@ -5,11 +5,11 @@
 
 import type { ZeroBounceClient } from '../zerobounce-client.js';
 import { ToolHandler, createSuccessResponse, createErrorResponse } from './types.js';
+import { describeTool } from './catalog.js';
 
 export const getCreditsTool: ToolHandler = {
   definition: {
-    name: 'get_credits',
-    description: 'Get the number of credits remaining in your ZeroBounce account.',
+    ...describeTool('get_credits'),
     inputSchema: {
       type: 'object',
       properties: {},

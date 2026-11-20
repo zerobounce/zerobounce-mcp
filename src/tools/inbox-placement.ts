@@ -25,7 +25,7 @@ import {
   optionalIsoDateTime,
   assertEmailLength,
 } from './types.js';
-import { validateBulkReturnUrl } from '../security/bulk-input.js';
+import { describeTool } from './catalog.js';
 
 /** Longest test name the API accepts. */
 const MAX_TEST_NAME_LENGTH = 64;
@@ -85,19 +85,11 @@ function optionalProviderSelections(value: unknown): InboxPlacementProviderSelec
   });
 }
 
-function requireWebhookUrl(value: unknown, fieldName = 'webhookUrl'): string {
-  const webhookUrl = requireString(value, fieldName);
-  // ZeroBounce POSTs the finished result here, so hold it to the same bar as a
-  // bulk returnUrl: HTTPS only, never a private or loopback target.
-  return validateBulkReturnUrl(webhookUrl, fieldName);
-}
 
 export const getInboxPlacementProvidersTool: ToolHandler = {
   sdkMethods: ['getInboxPlacementProviders'],
   definition: {
-    name: 'get_inbox_placement_providers',
-    description:
-      'List the seed providers (mailbox providers and their seed addresses) available for inbox placement tests (GET /api/ipt/providers)',
+    ...describeTool('get_inbox_placement_providers'),
     inputSchema: {
       type: 'object',
       properties: {},
@@ -116,9 +108,7 @@ export const getInboxPlacementProvidersTool: ToolHandler = {
 export const getInboxPlacementTestTypesTool: ToolHandler = {
   sdkMethods: ['getInboxPlacementTestTypes'],
   definition: {
-    name: 'get_inbox_placement_test_types',
-    description:
-      'List the supported inbox placement test types and which one is the default (GET /api/ipt/test-types)',
+    ...describeTool('get_inbox_placement_test_types'),
     inputSchema: {
       type: 'object',
       properties: {},
@@ -137,9 +127,7 @@ export const getInboxPlacementTestTypesTool: ToolHandler = {
 export const createInboxPlacementTestTool: ToolHandler = {
   sdkMethods: ['createInboxPlacementTest'],
   definition: {
-    name: 'create_inbox_placement_test',
-    description:
-      'Start an inbox placement test: ZeroBounce returns seed addresses to send your campaign to, then reports where each copy landed (POST /api/ipt/test)',
+    ...describeTool('create_inbox_placement_test'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -178,10 +166,6 @@ export const createInboxPlacementTestTool: ToolHandler = {
             },
             required: ['id'],
           },
-        },
-        webhookUrl: {
-          type: 'string',
-          description: 'HTTPS URL the finished result is posted to',
         },
       },
       required: ['name'],
@@ -224,9 +208,6 @@ export const createInboxPlacementTestTool: ToolHandler = {
       if (providers) {
         options.providers = providers;
       }
-      if (args.webhookUrl !== null && args.webhookUrl !== undefined) {
-        options.webhookUrl = requireWebhookUrl(args.webhookUrl);
-      }
 
       const result = await client.createInboxPlacementTest(options);
       return createSuccessResponse(result);
@@ -239,9 +220,7 @@ export const createInboxPlacementTestTool: ToolHandler = {
 export const getInboxPlacementTestTool: ToolHandler = {
   sdkMethods: ['getInboxPlacementTest'],
   definition: {
-    name: 'get_inbox_placement_test',
-    description:
-      'Get one inbox placement test and its results: inbox, spam, and missing counts per provider (GET /api/ipt/test/{id})',
+    ...describeTool('get_inbox_placement_test'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -263,8 +242,7 @@ export const getInboxPlacementTestTool: ToolHandler = {
 export const listInboxPlacementTestsTool: ToolHandler = {
   sdkMethods: ['listInboxPlacementTests'],
   definition: {
-    name: 'list_inbox_placement_tests',
-    description: 'List inbox placement tests, newest first (GET /api/ipt/tests)',
+    ...describeTool('list_inbox_placement_tests'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -339,9 +317,7 @@ export const listInboxPlacementTestsTool: ToolHandler = {
 export const deleteInboxPlacementTestTool: ToolHandler = {
   sdkMethods: ['deleteInboxPlacementTest'],
   definition: {
-    name: 'delete_inbox_placement_test',
-    description:
-      'Delete a finished inbox placement test. A running test cannot be deleted. (DELETE /api/ipt/test/{id})',
+    ...describeTool('delete_inbox_placement_test'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -363,9 +339,7 @@ export const deleteInboxPlacementTestTool: ToolHandler = {
 export const getInboxPlacementWebhookTool: ToolHandler = {
   sdkMethods: ['getInboxPlacementWebhook'],
   definition: {
-    name: 'get_inbox_placement_webhook',
-    description:
-      'Get the webhook URL finished inbox placement results are posted to for this API key (GET /api/ipt/webhook)',
+    ...describeTool('get_inbox_placement_webhook'),
     inputSchema: {
       type: 'object',
       properties: {},
@@ -381,29 +355,6 @@ export const getInboxPlacementWebhookTool: ToolHandler = {
   },
 };
 
-export const setInboxPlacementWebhookTool: ToolHandler = {
-  sdkMethods: ['setInboxPlacementWebhook'],
-  definition: {
-    name: 'set_inbox_placement_webhook',
-    description:
-      'Save the webhook URL finished inbox placement results are posted to for this API key (PUT /api/ipt/webhook)',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        webhookUrl: { type: 'string', description: 'HTTPS URL to post finished results to' },
-      },
-      required: ['webhookUrl'],
-    },
-  },
-  handler: async (client: ZeroBounceClient, args) => {
-    try {
-      const result = await client.setInboxPlacementWebhook(requireWebhookUrl(args.webhookUrl));
-      return createSuccessResponse(result);
-    } catch (error) {
-      return createErrorResponse(error);
-    }
-  },
-};
 
 export const inboxPlacementTools = {
   providers: getInboxPlacementProvidersTool,
@@ -413,5 +364,4 @@ export const inboxPlacementTools = {
   listTests: listInboxPlacementTestsTool,
   deleteTest: deleteInboxPlacementTestTool,
   getWebhook: getInboxPlacementWebhookTool,
-  setWebhook: setInboxPlacementWebhookTool,
 };

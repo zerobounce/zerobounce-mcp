@@ -14,12 +14,11 @@ import {
   optionalBoolean,
   assertEmailLength,
 } from './types.js';
+import { describeTool } from './catalog.js';
 
 export const validateEmailTool: ToolHandler = {
   definition: {
-    name: 'validate_email',
-    description:
-      'Validate a single email address using ZeroBounce API. Returns detailed validation results including status, sub-status, and additional metadata.',
+    ...describeTool('validate'),
     inputSchema: {
       type: 'object',
       properties: {
@@ -43,6 +42,11 @@ export const validateEmailTool: ToolHandler = {
           type: 'boolean',
           description: 'Use Verify+ validation for this request',
         },
+        domainInfo: {
+          type: 'boolean',
+          description:
+            'Add domain_website_exists and domain_registrant_company_name (WHOIS) for the domain',
+        },
         usePost: {
           type: 'boolean',
           description: 'When true, uses POST /validate with form-encoded body (same parameters as GET)',
@@ -59,6 +63,7 @@ export const validateEmailTool: ToolHandler = {
       const timeout = optionalNumber(args.timeout, 'timeout');
       const activityData = optionalBoolean(args.activityData, 'activityData');
       const verifyPlus = optionalBoolean(args.verifyPlus, 'verifyPlus');
+      const domainInfo = optionalBoolean(args.domainInfo, 'domainInfo');
       const usePost = optionalBoolean(args.usePost, 'usePost') ?? false;
 
       const result = await client.validateEmail(email, {
@@ -66,6 +71,7 @@ export const validateEmailTool: ToolHandler = {
         timeout,
         activityData,
         verifyPlus,
+        domainInfo,
         usePost,
       });
       return createSuccessResponse(result);

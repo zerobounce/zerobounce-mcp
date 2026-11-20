@@ -6,8 +6,13 @@
 import { createBulkFileTools } from './bulk-file-helpers.js';
 
 export const bulkValidateTools = createBulkFileTools({
-  name: 'bulk_validate',
-  description: 'email validation',
+  names: {
+    sendFile: 'send_file',
+    fileStatus: 'file_status',
+    getFile: 'get_file',
+    deleteFile: 'delete_file',
+  },
+  getFileOptions: { downloadType: true, activityData: true },
   sendFileMethod: (
     client,
     fileContent,
@@ -28,7 +33,7 @@ export const bulkValidateTools = createBulkFileTools({
       lastNameColumn,
     }),
   getStatusMethod: (client, fileId) => client.bulkValidateFileStatus(fileId),
-  getFileMethod: (client, fileId) => client.bulkValidateGetFile(fileId),
+  getFileMethod: (client, fileId, options) => client.bulkValidateGetFile(fileId, options),
   deleteFileMethod: (client, fileId) => client.bulkValidateDeleteFile(fileId),
   supportsEmailAddressColumn: true,
   supportsFirstNameColumn: true,

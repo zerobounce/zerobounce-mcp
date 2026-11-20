@@ -2714,12 +2714,13 @@ var ZeroBounceClient = class {
    * Validate a single email address
    */
   async validateEmail(email, options) {
-    const hasExtended = options && (options.timeout != null || options.activityData != null || options.verifyPlus != null || options.usePost);
+    const hasExtended = options && (options.timeout != null || options.activityData != null || options.verifyPlus != null || options.domainInfo != null || options.usePost);
     const sdkArg = hasExtended ? {
       ip_address: options?.ipAddress,
       timeout: options?.timeout,
       activityData: options?.activityData,
       verifyPlus: options?.verifyPlus,
+      domainInfo: options?.domainInfo,
       ...options?.usePost ? { method: "POST" } : {}
     } : options?.ipAddress ?? null;
     const result = await this.sdk.validateEmail(email, sdkArg);
@@ -2800,8 +2801,8 @@ var ZeroBounceClient = class {
   /**
    * Get bulk validation file results
    */
-  async bulkValidateGetFile(fileId) {
-    const result = await this.sdk.getFile(fileId);
+  async bulkValidateGetFile(fileId, options) {
+    const result = await this.sdk.getFile(fileId, this.getFileOptions(options));
     return this.normalizeBulkFileResult(result);
   }
   /**
@@ -2838,9 +2839,17 @@ var ZeroBounceClient = class {
   /**
    * Get bulk AI scoring file results
    */
-  async bulkAIScoringGetFile(fileId) {
-    const result = await this.sdk.getScoringFile(fileId);
+  async bulkAIScoringGetFile(fileId, options) {
+    const result = await this.sdk.getScoringFile(fileId, this.getFileOptions(options));
     return this.normalizeBulkFileResult(result);
+  }
+  /** The SDK's optional getfile query values, or nothing when none is set. */
+  getFileOptions(options) {
+    if (options?.downloadType == null && options?.activityData == null) return void 0;
+    return {
+      ...options.downloadType != null ? { downloadType: options.downloadType } : {},
+      ...options.activityData != null ? { activityData: options.activityData } : {}
+    };
   }
   normalizeBulkFileResult(result) {
     if (result === void 0) {
@@ -3193,13 +3202,6 @@ var ZeroBounceClient = class {
       "inbox placement webhook"
     );
   }
-  /** Save the URL finished results are posted to. PUT /api/ipt/webhook */
-  async setInboxPlacementWebhook(webhookUrl) {
-    return this.requireSdkResult(
-      await this.sdk.setInboxPlacementWebhook(webhookUrl),
-      "set inbox placement webhook"
-    );
-  }
   /** @deprecated Use sendListEvaluatorFile */
   async evaluateList(fileContent, fileName, emailAddressColumn) {
     await this.sendListEvaluatorFile(fileContent, fileName, emailAddressColumn ?? 0);
@@ -3208,6 +3210,560 @@ var ZeroBounceClient = class {
     );
   }
 };
+
+// src/tools/catalog.ts
+var READ_ONLY_CREDITS = "CREDITS: Does not spend validation credits.";
+var WARMUP_READ_CREDITS = "CREDITS: Does not spend validation credits (Warmup API).";
+var CREDIT_WARNING = "CREDITS: Each successful call spends ZeroBounce account credits. Confirm with the user before calling unless they explicitly asked for validation, enrichment, or activity data.";
+var WRITE_WARNING = "WRITE: Changes ZeroBounce account data (uploads, deletes, filters, tests, batch validation, warmup settings). Confirm with the user before calling.";
+var VALIDATE_OPTIONS = "ipAddress (optional) \u2014 subscriber IP if known; timeout (optional, 3-60) \u2014 seconds ZeroBounce may spend before answering unknown; activityData (optional) \u2014 include activity data; verifyPlus (optional) \u2014 deeper verification where available; domainInfo (optional) \u2014 website availability and WHOIS registrant for the domain; usePost (optional) \u2014 send as POST.";
+var SEND_FILE_COMMON = "fileContent \u2014 CSV text; fileName \u2014 e.g. list.csv; hasHeaderRow (optional)";
+function cloudJob(action, source) {
+  const storage = source === "S3" ? "Amazon S3 storage" : "SFTP/FTP storage";
+  return {
+    kind: "write+credits",
+    summary: `Start a bulk ${action} of a file already in the ${storage} connected to the ZeroBounce account.`,
+    when: `When the user's list is in their ${storage} rather than uploaded here.`,
+    params: `fileName \u2014 the file's name in that storage${source === "S3" ? " (see list_s3files)" : ""}; returnUrl \u2014 HTTPS URL notified when the job finishes (required by the API); hasHeaderRow (optional) \u2014 whether the first row is a header; removeDuplicates (optional).`
+  };
+}
+var CATALOG = {
+  // Account
+  get_credits: {
+    title: "Get credit balance",
+    kind: "read",
+    summary: "Remaining ZeroBounce credits for the account.",
+    when: "Check balance before credit-spending tools, or when the user asks how many credits they have."
+  },
+  get_account_credits: {
+    title: "Get credit balance (alias)",
+    kind: "read",
+    summary: "Alias for get_credits \u2014 same balance query.",
+    when: "Same as get_credits; prefer get_credits unless the client already lists this name."
+  },
+  get_api_usage: {
+    title: "Get API usage",
+    kind: "read",
+    summary: "API usage totals between two calendar dates.",
+    when: "Audit call volume, reconcile billing, or answer how much API was used in a period.",
+    params: "startDate and endDate \u2014 inclusive dates in YYYY-MM-DD (ISO 8601). endDate must be on or after startDate. Example: last 7 days \u2014 set startDate to today minus 6 days and endDate to today."
+  },
+  // Single address
+  get_activity: {
+    title: "Get email activity",
+    kind: "credits",
+    summary: "Engagement / activity signals for one email address.",
+    when: "When the user needs open/click-style activity for a specific address they already have.",
+    params: "email \u2014 full email address to look up."
+  },
+  validate: {
+    title: "Validate email",
+    kind: "credits",
+    summary: "Validate a single email: status, sub-status, and hygiene fields.",
+    when: "When the user wants deliverability or list-hygiene for one address (not bulk upload).",
+    params: `email \u2014 address to validate; ${VALIDATE_OPTIONS}`
+  },
+  validate_email: {
+    title: "Validate email (alias)",
+    kind: "credits",
+    summary: "Alias for validate \u2014 single-email validation.",
+    when: "Same as validate; use when the client exposes this name.",
+    params: `email; ${VALIDATE_OPTIONS}`
+  },
+  find_email_format: {
+    title: "Find email address",
+    kind: "credits",
+    summary: "Guess a work email from name plus domain or company.",
+    when: "Lead enrichment when the user has a person's name and either company domain or company name.",
+    params: "firstName (required); lastName, middleName (optional); domain OR company (exactly one required \u2014 not both)."
+  },
+  find_domain: {
+    title: "Find company domain",
+    kind: "credits",
+    summary: "Domain discovery from company name or domain hint.",
+    when: "Enrichment when the user needs the corporate domain for a company (or details for a domain).",
+    params: "domain OR company \u2014 pass exactly one, not both."
+  },
+  score_email: {
+    title: "Score email",
+    kind: "credits",
+    summary: "AI score (0-10) for how likely one address is to engage, with the signals behind it.",
+    when: "When the user asks how good or engaged an address is, beyond valid/invalid.",
+    params: "email \u2014 address to score; usePost (optional) \u2014 send as POST."
+  },
+  validate_batch: {
+    title: "Validate email list",
+    kind: "write+credits",
+    summary: "Validate up to 200 emails in one request.",
+    when: "When the user has a small list to validate in one shot (not a CSV upload).",
+    params: "emails \u2014 array of addresses (or CSV rows with emailAddressColumn); optional timeout (10-120), activityData, verifyPlus."
+  },
+  // Bulk validation
+  send_file: {
+    title: "Upload file for validation",
+    kind: "write+credits",
+    summary: "Upload a CSV for bulk email validation.",
+    when: "When the user wants to start a new bulk validation job from list data.",
+    params: `${SEND_FILE_COMMON}; emailAddressColumn \u2014 0-based column of the email addresses; optional firstNameColumn, lastNameColumn, genderColumn, ipAddressColumn, removeDuplicate, allowPhase2, returnUrl.`
+  },
+  file_status: {
+    title: "Bulk validation status",
+    kind: "read",
+    summary: "Processing status for a bulk validation job.",
+    when: "After a bulk validation was started (send_file or the ZeroBounce app), poll until complete before get_file.",
+    params: "fileId \u2014 ZeroBounce bulk file identifier, as returned by send_file."
+  },
+  get_file: {
+    title: "Download validation results",
+    kind: "read",
+    summary: "Download results for a completed bulk validation file.",
+    when: "After file_status shows completion, fetch the results CSV.",
+    params: "fileId \u2014 bulk validation id; downloadType (optional) \u2014 phase_1, phase_2 or combined; activityData (optional) \u2014 include activity columns when supported."
+  },
+  delete_file: {
+    title: "Delete validation file",
+    kind: "write",
+    destructive: true,
+    summary: "Delete a bulk validation file/job.",
+    when: "When the user explicitly wants to remove a bulk validation job from the account.",
+    params: "fileId \u2014 ZeroBounce bulk file identifier."
+  },
+  // Bulk scoring
+  scoring_send_file: {
+    title: "Upload file for scoring",
+    kind: "write+credits",
+    summary: "Upload a CSV for bulk scoring.",
+    when: "When the user wants to start a new bulk scoring job.",
+    params: `${SEND_FILE_COMMON}; emailAddressColumn \u2014 0-based column of the email addresses; optional removeDuplicate, returnUrl.`
+  },
+  scoring_file_status: {
+    title: "Bulk scoring status",
+    kind: "read",
+    summary: "Processing status for a bulk scoring job.",
+    when: "After a bulk scoring job was started (scoring_send_file or the ZeroBounce app), poll until complete before scoring_get_file.",
+    params: "fileId \u2014 bulk scoring file identifier."
+  },
+  scoring_get_file: {
+    title: "Download scoring results",
+    kind: "read",
+    summary: "Download results for a completed bulk scoring file.",
+    when: "After scoring_file_status completes, retrieve the scoring CSV.",
+    params: "fileId; downloadType (optional) \u2014 phase_1, phase_2 or combined."
+  },
+  scoring_delete_file: {
+    title: "Delete scoring file",
+    kind: "write",
+    destructive: true,
+    summary: "Delete a bulk scoring file/job.",
+    when: "When the user explicitly wants to remove a bulk scoring job.",
+    params: "fileId \u2014 bulk scoring file identifier."
+  },
+  // Bulk email finder
+  send_email_finder_file: {
+    title: "Upload file for email finder",
+    kind: "write+credits",
+    summary: "Upload a CSV of names and domains to find their work email addresses in bulk.",
+    when: "When the user has a list of people and company domains and wants their emails.",
+    params: `${SEND_FILE_COMMON}; domainColumn \u2014 0-based column of the domain; firstNameColumn or fullNameColumn (one is required); optional lastNameColumn, middleNameColumn.`
+  },
+  email_finder_file_status: {
+    title: "Bulk email finder status",
+    kind: "read",
+    summary: "Processing status for a bulk email finder job.",
+    when: "After send_email_finder_file, poll until complete before email_finder_get_file.",
+    params: "fileId \u2014 as returned by send_email_finder_file."
+  },
+  email_finder_get_file: {
+    title: "Download email finder results",
+    kind: "read",
+    summary: "Download results for a completed bulk email finder file.",
+    when: "After email_finder_file_status shows completion.",
+    params: "fileId \u2014 bulk email finder file identifier."
+  },
+  email_finder_delete_file: {
+    title: "Delete email finder file",
+    kind: "write",
+    destructive: true,
+    summary: "Delete a bulk email finder file/job.",
+    when: "When the user explicitly wants to remove a bulk email finder job.",
+    params: "fileId \u2014 bulk email finder file identifier."
+  },
+  // Bulk domain search
+  send_domain_search_file: {
+    title: "Upload file for domain search",
+    kind: "write+credits",
+    summary: "Upload a CSV of domains to find each domain's email format in bulk.",
+    when: "When the user has a list of company domains and wants how their addresses are formed.",
+    params: `${SEND_FILE_COMMON}; domainColumn \u2014 0-based column of the domain.`
+  },
+  domain_search_file_status: {
+    title: "Bulk domain search status",
+    kind: "read",
+    summary: "Processing status for a bulk domain search job.",
+    when: "After send_domain_search_file, poll until complete before domain_search_get_file.",
+    params: "fileId \u2014 as returned by send_domain_search_file."
+  },
+  domain_search_get_file: {
+    title: "Download domain search results",
+    kind: "read",
+    summary: "Download results for a completed bulk domain search file.",
+    when: "After domain_search_file_status shows completion.",
+    params: "fileId \u2014 bulk domain search file identifier."
+  },
+  domain_search_delete_file: {
+    title: "Delete domain search file",
+    kind: "write",
+    destructive: true,
+    summary: "Delete a bulk domain search file/job.",
+    when: "When the user explicitly wants to remove a bulk domain search job.",
+    params: "fileId \u2014 bulk domain search file identifier."
+  },
+  // List Evaluator
+  send_list_evaluator_file: {
+    title: "Evaluate a list",
+    kind: "write",
+    summary: "Upload a CSV to the List Evaluator, which estimates a list's quality from a sample and uses no credits.",
+    when: "When the user wants a quick quality estimate of a list before spending credits to validate it.",
+    params: "fileContent \u2014 CSV text; fileName \u2014 e.g. list.csv; emailAddressColumn \u2014 0-based column of the email addresses."
+  },
+  get_list_evaluator_result: {
+    title: "List Evaluator result",
+    kind: "read",
+    summary: "Progress and quality estimate (valid, invalid, catch-all, abuse percentages) of a List Evaluator run.",
+    when: "After send_list_evaluator_file; when finished, send_evaluated_file can validate the list.",
+    params: "fileId \u2014 as returned by send_list_evaluator_file."
+  },
+  send_evaluated_file: {
+    title: "Validate an evaluated list",
+    kind: "write+credits",
+    summary: "Start a bulk validation of a list the List Evaluator has finished.",
+    when: "After get_list_evaluator_result shows finished and the user wants the whole list validated.",
+    params: "fileId \u2014 the List Evaluator file id (no upload needed)."
+  },
+  // Filters
+  list_filters: {
+    title: "List allow/block filters",
+    kind: "read",
+    summary: "The account's allow and block filters (rule, target, value).",
+    when: "When the user asks which emails, domains, MX or TLDs are always allowed or blocked.",
+    params: "usePost (optional) \u2014 send as POST."
+  },
+  add_filter: {
+    title: "Add allow/block filter",
+    kind: "write",
+    summary: "Always allow or always block an email, domain, MX or TLD in this account's validations.",
+    when: "When the user explicitly wants a validation override for an address or domain.",
+    params: "rule \u2014 allow or block; target \u2014 email, domain, mx or tld; value \u2014 the address, domain, MX host or TLD."
+  },
+  delete_filter: {
+    title: "Delete allow/block filter",
+    kind: "write",
+    destructive: true,
+    summary: "Remove an allow or block filter.",
+    when: "When the user explicitly wants a filter removed (see list_filters for the exact values).",
+    params: "rule, target, value \u2014 exactly as the filter was added."
+  },
+  // Amazon S3 and SFTP
+  list_s3files: {
+    title: "List Amazon S3 files",
+    kind: "read",
+    summary: "Files in the Amazon S3 bucket connected to the ZeroBounce account.",
+    when: "Before starting an S3 bulk job, to find the fileName to use.",
+    params: "bucket (optional) \u2014 bucket name; search (optional) \u2014 part of the file name."
+  },
+  validate_s3file: { title: "Validate an S3 file", ...cloudJob("validation", "S3") },
+  score_s3file: { title: "Score an S3 file", ...cloudJob("AI scoring", "S3") },
+  email_finder_s3file: { title: "Find emails for an S3 file", ...cloudJob("email finder", "S3") },
+  domain_search_s3file: { title: "Search domains in an S3 file", ...cloudJob("domain search", "S3") },
+  validate_sftpfile: { title: "Validate an SFTP file", ...cloudJob("validation", "SFTP") },
+  score_sftpfile: { title: "Score an SFTP file", ...cloudJob("AI scoring", "SFTP") },
+  email_finder_sftpfile: { title: "Find emails for an SFTP file", ...cloudJob("email finder", "SFTP") },
+  domain_search_sftpfile: { title: "Search domains in an SFTP file", ...cloudJob("domain search", "SFTP") },
+  export_s3file: {
+    title: "Export results to Amazon S3",
+    kind: "write",
+    summary: "Export a finished validation or scoring file back to the connected Amazon S3 bucket.",
+    when: "When the user wants results written to their S3 bucket.",
+    params: "fileId \u2014 the finished job's file id; exportBucket (optional) \u2014 defaults to the bucket in the account's S3 settings."
+  },
+  export_sftpfile: {
+    title: "Export results to SFTP",
+    kind: "write",
+    summary: "Export a finished validation or scoring file back to the connected SFTP/FTP server.",
+    when: "When the user wants results written to their SFTP/FTP server.",
+    params: "fileId \u2014 the finished job's file id; exportPath (optional) \u2014 defaults to the path in the account's SFTP settings."
+  },
+  // Inbox Placement Tester
+  get_inbox_placement_providers: {
+    title: "Inbox placement providers",
+    kind: "read",
+    summary: "Seed providers (with their ids and seed ids) available for inbox placement tests.",
+    when: "Before create_inbox_placement_test, to choose providers or seeds."
+  },
+  get_inbox_placement_test_types: {
+    title: "Inbox placement test types",
+    kind: "read",
+    summary: "Supported inbox placement test types and the default one.",
+    when: "Before create_inbox_placement_test, to pick testType."
+  },
+  get_inbox_placement_test: {
+    title: "Inbox placement test result",
+    kind: "read",
+    summary: "One inbox placement test: status, inbox/spam/missing counts and per-seed results.",
+    when: "After create_inbox_placement_test and sending the email, or when the user asks about a test.",
+    params: "testId \u2014 numeric test id."
+  },
+  list_inbox_placement_tests: {
+    title: "List inbox placement tests",
+    kind: "read",
+    summary: "The account's inbox placement tests, newest first.",
+    when: "When the user asks about recent or running inbox placement tests.",
+    params: "status (optional) \u2014 running or finished; createdAfter / createdBefore (optional) \u2014 YYYY-MM-DD; page (optional, from 1); pageSize (optional, 1-100, default 25)."
+  },
+  get_inbox_placement_webhook: {
+    title: "Inbox placement webhook",
+    kind: "read",
+    summary: "The webhook URL finished inbox placement results are posted to (empty when none). No tool here changes it: the user changes or removes it in the ZeroBounce dashboard.",
+    when: "When the user asks where test results are sent."
+  },
+  create_inbox_placement_test: {
+    title: "Create inbox placement test",
+    kind: "write+credits",
+    summary: "Create an inbox placement test; returns the seed addresses the user must send their email to. Uses one of the account's inbox placement tests.",
+    when: "When the user wants to see whether their email lands in inbox or spam at major providers.",
+    params: `name \u2014 unique, at most 64 characters; testType (optional) \u2014 1 Email (needs senderEmail), 2 Unique ID, 3 Auto Alias (default); providerIds or seedIds (optional) \u2014 limit the seeds (see get_inbox_placement_providers); providers (optional) \u2014 [{"id": 1, "maxSeeds": 5}]. Results also go to the account's saved webhook, which is set in the ZeroBounce dashboard.`
+  },
+  delete_inbox_placement_test: {
+    title: "Delete inbox placement test",
+    kind: "write",
+    destructive: true,
+    summary: "Delete a finished inbox placement test (running tests cannot be deleted).",
+    when: "When the user explicitly wants a test removed.",
+    params: "testId \u2014 numeric test id."
+  },
+  // Warmup: reads
+  warmup_list_sending_accounts: {
+    title: "List warmup sending accounts",
+    kind: "warmup-read",
+    summary: "Every sending account in warmup for the team, with status and totals.",
+    when: "When the user asks which mailboxes are warming up or how warmup is going overall."
+  },
+  warmup_get_sending_account: {
+    title: "Warmup sending account",
+    kind: "warmup-read",
+    summary: "One warmup sending account: status, engagement rule, onboarding model and dates.",
+    when: "When the user asks about one address in warmup.",
+    params: "fromAddress \u2014 the warmup sending address."
+  },
+  warmup_list_from_addresses: {
+    title: "List warmup from-addresses",
+    kind: "warmup-read",
+    summary: "The team's registered warmup from-addresses.",
+    when: "To find an address in warmup by part of its name.",
+    params: "searchFrom (optional) \u2014 part of the address; offset, limit (optional) \u2014 paging."
+  },
+  warmup_get_engagement_rules: {
+    title: "Warmup engagement rules",
+    kind: "warmup-read",
+    summary: "The engagement rule catalogue: -1 Custom, 0 Default, 1 Slow Pace, 2 Repair, 3 Boost, 4 Protect.",
+    when: "Before setting a rule, or when the user asks what the rules mean."
+  },
+  warmup_get_custom_engagement: {
+    title: "Custom engagement rule",
+    kind: "warmup-read",
+    summary: "An address's custom engagement rule, and whether it can be updated yet (7 day cooldown).",
+    when: "When the user asks about an address's custom reply/important/click rates.",
+    params: "cFrom \u2014 the warmup sending address."
+  },
+  warmup_get_seeds: {
+    title: "Warmup seeds",
+    kind: "warmup-read",
+    summary: "The warmup seed mailboxes.",
+    when: "When the user asks which seed mailboxes warmup sends to."
+  },
+  warmup_download_seeds: {
+    title: "Download warmup seeds",
+    kind: "warmup-read",
+    summary: "The warmup seed list as CSV text (seed, provider).",
+    when: "When the user wants the seed list as a file or table."
+  },
+  warmup_get_seed_count: {
+    title: "Warmup seed count",
+    kind: "warmup-read",
+    summary: "How many warmup seeds there are.",
+    when: "When the user asks how many seeds warmup uses."
+  },
+  warmup_get_progress_today: {
+    title: "Warmup progress today",
+    kind: "warmup-read",
+    summary: "Today's warmup progress across the team's accounts.",
+    when: "When the user asks how today's warmup is going."
+  },
+  warmup_get_sent_today: {
+    title: "Warmup emails sent today",
+    kind: "warmup-read",
+    summary: "Warmup emails sent today.",
+    when: "When the user asks how many warmup emails went out today."
+  },
+  warmup_get_emails_per_day: {
+    title: "Warmup daily volume",
+    kind: "warmup-read",
+    summary: "The current daily warmup volume.",
+    when: "When the user asks how many warmup emails are sent per day."
+  },
+  warmup_get_statistics: {
+    title: "Warmup statistics",
+    kind: "warmup-read",
+    summary: "Warmup statistics for one address (inbox, spam, replies and more).",
+    when: "When the user asks how an address is performing in warmup.",
+    params: "fromAddress \u2014 the warmup sending address."
+  },
+  warmup_get_statistics_per_day: {
+    title: "Warmup statistics per day",
+    kind: "warmup-read",
+    summary: "Daily warmup statistics for one address between two dates, inclusive.",
+    when: "When the user asks for a warmup trend over a period.",
+    params: "fromAddress \u2014 the warmup sending address; startDate, endDate \u2014 YYYY-MM-DD."
+  },
+  warmup_get_statistics_detailed: {
+    title: "Detailed warmup statistics",
+    kind: "warmup-read",
+    summary: "Detailed warmup statistics for one address.",
+    when: "When the user wants more detail than warmup_get_statistics gives.",
+    params: "cFrom \u2014 the warmup sending address."
+  },
+  warmup_download_statistics: {
+    title: "Download warmup statistics",
+    kind: "warmup-read",
+    summary: "An address's warmup statistics as CSV text.",
+    when: "When the user wants the statistics as a file or table.",
+    params: "cFrom \u2014 the warmup sending address."
+  },
+  warmup_get_from_address_statistics: {
+    title: "From-address statistics",
+    kind: "warmup-read",
+    summary: "Statistics for one warmup from-address.",
+    when: "When the user asks for an address's overall warmup figures.",
+    params: "fromAddress \u2014 the warmup sending address."
+  },
+  warmup_check_domain_dmarc: {
+    title: "Check SPF, DKIM and DMARC",
+    kind: "warmup-read",
+    summary: "SPF, DKIM and DMARC status of a warmup address's domain.",
+    when: "When the user asks whether their sending domain is authenticated.",
+    params: "fromAddress \u2014 the warmup sending address (an email address, not a domain); dkimSelector (optional) \u2014 e.g. google."
+  },
+  // Warmup: changes
+  warmup_add_sending_account: {
+    title: "Add warmup sending account",
+    kind: "warmup-write",
+    summary: "Add a from-address to warmup.",
+    when: "When the user explicitly wants a mailbox added to warmup.",
+    params: 'fromAddress \u2014 the warmup sending address; onboardingModel \u2014 self_managed (you run the mailbox; engagementRuleId 0-4 required) or zb_managed (ZeroBounce provisions it); ignoreConflict (optional); emailContent (optional, zb_managed) \u2014 {"types_of_emails": ["transactional", "newsletter", "marketing"]}; managedSending (optional, zb_managed) \u2014 {"timezone_offset": -11..14, "warmup_start_date": "YYYY-MM-DD"}.'
+  },
+  warmup_update_sending_account: {
+    title: "Update warmup sending account",
+    kind: "warmup-write",
+    destructive: true,
+    summary: "Change an address's engagement rule, status and auto-enable flag.",
+    when: "When the user explicitly wants to pause, resume or retune an address's warmup.",
+    params: "fromAddress \u2014 the warmup sending address; engagementRuleId \u2014 0-4; statusId \u2014 e.g. 4 Paused, 5 Disabled; autoEnable \u2014 true or false."
+  },
+  warmup_change_from_address: {
+    title: "Change warmup from-address",
+    kind: "warmup-write",
+    destructive: true,
+    summary: "Move a warmup account and its history to a new from-address.",
+    when: "When the user explicitly renames the mailbox that is warming up.",
+    params: "oldFromAddress, newFromAddress."
+  },
+  warmup_set_engagement_rule: {
+    title: "Set warmup engagement rule",
+    kind: "warmup-write",
+    destructive: true,
+    summary: "Set a standard engagement rule (0-4) on an address.",
+    when: "When the user explicitly wants a different warmup pace for an address.",
+    params: "cFrom \u2014 the warmup sending address; ruleId \u2014 0 Default, 1 Slow Pace, 2 Repair, 3 Boost, 4 Protect."
+  },
+  warmup_create_custom_engagement: {
+    title: "Create custom engagement rule",
+    kind: "warmup-write",
+    summary: "Create a custom engagement rule for an address; it cannot be changed for 7 days.",
+    when: "When the user explicitly wants custom reply/important/click rates.",
+    params: "cFrom \u2014 the warmup sending address; replyPct, importantPct, clickPct \u2014 percentages."
+  },
+  warmup_update_custom_engagement: {
+    title: "Update custom engagement rule",
+    kind: "warmup-write",
+    destructive: true,
+    summary: "Update an address's custom engagement rule (allowed 7 days after the last change).",
+    when: "When the user explicitly wants new custom rates.",
+    params: "cFrom \u2014 the warmup sending address; replyPct, importantPct, clickPct \u2014 percentages."
+  },
+  warmup_delete_sending_account: {
+    title: "Delete warmup sending account",
+    kind: "warmup-write",
+    destructive: true,
+    summary: "Remove an address from warmup. Cannot be undone.",
+    when: "Only when the user explicitly asks to remove that address from warmup.",
+    params: "fromAddress \u2014 the warmup sending address."
+  },
+  warmup_delete_custom_engagement: {
+    title: "Delete custom engagement rule",
+    kind: "warmup-write",
+    destructive: true,
+    summary: "Delete an address's custom rule and fall back to a standard rule.",
+    when: "When the user explicitly wants the custom rule removed.",
+    params: "cFrom \u2014 the warmup sending address; engagementRuleId \u2014 the standard rule to use instead (1-4)."
+  }
+};
+var TOOL_NAMES = Object.keys(CATALOG);
+function annotationsFor(entry) {
+  const base = { title: entry.title };
+  if (entry.kind === "read" || entry.kind === "warmup-read") {
+    return { ...base, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  }
+  if (entry.destructive) {
+    return { ...base, readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false };
+  }
+  return { ...base, readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
+}
+function descriptionFor(entry) {
+  const lines = [entry.summary, `When to use: ${entry.when}`];
+  if (entry.params) lines.push(`Parameters: ${entry.params}`);
+  switch (entry.kind) {
+    case "read":
+      lines.push(READ_ONLY_CREDITS);
+      break;
+    case "warmup-read":
+      lines.push(WARMUP_READ_CREDITS);
+      break;
+    case "credits":
+      lines.push(CREDIT_WARNING);
+      break;
+    case "write":
+    case "warmup-write":
+      lines.push(WRITE_WARNING);
+      break;
+    case "write+credits":
+      lines.push(WRITE_WARNING, CREDIT_WARNING);
+      break;
+  }
+  return lines.join("\n");
+}
+function describeTool(name) {
+  const entry = CATALOG[name];
+  return {
+    name,
+    title: entry.title,
+    description: descriptionFor(entry),
+    annotations: annotationsFor(entry)
+  };
+}
+var DESTRUCTIVE_TOOL_NAMES = new Set(
+  TOOL_NAMES.filter((name) => CATALOG[name].destructive)
+);
+var SERVER_INSTRUCTIONS = "ZeroBounce tools act on the user's own ZeroBounce account. Tools whose description says 'CREDITS: Each successful call spends' use account credits: call them only for addresses, names or domains the user gave and asked about. Check get_credits first when a request may need many credits. For more than 200 addresses use send_file, then poll file_status until it is complete, then get_file. Never delete, or change filters, webhooks or warmup settings, unless the user asked for that.";
 
 // src/tools/types.ts
 function createSuccessResponse(data) {
@@ -3368,8 +3924,7 @@ function requireIsoDate(value, fieldName) {
 // src/tools/validate-email.ts
 var validateEmailTool = {
   definition: {
-    name: "validate_email",
-    description: "Validate a single email address using ZeroBounce API. Returns detailed validation results including status, sub-status, and additional metadata.",
+    ...describeTool("validate"),
     inputSchema: {
       type: "object",
       properties: {
@@ -3393,6 +3948,10 @@ var validateEmailTool = {
           type: "boolean",
           description: "Use Verify+ validation for this request"
         },
+        domainInfo: {
+          type: "boolean",
+          description: "Add domain_website_exists and domain_registrant_company_name (WHOIS) for the domain"
+        },
         usePost: {
           type: "boolean",
           description: "When true, uses POST /validate with form-encoded body (same parameters as GET)"
@@ -3409,12 +3968,14 @@ var validateEmailTool = {
       const timeout = optionalNumber(args.timeout, "timeout");
       const activityData = optionalBoolean(args.activityData, "activityData");
       const verifyPlus = optionalBoolean(args.verifyPlus, "verifyPlus");
+      const domainInfo = optionalBoolean(args.domainInfo, "domainInfo");
       const usePost = optionalBoolean(args.usePost, "usePost") ?? false;
       const result = await client.validateEmail(email, {
         ipAddress,
         timeout,
         activityData,
         verifyPlus,
+        domainInfo,
         usePost
       });
       return createSuccessResponse(result);
@@ -3428,8 +3989,7 @@ var validateEmailTool = {
 var MAX_BATCH_EMAILS = 200;
 var validateBatchTool = {
   definition: {
-    name: "validate_batch",
-    description: "Validate multiple email addresses in batch. More efficient for validating multiple emails at once.",
+    ...describeTool("validate_batch"),
     inputSchema: {
       type: "object",
       properties: {
@@ -3487,8 +4047,7 @@ var validateBatchTool = {
 // src/tools/get-credits.ts
 var getCreditsTool = {
   definition: {
-    name: "get_credits",
-    description: "Get the number of credits remaining in your ZeroBounce account.",
+    ...describeTool("get_credits"),
     inputSchema: {
       type: "object",
       properties: {}
@@ -3507,8 +4066,7 @@ var getCreditsTool = {
 // src/tools/get-api-usage.ts
 var getApiUsageTool = {
   definition: {
-    name: "get_api_usage",
-    description: "Get API usage statistics for a date range. Shows validation counts by status and sub-status.",
+    ...describeTool("get_api_usage"),
     inputSchema: {
       type: "object",
       properties: {
@@ -3540,8 +4098,8 @@ var getApiUsageTool = {
 };
 
 // src/tools/bulk-file-helpers.ts
+var DOWNLOAD_TYPES = ["phase_1", "phase_2", "combined"];
 function createBulkFileTools(config) {
-  const kind = config.description.replace(/^bulk /, "");
   const sendFileProperties = {
     fileContent: {
       type: "string",
@@ -3628,11 +4186,29 @@ function createBulkFileTools(config) {
       description: "Column index (0-based) containing IP addresses."
     };
   }
+  const getFileProperties = {
+    fileId: {
+      type: "string",
+      description: `File ID returned from ${config.names.sendFile}`
+    }
+  };
+  if (config.getFileOptions?.downloadType) {
+    getFileProperties.downloadType = {
+      type: "string",
+      enum: DOWNLOAD_TYPES,
+      description: "Which results to download: phase_1, phase_2 or combined (sent as download_type)."
+    };
+  }
+  if (config.getFileOptions?.activityData) {
+    getFileProperties.activityData = {
+      type: "boolean",
+      description: "Include activity data columns (sent as activity_data)."
+    };
+  }
   const sendFileTool = {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: `${config.name}_send_file`,
-      description: `Send a CSV file for bulk ${kind}. Returns a file ID for tracking.`,
+      ...describeTool(config.names.sendFile),
       inputSchema: {
         type: "object",
         properties: sendFileProperties,
@@ -3686,14 +4262,13 @@ function createBulkFileTools(config) {
   const fileStatusTool = {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: `${config.name}_file_status`,
-      description: `Get the status of a bulk ${kind} file upload.`,
+      ...describeTool(config.names.fileStatus),
       inputSchema: {
         type: "object",
         properties: {
           fileId: {
             type: "string",
-            description: `File ID returned from ${config.name}_send_file`
+            description: `File ID returned from ${config.names.sendFile}`
           }
         },
         required: ["fileId"]
@@ -3712,23 +4287,28 @@ function createBulkFileTools(config) {
   const getFileTool = {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: `${config.name}_get_file`,
-      description: `Get the results of a completed bulk ${kind} file.`,
+      ...describeTool(config.names.getFile),
       inputSchema: {
         type: "object",
-        properties: {
-          fileId: {
-            type: "string",
-            description: `File ID returned from ${config.name}_send_file`
-          }
-        },
+        properties: getFileProperties,
         required: ["fileId"]
       }
     },
     handler: async (client, args) => {
       try {
         const fileId = requireString(args.fileId, "fileId");
-        const result = await config.getFileMethod(client, fileId);
+        const options = {};
+        if (config.getFileOptions?.downloadType) {
+          const downloadType = optionalString(args.downloadType, "downloadType");
+          if (downloadType !== void 0 && !DOWNLOAD_TYPES.includes(downloadType)) {
+            throw new Error(`downloadType must be one of ${DOWNLOAD_TYPES.join(", ")}`);
+          }
+          options.downloadType = downloadType;
+        }
+        if (config.getFileOptions?.activityData) {
+          options.activityData = optionalBoolean(args.activityData, "activityData");
+        }
+        const result = await config.getFileMethod(client, fileId, options);
         return createSuccessResponse(result);
       } catch (error) {
         return createErrorResponse(error);
@@ -3738,9 +4318,7 @@ function createBulkFileTools(config) {
   const deleteFileTool = {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: `${config.name}_delete_file`,
-      description: `Delete a bulk ${kind} file from your account.`,
-      annotations: { destructiveHint: true, readOnlyHint: false },
+      ...describeTool(config.names.deleteFile),
       inputSchema: {
         type: "object",
         properties: {
@@ -3772,15 +4350,20 @@ function createBulkFileTools(config) {
 
 // src/tools/bulk-validate.ts
 var bulkValidateTools = createBulkFileTools({
-  name: "bulk_validate",
-  description: "email validation",
+  names: {
+    sendFile: "send_file",
+    fileStatus: "file_status",
+    getFile: "get_file",
+    deleteFile: "delete_file"
+  },
+  getFileOptions: { downloadType: true, activityData: true },
   sendFileMethod: (client, fileContent, fileName, returnUrl, emailAddressColumn, _domainColumn, _companyNameColumn, _fullNameColumn, firstNameColumn, _middleNameColumn, lastNameColumn, options) => client.bulkValidateSendFile(fileContent, fileName, returnUrl, emailAddressColumn, {
     ...options,
     firstNameColumn,
     lastNameColumn
   }),
   getStatusMethod: (client, fileId) => client.bulkValidateFileStatus(fileId),
-  getFileMethod: (client, fileId) => client.bulkValidateGetFile(fileId),
+  getFileMethod: (client, fileId, options) => client.bulkValidateGetFile(fileId, options),
   deleteFileMethod: (client, fileId) => client.bulkValidateDeleteFile(fileId),
   supportsEmailAddressColumn: true,
   supportsFirstNameColumn: true,
@@ -3793,14 +4376,19 @@ var bulkValidateTools = createBulkFileTools({
 
 // src/tools/bulk-ai-scoring.ts
 var bulkAIScoringTools = createBulkFileTools({
-  name: "bulk_ai_scoring",
-  description: "AI email scoring",
+  names: {
+    sendFile: "scoring_send_file",
+    fileStatus: "scoring_file_status",
+    getFile: "scoring_get_file",
+    deleteFile: "scoring_delete_file"
+  },
+  getFileOptions: { downloadType: true },
   sendFileMethod: (client, fileContent, fileName, returnUrl, emailAddressColumn, _domainColumn, _companyNameColumn, _fullNameColumn, _firstNameColumn, _middleNameColumn, _lastNameColumn, options) => client.bulkAIScoringSendFile(fileContent, fileName, returnUrl, emailAddressColumn, {
     hasHeaderRow: options?.hasHeaderRow,
     removeDuplicate: options?.removeDuplicate
   }),
   getStatusMethod: (client, fileId) => client.bulkAIScoringFileStatus(fileId),
-  getFileMethod: (client, fileId) => client.bulkAIScoringGetFile(fileId),
+  getFileMethod: (client, fileId, options) => client.bulkAIScoringGetFile(fileId, options),
   deleteFileMethod: (client, fileId) => client.bulkAIScoringDeleteFile(fileId),
   supportsEmailAddressColumn: true,
   supportsRemoveDuplicate: true
@@ -3810,8 +4398,7 @@ var bulkAIScoringTools = createBulkFileTools({
 var scoreEmailTool = {
   sdkMethods: ["scoreEmail"],
   definition: {
-    name: "score_email",
-    description: "Real-time AI scoring for a single email address (ZeroBounce GET or POST /v2/scoring). Returns email and numeric score.",
+    ...describeTool("score_email"),
     inputSchema: {
       type: "object",
       properties: {
@@ -3842,8 +4429,7 @@ var scoreEmailTool = {
 // src/tools/find-email.ts
 var findEmailTool = {
   definition: {
-    name: "find_email",
-    description: "Find an email address by person name and domain or company name.",
+    ...describeTool("find_email_format"),
     inputSchema: {
       type: "object",
       properties: {
@@ -3901,8 +4487,7 @@ var findEmailTool = {
 // src/tools/domain-search.ts
 var domainSearchTool = {
   definition: {
-    name: "domain_search",
-    description: "Get the likely email address format for a domain or company (Domain Search API).",
+    ...describeTool("find_domain"),
     inputSchema: {
       type: "object",
       properties: {
@@ -3936,8 +4521,7 @@ var domainSearchTool = {
 // src/tools/activity-data.ts
 var getActivityDataTool = {
   definition: {
-    name: "get_activity_data",
-    description: "Get activity data for an email address to see if it has been active recently.",
+    ...describeTool("get_activity"),
     inputSchema: {
       type: "object",
       properties: {
@@ -3962,8 +4546,12 @@ var getActivityDataTool = {
 
 // src/tools/bulk-email-finder.ts
 var bulkEmailFinderTools = createBulkFileTools({
-  name: "bulk_email_finder",
-  description: "bulk email finder",
+  names: {
+    sendFile: "send_email_finder_file",
+    fileStatus: "email_finder_file_status",
+    getFile: "email_finder_get_file",
+    deleteFile: "email_finder_delete_file"
+  },
   sendFileMethod: (client, fileContent, fileName, _returnUrl, _emailCol, domainColumn, _c, full, first, middle, last, options) => client.bulkEmailFinderSendFile(fileContent, fileName, domainColumn ?? 0, {
     fullNameColumn: full,
     firstNameColumn: first,
@@ -3992,8 +4580,12 @@ var bulkEmailFinderTools = createBulkFileTools({
 
 // src/tools/bulk-domain-search.ts
 var bulkDomainSearchTools = createBulkFileTools({
-  name: "bulk_domain_search",
-  description: "bulk domain search",
+  names: {
+    sendFile: "send_domain_search_file",
+    fileStatus: "domain_search_file_status",
+    getFile: "domain_search_get_file",
+    deleteFile: "domain_search_delete_file"
+  },
   sendFileMethod: (client, fileContent, fileName, _returnUrl, _emailCol, domainColumn, _c, _full, _first, _middle, _last, options) => client.bulkDomainSearchSendFile(fileContent, fileName, domainColumn ?? 0, options?.hasHeaderRow),
   getStatusMethod: (client, fileId) => client.bulkDomainSearchFileStatus(fileId),
   getFileMethod: (client, fileId) => client.bulkDomainSearchGetFile(fileId),
@@ -4013,8 +4605,7 @@ var bulkDomainSearchTools = createBulkFileTools({
 var listEvaluatorSendFileTool = {
   sdkMethods: ["sendListEvaluatorFileStream"],
   definition: {
-    name: "list_evaluator_send_file",
-    description: "Upload a CSV for list evaluator (bulkapi listevaluator)",
+    ...describeTool("send_list_evaluator_file"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4045,8 +4636,7 @@ var listEvaluatorSendFileTool = {
 var listEvaluatorResultTool = {
   sdkMethods: ["getListEvaluatorResult"],
   definition: {
-    name: "list_evaluator_result",
-    description: "Get list evaluator job status/result by file_id",
+    ...describeTool("get_list_evaluator_result"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4068,8 +4658,7 @@ var listEvaluatorResultTool = {
 var sendEvaluatedFileTool = {
   sdkMethods: ["sendEvaluatedFile"],
   definition: {
-    name: "send_evaluated_file",
-    description: "Submit a finished list evaluation for bulk validation (POST /send-evaluated-file/). Takes the List Evaluator file_id, not a file upload. Returns the new validation job.",
+    ...describeTool("send_evaluated_file"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4095,8 +4684,7 @@ var sendEvaluatedFileTool = {
 var addFilterTool = {
   sdkMethods: ["addFilter"],
   definition: {
-    name: "add_filter",
-    description: "Add a custom allow/block list filter",
+    ...describeTool("add_filter"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4123,8 +4711,7 @@ var addFilterTool = {
 var listFiltersTool = {
   sdkMethods: ["listFilters"],
   definition: {
-    name: "list_filters",
-    description: "List custom filters (GET by default; set usePost for POST)",
+    ...describeTool("list_filters"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4145,8 +4732,7 @@ var listFiltersTool = {
 var deleteFilterTool = {
   sdkMethods: ["deleteFilter"],
   definition: {
-    name: "delete_filter",
-    description: "Delete a custom filter",
+    ...describeTool("delete_filter"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4177,8 +4763,7 @@ function createBulkRootJobTool(config) {
   return {
     sdkMethods: config.sdkMethods,
     definition: {
-      name: config.name,
-      description: `Submit a file from your ${config.source} storage for ${config.description} (POST /${config.endpoint}). The server and bucket come from your ZeroBounce settings.`,
+      ...describeTool(config.name),
       inputSchema: {
         type: "object",
         properties: {
@@ -4222,8 +4807,7 @@ function createBulkRootJobTool(config) {
 var listS3FilesTool = {
   sdkMethods: ["listS3files"],
   definition: {
-    name: "list_s3_files",
-    description: "List S3 bucket files available for validation or scoring (GET /listS3files)",
+    ...describeTool("list_s3files"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4245,33 +4829,25 @@ var listS3FilesTool = {
   }
 };
 var validateS3FileTool = createBulkRootJobTool({
-  name: "validate_s3_file",
-  endpoint: "validateS3file",
-  description: "bulk validation",
+  name: "validate_s3file",
   source: "S3",
   sdkMethods: ["validateS3file"],
   jobMethod: (client, request) => client.validateS3File(request)
 });
 var scoreS3FileTool = createBulkRootJobTool({
-  name: "score_s3_file",
-  endpoint: "scoreS3file",
-  description: "bulk AI scoring",
+  name: "score_s3file",
   source: "S3",
   sdkMethods: ["scoreS3file", "_bulkRootFileJob"],
   jobMethod: (client, request) => client.scoreS3File(request)
 });
 var emailFinderS3FileTool = createBulkRootJobTool({
-  name: "email_finder_s3_file",
-  endpoint: "emailFinderS3file",
-  description: "bulk email finder",
+  name: "email_finder_s3file",
   source: "S3",
   sdkMethods: ["emailFinderS3file"],
   jobMethod: (client, request) => client.emailFinderS3File(request)
 });
 var domainSearchS3FileTool = createBulkRootJobTool({
-  name: "domain_search_s3_file",
-  endpoint: "domainSearchS3file",
-  description: "bulk domain search",
+  name: "domain_search_s3file",
   source: "S3",
   sdkMethods: ["domainSearchS3file"],
   jobMethod: (client, request) => client.domainSearchS3File(request)
@@ -4279,8 +4855,7 @@ var domainSearchS3FileTool = createBulkRootJobTool({
 var exportS3FileTool = {
   sdkMethods: ["exportS3file", "_sendBulkRootFormPost"],
   definition: {
-    name: "export_s3_file",
-    description: "Export a completed bulk job to an S3 bucket (POST /exportS3file)",
+    ...describeTool("export_s3file"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4308,33 +4883,25 @@ var exportS3FileTool = {
 
 // src/tools/sftp-bulk.ts
 var validateSftpFileTool = createBulkRootJobTool({
-  name: "validate_sftp_file",
-  endpoint: "validateSFTPfile",
-  description: "bulk validation",
+  name: "validate_sftpfile",
   source: "SFTP/FTP",
   sdkMethods: ["validateSFTPfile"],
   jobMethod: (client, request) => client.validateSftpFile(request)
 });
 var scoreSftpFileTool = createBulkRootJobTool({
-  name: "score_sftp_file",
-  endpoint: "scoreSFTPfile",
-  description: "bulk AI scoring",
+  name: "score_sftpfile",
   source: "SFTP/FTP",
   sdkMethods: ["scoreSFTPfile"],
   jobMethod: (client, request) => client.scoreSftpFile(request)
 });
 var emailFinderSftpFileTool = createBulkRootJobTool({
-  name: "email_finder_sftp_file",
-  endpoint: "emailFinderSFTPfile",
-  description: "bulk email finder",
+  name: "email_finder_sftpfile",
   source: "SFTP/FTP",
   sdkMethods: ["emailFinderSFTPfile"],
   jobMethod: (client, request) => client.emailFinderSftpFile(request)
 });
 var domainSearchSftpFileTool = createBulkRootJobTool({
-  name: "domain_search_sftp_file",
-  endpoint: "domainSearchSFTPfile",
-  description: "bulk domain search",
+  name: "domain_search_sftpfile",
   source: "SFTP/FTP",
   sdkMethods: ["domainSearchSFTPfile"],
   jobMethod: (client, request) => client.domainSearchSftpFile(request)
@@ -4342,8 +4909,7 @@ var domainSearchSftpFileTool = createBulkRootJobTool({
 var exportSftpFileTool = {
   sdkMethods: ["exportSFTPfile"],
   definition: {
-    name: "export_sftp_file",
-    description: "Export a completed bulk job back to your SFTP/FTP server (POST /exportSFTPfile)",
+    ...describeTool("export_sftpfile"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4419,15 +4985,10 @@ function optionalProviderSelections(value) {
     return maxSeeds === void 0 ? { id } : { id, maxSeeds };
   });
 }
-function requireWebhookUrl(value, fieldName = "webhookUrl") {
-  const webhookUrl = requireString(value, fieldName);
-  return validateBulkReturnUrl(webhookUrl, fieldName);
-}
 var getInboxPlacementProvidersTool = {
   sdkMethods: ["getInboxPlacementProviders"],
   definition: {
-    name: "get_inbox_placement_providers",
-    description: "List the seed providers (mailbox providers and their seed addresses) available for inbox placement tests (GET /api/ipt/providers)",
+    ...describeTool("get_inbox_placement_providers"),
     inputSchema: {
       type: "object",
       properties: {}
@@ -4445,8 +5006,7 @@ var getInboxPlacementProvidersTool = {
 var getInboxPlacementTestTypesTool = {
   sdkMethods: ["getInboxPlacementTestTypes"],
   definition: {
-    name: "get_inbox_placement_test_types",
-    description: "List the supported inbox placement test types and which one is the default (GET /api/ipt/test-types)",
+    ...describeTool("get_inbox_placement_test_types"),
     inputSchema: {
       type: "object",
       properties: {}
@@ -4464,8 +5024,7 @@ var getInboxPlacementTestTypesTool = {
 var createInboxPlacementTestTool = {
   sdkMethods: ["createInboxPlacementTest"],
   definition: {
-    name: "create_inbox_placement_test",
-    description: "Start an inbox placement test: ZeroBounce returns seed addresses to send your campaign to, then reports where each copy landed (POST /api/ipt/test)",
+    ...describeTool("create_inbox_placement_test"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4503,10 +5062,6 @@ var createInboxPlacementTestTool = {
             },
             required: ["id"]
           }
-        },
-        webhookUrl: {
-          type: "string",
-          description: "HTTPS URL the finished result is posted to"
         }
       },
       required: ["name"]
@@ -4546,9 +5101,6 @@ var createInboxPlacementTestTool = {
       if (providers) {
         options.providers = providers;
       }
-      if (args.webhookUrl !== null && args.webhookUrl !== void 0) {
-        options.webhookUrl = requireWebhookUrl(args.webhookUrl);
-      }
       const result = await client.createInboxPlacementTest(options);
       return createSuccessResponse(result);
     } catch (error) {
@@ -4559,8 +5111,7 @@ var createInboxPlacementTestTool = {
 var getInboxPlacementTestTool = {
   sdkMethods: ["getInboxPlacementTest"],
   definition: {
-    name: "get_inbox_placement_test",
-    description: "Get one inbox placement test and its results: inbox, spam, and missing counts per provider (GET /api/ipt/test/{id})",
+    ...describeTool("get_inbox_placement_test"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4581,8 +5132,7 @@ var getInboxPlacementTestTool = {
 var listInboxPlacementTestsTool = {
   sdkMethods: ["listInboxPlacementTests"],
   definition: {
-    name: "list_inbox_placement_tests",
-    description: "List inbox placement tests, newest first (GET /api/ipt/tests)",
+    ...describeTool("list_inbox_placement_tests"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4651,8 +5201,7 @@ var listInboxPlacementTestsTool = {
 var deleteInboxPlacementTestTool = {
   sdkMethods: ["deleteInboxPlacementTest"],
   definition: {
-    name: "delete_inbox_placement_test",
-    description: "Delete a finished inbox placement test. A running test cannot be deleted. (DELETE /api/ipt/test/{id})",
+    ...describeTool("delete_inbox_placement_test"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4673,8 +5222,7 @@ var deleteInboxPlacementTestTool = {
 var getInboxPlacementWebhookTool = {
   sdkMethods: ["getInboxPlacementWebhook"],
   definition: {
-    name: "get_inbox_placement_webhook",
-    description: "Get the webhook URL finished inbox placement results are posted to for this API key (GET /api/ipt/webhook)",
+    ...describeTool("get_inbox_placement_webhook"),
     inputSchema: {
       type: "object",
       properties: {}
@@ -4689,28 +5237,6 @@ var getInboxPlacementWebhookTool = {
     }
   }
 };
-var setInboxPlacementWebhookTool = {
-  sdkMethods: ["setInboxPlacementWebhook"],
-  definition: {
-    name: "set_inbox_placement_webhook",
-    description: "Save the webhook URL finished inbox placement results are posted to for this API key (PUT /api/ipt/webhook)",
-    inputSchema: {
-      type: "object",
-      properties: {
-        webhookUrl: { type: "string", description: "HTTPS URL to post finished results to" }
-      },
-      required: ["webhookUrl"]
-    }
-  },
-  handler: async (client, args) => {
-    try {
-      const result = await client.setInboxPlacementWebhook(requireWebhookUrl(args.webhookUrl));
-      return createSuccessResponse(result);
-    } catch (error) {
-      return createErrorResponse(error);
-    }
-  }
-};
 var inboxPlacementTools = {
   providers: getInboxPlacementProvidersTool,
   testTypes: getInboxPlacementTestTypesTool,
@@ -4718,8 +5244,7 @@ var inboxPlacementTools = {
   getTest: getInboxPlacementTestTool,
   listTests: listInboxPlacementTestsTool,
   deleteTest: deleteInboxPlacementTestTool,
-  getWebhook: getInboxPlacementWebhookTool,
-  setWebhook: setInboxPlacementWebhookTool
+  getWebhook: getInboxPlacementWebhookTool
 };
 
 // src/tools/warmup/sending-accounts.ts
@@ -4727,8 +5252,7 @@ var warmupListSendingAccountsTool = {
   requiresWarmupKey: true,
   warmupMethods: ["listSendingAccounts"],
   definition: {
-    name: "warmup_list_sending_accounts",
-    description: "List every ZeroBounce Warmup sending account belonging to the Warmup key's team.",
+    ...describeTool("warmup_list_sending_accounts"),
     inputSchema: {
       type: "object",
       properties: {}
@@ -4746,8 +5270,7 @@ var warmupGetSendingAccountTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getSendingAccount"],
   definition: {
-    name: "warmup_get_sending_account",
-    description: "Get one ZeroBounce Warmup sending account by its from-address.",
+    ...describeTool("warmup_get_sending_account"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4771,8 +5294,7 @@ var warmupAddSendingAccountTool = {
   requiresWarmupKey: true,
   warmupMethods: ["addSendingAccount"],
   definition: {
-    name: "warmup_add_sending_account",
-    description: 'Add a from-address to ZeroBounce Warmup. "self_managed" runs your own mailbox and requires engagementRuleId (0-4). "zb_managed" has ZeroBounce provision the mailbox and takes emailContent and managedSending instead; it rejects engagementRuleId.',
+    ...describeTool("warmup_add_sending_account"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4822,8 +5344,7 @@ var warmupUpdateSendingAccountTool = {
   requiresWarmupKey: true,
   warmupMethods: ["updateSendingAccount"],
   definition: {
-    name: "warmup_update_sending_account",
-    description: "Update a ZeroBounce Warmup sending account's engagement rule, status and auto-enable flag.",
+    ...describeTool("warmup_update_sending_account"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4856,8 +5377,7 @@ var warmupDeleteSendingAccountTool = {
   requiresWarmupKey: true,
   warmupMethods: ["deleteSendingAccount"],
   definition: {
-    name: "warmup_delete_sending_account",
-    description: "Remove a sending account from ZeroBounce Warmup. Destructive: the account and its warmup history are deleted.",
+    ...describeTool("warmup_delete_sending_account"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4881,8 +5401,7 @@ var warmupChangeFromAddressTool = {
   requiresWarmupKey: true,
   warmupMethods: ["changeFromAddress"],
   definition: {
-    name: "warmup_change_from_address",
-    description: "Move a ZeroBounce Warmup account and its history to a new from-address. Despite the underlying /smtp-credentials path, no SMTP credentials are stored.",
+    ...describeTool("warmup_change_from_address"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4908,8 +5427,7 @@ var warmupListFromAddressesTool = {
   requiresWarmupKey: true,
   warmupMethods: ["listFromAddresses"],
   definition: {
-    name: "warmup_list_from_addresses",
-    description: "List the from-addresses registered with ZeroBounce Warmup.",
+    ...describeTool("warmup_list_from_addresses"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4941,8 +5459,7 @@ var warmupGetEngagementRulesTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getEngagementRules"],
   definition: {
-    name: "warmup_get_engagement_rules",
-    description: "List the ZeroBounce Warmup engagement rule catalogue: -1 Custom, 0 Default, 1 Slow Pace, 2 Repair, 3 Boost, 4 Protect.",
+    ...describeTool("warmup_get_engagement_rules"),
     inputSchema: {
       type: "object",
       properties: {}
@@ -4960,8 +5477,7 @@ var warmupSetEngagementRuleTool = {
   requiresWarmupKey: true,
   warmupMethods: ["setEngagementRule"],
   definition: {
-    name: "warmup_set_engagement_rule",
-    description: "Set a standard ZeroBounce Warmup engagement rule (0-4) on an address.",
+    ...describeTool("warmup_set_engagement_rule"),
     inputSchema: {
       type: "object",
       properties: {
@@ -4987,8 +5503,7 @@ var warmupGetCustomEngagementTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getCustomEngagement"],
   definition: {
-    name: "warmup_get_custom_engagement",
-    description: "Get an address's custom ZeroBounce Warmup engagement rule, including can_update and remaining_seconds of the update cooldown.",
+    ...describeTool("warmup_get_custom_engagement"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5010,8 +5525,7 @@ var warmupCreateCustomEngagementTool = {
   requiresWarmupKey: true,
   warmupMethods: ["createCustomEngagement"],
   definition: {
-    name: "warmup_create_custom_engagement",
-    description: "Create a custom ZeroBounce Warmup engagement rule. Starts a 7-day cooldown before the rule can be updated again.",
+    ...describeTool("warmup_create_custom_engagement"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5044,8 +5558,7 @@ var warmupUpdateCustomEngagementTool = {
   requiresWarmupKey: true,
   warmupMethods: ["updateCustomEngagement"],
   definition: {
-    name: "warmup_update_custom_engagement",
-    description: "Update a custom ZeroBounce Warmup engagement rule. During the 7-day cooldown the API answers with HTTP 429.",
+    ...describeTool("warmup_update_custom_engagement"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5078,8 +5591,7 @@ var warmupDeleteCustomEngagementTool = {
   requiresWarmupKey: true,
   warmupMethods: ["deleteCustomEngagement"],
   definition: {
-    name: "warmup_delete_custom_engagement",
-    description: "Delete a custom ZeroBounce Warmup engagement rule and fall back to a standard rule (1-4).",
+    ...describeTool("warmup_delete_custom_engagement"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5110,8 +5622,7 @@ var warmupGetSeedsTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getSeeds"],
   definition: {
-    name: "warmup_get_seeds",
-    description: "List the ZeroBounce Warmup seed accounts.",
+    ...describeTool("warmup_get_seeds"),
     inputSchema: { type: "object", properties: {} }
   },
   handler: async (client) => {
@@ -5126,8 +5637,7 @@ var warmupDownloadSeedsTool = {
   requiresWarmupKey: true,
   warmupMethods: ["downloadSeeds"],
   definition: {
-    name: "warmup_download_seeds",
-    description: "Download the ZeroBounce Warmup seed list as CSV text (columns seed,provider). Returns the CSV itself, not JSON.",
+    ...describeTool("warmup_download_seeds"),
     inputSchema: { type: "object", properties: {} }
   },
   handler: async (client) => {
@@ -5142,8 +5652,7 @@ var warmupGetSeedCountTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getSeedCount"],
   definition: {
-    name: "warmup_get_seed_count",
-    description: "Get the number of ZeroBounce Warmup seed accounts.",
+    ...describeTool("warmup_get_seed_count"),
     inputSchema: { type: "object", properties: {} }
   },
   handler: async (client) => {
@@ -5158,8 +5667,7 @@ var warmupGetProgressTodayTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getProgressToday"],
   definition: {
-    name: "warmup_get_progress_today",
-    description: "Get today's ZeroBounce Warmup progress.",
+    ...describeTool("warmup_get_progress_today"),
     inputSchema: { type: "object", properties: {} }
   },
   handler: async (client) => {
@@ -5174,8 +5682,7 @@ var warmupGetSentTodayTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getSentToday"],
   definition: {
-    name: "warmup_get_sent_today",
-    description: "Get the number of ZeroBounce Warmup messages sent today.",
+    ...describeTool("warmup_get_sent_today"),
     inputSchema: { type: "object", properties: {} }
   },
   handler: async (client) => {
@@ -5190,8 +5697,7 @@ var warmupGetEmailsPerDayTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getEmailsPerDay"],
   definition: {
-    name: "warmup_get_emails_per_day",
-    description: "Get the current ZeroBounce Warmup daily sending volume.",
+    ...describeTool("warmup_get_emails_per_day"),
     inputSchema: { type: "object", properties: {} }
   },
   handler: async (client) => {
@@ -5206,8 +5712,7 @@ var warmupGetStatisticsTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getStatistics"],
   definition: {
-    name: "warmup_get_statistics",
-    description: "Get ZeroBounce Warmup statistics for a from-address. An address with no history returns zeros.",
+    ...describeTool("warmup_get_statistics"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5231,8 +5736,7 @@ var warmupGetStatisticsPerDayTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getStatisticsPerDay"],
   definition: {
-    name: "warmup_get_statistics_per_day",
-    description: "Get daily ZeroBounce Warmup statistics between two dates, inclusive.",
+    ...describeTool("warmup_get_statistics_per_day"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5260,8 +5764,7 @@ var warmupGetStatisticsDetailedTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getStatisticsDetailed"],
   definition: {
-    name: "warmup_get_statistics_detailed",
-    description: "Get detailed ZeroBounce Warmup statistics for an address.",
+    ...describeTool("warmup_get_statistics_detailed"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5283,8 +5786,7 @@ var warmupDownloadStatisticsTool = {
   requiresWarmupKey: true,
   warmupMethods: ["downloadStatistics"],
   definition: {
-    name: "warmup_download_statistics",
-    description: "Download an address's ZeroBounce Warmup statistics as CSV text. Returns the CSV itself, not JSON.",
+    ...describeTool("warmup_download_statistics"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5306,8 +5808,7 @@ var warmupGetFromAddressStatisticsTool = {
   requiresWarmupKey: true,
   warmupMethods: ["getFromAddressStatistics"],
   definition: {
-    name: "warmup_get_from_address_statistics",
-    description: "Get ZeroBounce Warmup statistics for one from-address.",
+    ...describeTool("warmup_get_from_address_statistics"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5333,8 +5834,7 @@ var warmupCheckDomainDmarcTool = {
   requiresWarmupKey: true,
   warmupMethods: ["checkDomainDmarc"],
   definition: {
-    name: "warmup_check_domain_dmarc",
-    description: "Check the SPF, DKIM and DMARC records of a from-address's domain. fromAddress must be a full email address such as sender@example.com: the live API rejects a bare domain, although the public docs describe one.",
+    ...describeTool("warmup_check_domain_dmarc"),
     inputSchema: {
       type: "object",
       properties: {
@@ -5353,39 +5853,6 @@ var warmupCheckDomainDmarcTool = {
         requireEmail(args.fromAddress, "fromAddress"),
         optionalString(args.dkimSelector, "dkimSelector") ?? null
       );
-      return createSuccessResponse(result);
-    } catch (error) {
-      return createErrorResponse(error);
-    }
-  }
-};
-var warmupTestSmtpConfigurationTool = {
-  requiresWarmupKey: true,
-  warmupMethods: ["testSmtpConfiguration"],
-  definition: {
-    name: "warmup_test_smtp_configuration",
-    description: "Check that SMTP credentials connect and hand off a message. Nothing is stored, and the test message goes to a ZeroBounce test recipient rather than fromAddress. The live API answers a failed SMTP login with HTTP 500; the username and password are masked in every error from this call.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        fromAddress: { type: "string", description: "The from-address being configured" },
-        username: { type: "string", description: "SMTP username" },
-        password: { type: "string", description: "SMTP password" },
-        server: { type: "string", description: "SMTP server hostname" },
-        port: { type: "number", description: "SMTP port, 1-65535" }
-      },
-      required: ["fromAddress", "username", "password", "server", "port"]
-    }
-  },
-  handler: async (client, args) => {
-    try {
-      const result = await client.warmup.testSmtpConfiguration({
-        fromAddress: requireEmail(args.fromAddress, "fromAddress"),
-        username: requireString(args.username, "username"),
-        password: requireString(args.password, "password"),
-        server: requireString(args.server, "server"),
-        port: requireNumber(args.port, "port")
-      });
       return createSuccessResponse(result);
     } catch (error) {
       return createErrorResponse(error);
@@ -5423,18 +5890,22 @@ var warmupTools = [
   warmupDownloadStatisticsTool,
   warmupGetFromAddressStatisticsTool,
   // Diagnostics (73-74)
-  warmupCheckDomainDmarcTool,
-  warmupTestSmtpConfigurationTool
+  warmupCheckDomainDmarcTool
 ];
 
 // src/tools/index.ts
+function alias(tool, name) {
+  return { ...tool, definition: { ...tool.definition, ...describeTool(name) } };
+}
 function listTools() {
   return [
     // Validation
     validateEmailTool,
+    alias(validateEmailTool, "validate_email"),
     validateBatchTool,
     // Account
     getCreditsTool,
+    alias(getCreditsTool, "get_account_credits"),
     getApiUsageTool,
     // Bulk Validation
     bulkValidateTools.sendFile,
@@ -5482,7 +5953,6 @@ function listTools() {
     inboxPlacementTools.listTests,
     inboxPlacementTools.deleteTest,
     inboxPlacementTools.getWebhook,
-    inboxPlacementTools.setWebhook,
     // SFTP/FTP bulk
     validateSftpFileTool,
     scoreSftpFileTool,
@@ -5509,7 +5979,7 @@ function getToolRegistry(availability = {}) {
 }
 
 // src/server.ts
-var SERVER_VERSION = true ? "0.4.0" : "0.0.0-dev";
+var SERVER_VERSION = true ? "0.5.0" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
   client;
@@ -5538,7 +6008,8 @@ var ZeroBounceMCPServer = class {
         capabilities: {
           tools: {},
           resources: {}
-        }
+        },
+        instructions: SERVER_INSTRUCTIONS
       }
     );
     this.setupHandlers();
@@ -6107,7 +6578,7 @@ function handleInfoFlags(args) {
       return true;
     }
     if (arg === "--version" || arg === "-v") {
-      process.stdout.write(`${true ? "0.4.0" : "0.0.0-dev"}
+      process.stdout.write(`${true ? "0.5.0" : "0.0.0-dev"}
 `);
       return true;
     }

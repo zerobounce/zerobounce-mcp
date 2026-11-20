@@ -74,13 +74,13 @@ const leaks = (text: string, secret: string) =>
 const PATHS: Array<[string, Record<string, unknown>]> = [
   ['validate_email', { email: 'a@b.co' }],
   ['score_email', { email: 'a@b.co' }],
-  ['find_email', { domain: 'b.co', firstName: 'x' }],
-  ['domain_search', { domain: 'b.co' }],
+  ['find_email_format', { domain: 'b.co', firstName: 'x' }],
+  ['find_domain', { domain: 'b.co' }],
   ['get_credits', {}],
-  ['get_activity_data', { email: 'a@b.co' }],
+  ['get_activity', { email: 'a@b.co' }],
   ['list_filters', {}],
   ['get_api_usage', { startDate: '2024-01-01', endDate: '2024-01-02' }],
-  ['bulk_validate_file_status', { fileId: 'f1' }],
+  ['file_status', { fileId: 'f1' }],
   ['get_inbox_placement_test', { testId: 't1' }],
 ];
 
@@ -184,36 +184,37 @@ assert.match((await call('get_credits', {})).text, /"Credits": "2375323"/);
 // Bulk download: HTML page, JSON body, markup, and a plain CSV that holds the key.
 next = { status: 200, body: `<html><title>Denied ${KEY}</title></html>`, ct: 'text/csv' };
 {
-  const r = await call('bulk_validate_get_file', { fileId: 'f1' });
+  const r = await call('get_file', { fileId: 'f1' });
   assert.ok(r.isError && !leaks(r.text, KEY), `download title: ${r.text}`);
 }
 next = { status: 200, body: '<title>Access denied</title>', ct: 'text/csv' };
-assert.ok((await call('bulk_validate_get_file', { fileId: 'f1' })).isError, '<-start download is an error');
+assert.ok((await call('get_file', { fileId: 'f1' })).isError, '<-start download is an error');
 next = { status: 200, body: JSON.stringify({ success: false, message: `no file for ${KEY}` }), ct: 'text/csv' };
 {
-  const r = await call('bulk_validate_get_file', { fileId: 'f1' });
+  const r = await call('get_file', { fileId: 'f1' });
   assert.ok(r.isError && !leaks(r.text, KEY), 'JSON download body is an error, masked');
 }
 next = { status: 200, body: `email,status\n"a@b.co",valid\nnote,${KEY}\n`, ct: 'text/csv' };
 {
-  const r = await call('bulk_validate_get_file', { fileId: 'f1' });
+  const r = await call('get_file', { fileId: 'f1' });
   assert.ok(!r.isError && r.text.includes('a@b.co') && !leaks(r.text, KEY), 'CSV returned, key masked');
 }
 assert.equal(looksLikeHtmlDownload('\ufeff \n\u00a0<x/>'), true);
 assert.equal(looksLikeHtmlDownload('﻿ a,b\n<b>'), false);
 
-// Warmup key, SMTP username/password (short username), Inbox Placement key.
+// Warmup key, credential-named arguments (a short username, a password), Inbox Placement key.
+// No tool takes SMTP credentials any more; any argument named like a secret is masked all the same.
 for (const [label, form] of Object.entries(variants(WKEY))) {
   next = { status: 400, body: JSON.stringify({ message: `Invalid key ${form}` }) };
-  const r = await call('warmup_test_smtp_configuration', {
-    fromAddress: 'a@b.co', username: SMTP_USER, password: SMTP_PW, server: 's.example', port: 587,
+  const r = await call('warmup_check_domain_dmarc', {
+    fromAddress: 'a@b.co', username: SMTP_USER, password: SMTP_PW,
   });
   assert.ok(!leaks(r.text, WKEY), `warmup/${label}: key leaked: ${r.text.slice(0, 200)}`);
 }
 for (const [label, form] of Object.entries(variants(SMTP_PW))) {
   next = { status: 500, body: JSON.stringify({ message: `login failed for ${SMTP_USER} / ${form}` }) };
-  const r = await call('warmup_test_smtp_configuration', {
-    fromAddress: 'a@b.co', username: SMTP_USER, password: SMTP_PW, server: 's.example', port: 587,
+  const r = await call('warmup_check_domain_dmarc', {
+    fromAddress: 'a@b.co', username: SMTP_USER, password: SMTP_PW,
   });
   assert.ok(!leaks(r.text, SMTP_PW), `smtp/${label}: password leaked: ${r.text.slice(0, 200)}`);
 }
@@ -270,7 +271,7 @@ for (const [label, form] of Object.entries(variants(SMTP_PW))) {
   for (const [label, form] of forms) {
     for (const offset of [16384 - Math.floor(form.length / 2), 16384 - 5, 16384 + 1]) {
       next = { status: 200, body: `email,note\na@b.co,${'x'.repeat(offset)}${form}${'y'.repeat(2000)}\n`, ct: 'text/csv' };
-      const r = await call('bulk_validate_get_file', { fileId: 'f1' });
+      const r = await call('get_file', { fileId: 'f1' });
       // Masked in place, or (a spelling only the decoders find) the whole result replaced by the fixed message, never cut short.
       assert.ok(
         r.text.includes('a@b.co') || r.text === CREDENTIAL_OMITTED_MESSAGE,
@@ -304,8 +305,8 @@ for (const [label, form] of Object.entries(variants(SMTP_PW))) {
 {
   // The bulk get_file error path (bodyText) holds the same rule for a short username.
   next = { status: 200, body: JSON.stringify({ success: false, message: 'auth failed: user u rejected' }), ct: 'text/csv' };
-  const r = await call('warmup_test_smtp_configuration', {
-    fromAddress: 'a@b.co', username: SMTP_USER, password: SMTP_PW, server: 's.example', port: 587,
+  const r = await call('warmup_check_domain_dmarc', {
+    fromAddress: 'a@b.co', username: SMTP_USER, password: SMTP_PW,
   });
   assert.ok(!/a\*\*\*th|\*\*\*ser/.test(r.text), `short secret cut words: ${r.text}`);
   const { ZeroBounceClient } = await import('../src/zerobounce-client.js');
@@ -355,7 +356,7 @@ for (const [label, form] of Object.entries(variants(SMTP_PW))) {
   const local = (n: number) => `${'a'.repeat(n - '@b.co'.length)}@b.co`;
   const cases: Array<[string, string, (v: string) => Record<string, unknown>]> = [
     ['score_email', 'email', (v) => ({ email: v })],
-    ['get_activity_data', 'email', (v) => ({ email: v })],
+    ['get_activity', 'email', (v) => ({ email: v })],
     ['validate_email', 'email', (v) => ({ email: v })],
     ['create_inbox_placement_test', 'senderEmail', (v) => ({ name: 'n', testType: 1, senderEmail: v })],
     ['warmup_get_from_address_statistics', 'fromAddress', (v) => ({ fromAddress: v })],
