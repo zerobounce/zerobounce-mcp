@@ -1,5 +1,7 @@
 # ZeroBounce MCP Server
 
+[![MCP Badge](https://lobehub.com/badge/mcp/zerobounce-zerobounce-mcp)](https://lobehub.com/mcp/zerobounce-zerobounce-mcp)
+
 Connect your AI assistant to your ZeroBounce account. The ZeroBounce
 [Model Context Protocol](https://modelcontextprotocol.io) server lets Claude, ChatGPT, Cursor,
 VS Code and any other MCP client validate and score email addresses, find emails and domains,
