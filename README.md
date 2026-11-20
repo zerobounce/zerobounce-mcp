@@ -1,64 +1,163 @@
 # ZeroBounce MCP Server
 
-A comprehensive Model Context Protocol (MCP) server that provides full-featured email validation, verification, and intelligence capabilities through ZeroBounce's API. This server enables AI coding assistants and MCP-compatible clients to validate email addresses, find emails, score email quality, search domains, and much more.
+Connect your AI assistant to your ZeroBounce account. The ZeroBounce
+[Model Context Protocol](https://modelcontextprotocol.io) server lets Claude, ChatGPT, Cursor,
+VS Code and any other MCP client validate and score email addresses, find emails and domains,
+clean lists in bulk, run inbox placement tests and manage Warmup.
+
+**The easiest way to use it is the hosted server at `https://mcp.zerobounce.net/mcp`.** You sign
+in with your ZeroBounce account, so there is nothing to install and no API key to copy. This
+repository is the open-source version of the same tools: the
+[`@zerobounce/mcp`](https://www.npmjs.com/package/@zerobounce/mcp) package, which you run
+yourself with an API key ([Run it yourself](#run-it-yourself)).
 
 ## Features
 
-### Core Capabilities
-- **Email Validation**: Validate single or multiple email addresses with detailed results
-- **Batch Processing**: Efficiently process large volumes of emails via CSV upload
-- **AI Scoring**: Evaluate email quality and deliverability using AI, for a single address or a bulk CSV file
-- **Email Finder**: Find email addresses based on name and company/domain
-- **Domain Search**: Search for all email addresses in a domain
-- **Activity Data**: Check if an email address has been recently active
-- **List Evaluator**: Get a quality assessment of a list before you validate it
-- **Custom Filters**: Manage the allow and block list rules on your account
-- **Storage Bulk**: Run and export bulk jobs over files already in S3 or on an SFTP/FTP server
-- **Inbox Placement Testing**: See whether a campaign lands in the inbox or in spam at each mailbox provider
-- **Credit Management**: Monitor remaining credits in your ZeroBounce account
-- **Usage Analytics**: Get detailed API usage reports for any date range
-- **Warmup**: Manage warmup sending accounts, engagement rules, seeds, statistics and SPF/DKIM/DMARC checks (needs a separate [Warmup API key](#warmup-api-key))
+- **Email validation**: one address, up to 200 in one call, or whole CSV files in bulk
+- **AI scoring**: how likely an address is to engage, for one address or a bulk file
+- **Email finder and domain search**: a work email from a name and domain, or a domain's email format
+- **Activity data**: whether an address has been active recently
+- **List Evaluator**: a free quality estimate of a list before you validate it
+- **Allow and block filters** on your account
+- **Amazon S3 and SFTP/FTP bulk jobs**: validate, score and export files already in your storage
+- **Inbox placement testing**: whether a campaign lands in the inbox or in spam at each provider
+- **Warmup**: sending accounts, engagement rules, seeds, statistics and SPF/DKIM/DMARC checks
+- **Credits and API usage** for your account
 
-### Key Benefits
-- 🚀 **Fast Integration**: Quick setup with MCP-compatible clients
-- 🔒 **Secure**: API key management with environment variable support
-- 📊 **Broad Coverage**: Access to all major ZeroBounce API endpoints exposed by the official Node SDK and suitable for MCP tools
-- 🎯 **Accurate**: Industry-leading email validation accuracy
-- 🔄 **Real-time**: Instant validation and scoring results
+Tools that spend credits or change your account say so in their description, and deletes are
+marked destructive, so your assistant asks before calling them. See [Tools](#tools).
 
-## Quick Start
+## Connect to the hosted server
 
-Requires **Node.js 22 or later** (check with `node --version`).
+Add `https://mcp.zerobounce.net/mcp` to your client as a remote (HTTP) MCP server. No API key or
+header goes in the configuration: the first time the client connects, it opens ZeroBounce in your
+browser to sign in.
 
-1. **Install the MCP server globally**
+**Claude** (claude.ai and the desktop app): Settings → Connectors → **Add custom connector**,
+with the URL `https://mcp.zerobounce.net/mcp`.
+
+**Claude Code:**
+
 ```bash
-npm install -g @zerobounce/mcp
+claude mcp add --transport http zerobounce https://mcp.zerobounce.net/mcp
 ```
 
-   This will install the `zerobounce-mcp` command globally.
+**ChatGPT:** add a custom connector (app) with the URL `https://mcp.zerobounce.net/mcp` and OAuth
+authentication, where your plan allows custom connectors.
 
-2. **Get your ZeroBounce API key** from the [ZeroBounce Dashboard](https://www.zerobounce.net)
-
-3. **Add to your MCP client** (Cursor, VS Code, Claude Desktop, etc.):
+**Cursor** (`~/.cursor/mcp.json` or `.cursor/mcp.json` in a project), and other clients that use
+an `mcpServers` file:
 
 ```json
 {
   "mcpServers": {
     "zerobounce": {
-      "command": "zerobounce-mcp",
-      "args": ["--api-key=YOUR_API_KEY"]
+      "url": "https://mcp.zerobounce.net/mcp"
     }
   }
 }
 ```
 
+**VS Code** (`.vscode/mcp.json`):
+
+```json
+{
+  "servers": {
+    "zerobounce": {
+      "type": "http",
+      "url": "https://mcp.zerobounce.net/mcp"
+    }
+  }
+}
+```
+
+Then ask your assistant, for example:
+
+```
+How many ZeroBounce credits do I have left?
+Validate jane.doe@example.com
+```
+
+### Signing in and choosing permissions
+
+The hosted server uses OAuth 2.1 with dynamic client registration, so clients set themselves up
+automatically. When you connect, ZeroBounce shows a consent page where you:
+
+1. **Sign in** to your ZeroBounce account.
+2. **Choose what the assistant may do.** Reading your account (credit balance, usage, bulk file
+   status and results, filters, inbox placement tests) is always granted. Each of these is
+   optional:
+   - **Spend credits**: validate and score emails, look up activity data, find emails and domains.
+   - **Change account data** (marked high risk): upload and delete bulk files, start S3/SFTP jobs,
+     manage filters and inbox placement tests, and run batch validation.
+   - **Warmup**: the Warmup tools, using your team's Warmup API key. Offered to Owners and
+     Admins once the team has generated a Warmup key.
+3. **Pick the tools** within those permissions, and the **API region**: Default, US or EU.
+   Single-address calls use that region's API. Bulk files, the Inbox Placement Tester and Warmup
+   have no regional hosts and always use the global ones.
+
+Your assistant only sees, and can only call, the tools you approved. To change them later, or to
+get tools added in a server update, disconnect and connect again. Account Owners, Admins and Devs
+can connect; team members without API access cannot.
+
+Each connection is limited to 300 requests and 60 credit-spending tool calls per minute.
+
+For AI agents, [`https://mcp.zerobounce.net/llms.txt`](https://mcp.zerobounce.net/llms.txt)
+describes how to connect and lists every tool.
+
+## Hosted or self-hosted?
+
+| | Hosted (`mcp.zerobounce.net`) | Self-hosted (`@zerobounce/mcp`) |
+| --- | --- | --- |
+| Setup | Add a URL, sign in | Install Node.js 22+ and the npm package |
+| Credentials | OAuth sign-in; no key in your config | Your API key (and Warmup key) in the config or environment |
+| Permissions | Chosen per connection on the consent page | Everything the API key can do |
+| Clients | Any client that supports remote MCP servers (Claude, ChatGPT, Cursor, VS Code, ...) | stdio clients, or your own HTTP deployment |
+| Tools | Same tool names, titles and annotations | Same tool names, titles and annotations; argument names are camelCase (`fileId`, `ipAddress`) and bulk uploads take CSV text |
+
+Use the hosted server unless you need to run everything on your own machine or network, pin a
+specific version, or use a client without remote MCP support.
+
+## Run it yourself
+
+The npm package runs the same tools locally over stdio, or as your own HTTP server, with your
+ZeroBounce API key.
+
+### Quick start
+
+Requires **Node.js 22 or later** (check with `node --version`).
+
+1. **Install the MCP server globally**
+
+   ```bash
+   npm install -g @zerobounce/mcp
+   ```
+
+   This installs the `zerobounce-mcp` command.
+
+2. **Get your ZeroBounce API key** from the [ZeroBounce dashboard](https://www.zerobounce.net)
+   ([Getting your API key](#getting-your-api-key)).
+
+3. **Add it to your MCP client** (Cursor, VS Code, Claude Desktop, etc.):
+
+   ```json
+   {
+     "mcpServers": {
+       "zerobounce": {
+         "command": "zerobounce-mcp",
+         "args": ["--api-key=YOUR_API_KEY"]
+       }
+     }
+   }
+   ```
+
 4. **Start using it** in your AI assistant:
 
-```
-Validate the email address "test@example.com"
-```
+   ```
+   Validate the email address "test@example.com"
+   ```
 
-## Getting Your API Key
+### Getting your API key
 
 Your ZeroBounce API key is available in the ZeroBounce dashboard:
 
@@ -68,8 +167,9 @@ Your ZeroBounce API key is available in the ZeroBounce dashboard:
 - **Use different keys** for development, staging, and production when possible
 
 > **Note:** Treat your API key like a password. Do not share it or commit it to version control.
+> The hosted server needs no key: you sign in instead.
 
-## Warmup API key
+### Warmup API key
 
 Warmup is a separate ZeroBounce product with its **own API key and its own host**
 (`https://warmup-api.zerobounce.net`). The validation key above is not accepted there, so
@@ -94,14 +194,14 @@ at all, so a client never sees a tool that cannot work. Supply it and the server
 tools instead of 50.
 
 In HTTP mode the Warmup key is a per-request header, `X-ZeroBounce-Warmup-Api-Key` — see
-[Remote (HTTP) Mode](#remote-http-mode).
+[Your own HTTP server](#your-own-http-server).
 
 `--warmup-url` (or `ZEROBOUNCE_WARMUP_API_URL`) points the Warmup client at a different
 host, which is how the test suite reaches a stub. There is **no regional Warmup host**:
 `warmup-api-us` and `warmup-api-eu` do not resolve, so only an explicit `https://` URL is
 accepted and shorthands such as `us` are refused.
 
-## MCP Client Configuration
+### MCP Client Configuration
 
 Most MCP-compatible clients use the same basic configuration shape. A minimal example looks like:
 
@@ -131,14 +231,14 @@ Alternatively, supply the key through the `ZEROBOUNCE_API_KEY` environment varia
 
 The `--api-key` flag takes precedence when both are set.
 
-### Command-line options
+#### Command-line options
 
 `zerobounce-mcp --help` (`-h`) and `--version` (`-v`) print and exit; neither needs a key. The key
 can also be given as `-k <key>` (same as `--api-key`). An unknown option or a stray argument is
 refused with `Unknown argument: ...` and the server does not start, so a misspelt `--api-ky` is
 never silently ignored.
 
-### Referencing an existing environment variable
+#### Referencing an existing environment variable
 
 Some clients let you reference a variable that already exists in their own environment,
 rather than writing the key into the config file:
@@ -192,7 +292,7 @@ Select your client below for detailed, client-specific setup steps:
 - **[Other / generic clients](docs/configuration-other.md)** – Configure ZeroBounce MCP for Claude Desktop, Continue, Zed, and others
 
 
-## Regional API hosts
+### Regional API hosts
 
 ZeroBounce serves the main API from three hosts. Pick one with `--url`, or with
 the `ZEROBOUNCE_API_URL` environment variable:
@@ -216,10 +316,11 @@ In HTTP mode the host is fixed when the server starts and cannot be set
 per request: the API key arrives from the caller, so a request that could also
 choose the host could point that key at a server of its own choosing.
 
-## Remote (HTTP) Mode
+### Your own HTTP server
 
 The server can also run as a stateless [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http)
-endpoint for hosting on a remote MCP platform:
+endpoint, for hosting it on your own infrastructure or a remote MCP platform. (To use
+ZeroBounce's own hosted server instead, see [Connect to the hosted server](#connect-to-the-hosted-server).)
 
 ```bash
 npm run build
@@ -266,7 +367,7 @@ gets a server with no `warmup_*` tools; the validation tools still work.
 }
 ```
 
-### Deploying from GitHub
+#### Deploying from GitHub
 
 Most hosted MCP platforms that build from a GitHub repository need these settings:
 
@@ -674,7 +775,10 @@ Delete a custom filter. Takes the same `rule`, `target`, and `value` that create
 
 ### Tool Availability
 
-The ZeroBounce SDK (`@zerobounce/zero-bounce-sdk` 5.0.0) is bundled into `dist/index.js`, so
+On the hosted server, a connection lists the tools you approved on the consent page. When you run
+the package yourself:
+
+The ZeroBounce SDK (`@zerobounce/zero-bounce-sdk` 5.0.1) is bundled into `dist/index.js`, so
 every tool is available in every install and nothing depends on an SDK on your machine. The
 tool list changes only with the keys you supply: the 25 Warmup tools need a Warmup API key
 (see above), so a server started without one exposes 50 tools. As a safety net the server still
@@ -814,7 +918,10 @@ as `do_not_mail` / `blocked`.
 
 ## Security Best Practices
 
-### Protecting Your API Key
+With the hosted server no API key leaves your ZeroBounce account. Grant only the permissions the
+assistant needs, and disconnect it (or connect again with fewer tools) when you no longer use it.
+
+### Protecting Your API Key (self-hosted)
 
 Your ZeroBounce API key is sensitive and should be protected:
 
