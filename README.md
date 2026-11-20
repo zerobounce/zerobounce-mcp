@@ -45,8 +45,11 @@ claude mcp add --transport http zerobounce https://mcp.zerobounce.net/mcp
 **ChatGPT:** add a custom connector (app) with the URL `https://mcp.zerobounce.net/mcp` and OAuth
 authentication, where your plan allows custom connectors.
 
-**Cursor** (`~/.cursor/mcp.json` or `.cursor/mcp.json` in a project), and other clients that use
-an `mcpServers` file:
+**Cursor** — install the plugin from this repo (**Customize → Plugins → Import from GitHub**
+→ `zerobounce/zerobounce-mcp`): hosted MCP + the `zerobounce` skill. See
+[`docs/CURSOR_MARKETPLACE.md`](docs/CURSOR_MARKETPLACE.md).
+
+Or add the URL manually in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a project:
 
 ```json
 {
@@ -287,7 +290,8 @@ rather than writing the key into the config file:
 
 Select your client below for detailed, client-specific setup steps:
 
-- **[Cursor](docs/configuration-cursor.md)** – Configure ZeroBounce MCP for Cursor IDE
+- **[Cursor plugin](docs/CURSOR_MARKETPLACE.md)** – Hosted MCP and the `zerobounce` skill (import this repo under Customize → Plugins)
+- **[Cursor](docs/configuration-cursor.md)** – Manual MCP config, including self-hosted `@zerobounce/mcp`
 - **[VS Code](docs/configuration-vscode.md)** – Configure ZeroBounce MCP for Visual Studio Code
 - **[Other / generic clients](docs/configuration-other.md)** – Configure ZeroBounce MCP for Claude Desktop, Continue, Zed, and others
 

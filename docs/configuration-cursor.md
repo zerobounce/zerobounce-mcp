@@ -2,6 +2,10 @@
 
 Complete setup guide for using ZeroBounce MCP server in Cursor IDE.
 
+For **hosted OAuth** (`https://mcp.zerobounce.net/mcp`), prefer the plugin in this repository:
+[`docs/CURSOR_MARKETPLACE.md`](CURSOR_MARKETPLACE.md). The sections below cover manual `mcp.json`
+and **self-hosted** `@zerobounce/mcp` with an API key.
+
 ## Prerequisites
 
 Before configuring Cursor, make sure you've completed the **Quick Start** steps in `README.md`:

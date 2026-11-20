@@ -1,0 +1,20 @@
+{
+  "name": "zerobounce",
+  "version": "0.5.0",
+  "description": "Email validation, scoring, finders, bulk lists, inbox placement and Warmup via the hosted ZeroBounce MCP server (OAuth sign-in).",
+  "author": {
+    "name": "ZeroBounce",
+    "email": "integrations@zerobounce.net"
+  },
+  "homepage": "https://www.zerobounce.net",
+  "repository": "https://github.com/zerobounce/zerobounce-mcp",
+  "license": "MIT",
+  "keywords": [
+    "email verification",
+    "email validation",
+    "deliverability",
+    "zerobounce",
+    "mcp"
+  ],
+  "logo": "assets/logo.svg"
+}
