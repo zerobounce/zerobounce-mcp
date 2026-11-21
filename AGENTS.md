@@ -8,7 +8,8 @@ Guidance for AI coding agents working in this repository.
 written in TypeScript on `@modelcontextprotocol/sdk` and the official
 `@zerobounce/zero-bounce-sdk`. It runs over two transports:
 
-- **stdio** (default): one user, API key from `--api-key` or `ZEROBOUNCE_API_KEY`.
+- **stdio** (default): one user, API key from `--api-key` or `ZEROBOUNCE_API_KEY`. Without a key it
+  still starts and lists tools and prompts (directories probe servers that way); tool calls error.
 - **Streamable HTTP** (`--http` or `MCP_TRANSPORT=http`): stateless `POST /mcp` plus `GET /health`.
   Every request carries its caller's key in `X-ZeroBounce-Api-Key` or `Authorization: Bearer`.
 
@@ -17,6 +18,7 @@ written in TypeScript on `@modelcontextprotocol/sdk` and the official
 - `src/index.ts`: CLI parsing, the MCP server, and both transports.
 - `src/zerobounce-client.ts`: wrapper around the ZeroBounce SDK, one instance per API key.
 - `src/tools/`: one file per tool or tool family, registered in `src/tools/index.ts`.
+- `src/prompts.ts`: MCP prompts (templates that name existing tools); `test/cli.test.ts` covers them.
 - `src/security/`: input validation for bulk uploads and callback URLs.
 - `test-mcp.js`: stdio test against the live API.
 - `test-http.js` and `test/fake-zerobounce-api.mjs`: offline HTTP test against a fake API.

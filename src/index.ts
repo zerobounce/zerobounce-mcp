@@ -167,6 +167,11 @@ async function runStdio(config: ServerConfig): Promise<void> {
   console.error(
     `ZeroBounce MCP server running on stdio${config.warmupApiKey ? ' (Warmup tools enabled)' : ''}`
   );
+  if (!config.apiKey) {
+    console.error(
+      'No ZeroBounce API key: tools are listed, but calls return an error until ZEROBOUNCE_API_KEY or --api-key is set.'
+    );
+  }
 }
 
 // Same set as a JavaScript `\s` match, checked one character at a time so a long
@@ -635,12 +640,10 @@ function parseArgs(): CliConfig {
     config.warmupApiKey = process.env.ZEROBOUNCE_WARMUP_API_KEY?.trim() ?? '';
   }
 
-  if (!config.apiKey) {
-    throw new Error(
-      'ZeroBounce API key is required. Provide it via the --api-key flag or the ZEROBOUNCE_API_KEY environment variable.'
-    );
-  }
-  assertSafeApiKey(config.apiKey, 'ZeroBounce API key');
+  // No key is not an error here: the server starts, lists its tools and prompts, and every
+  // tool call says the key is missing. MCP directories and clients start a server without
+  // credentials to see what it offers. A key that is set must still be well formed.
+  if (config.apiKey) assertSafeApiKey(config.apiKey, 'ZeroBounce API key');
   if (config.warmupApiKey) assertSafeApiKey(config.warmupApiKey, 'ZeroBounce Warmup API key');
 
   return config;

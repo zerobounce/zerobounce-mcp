@@ -2590,7 +2590,11 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
-  ReadResourceRequestSchema
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+  ErrorCode,
+  McpError
 } from "@modelcontextprotocol/sdk/types.js";
 
 // src/zerobounce-client.ts
@@ -2644,7 +2648,7 @@ var ZeroBounceClient = class {
     this.#warmupApiKey = config.warmupApiKey || void 0;
     this.baseUrl = config.baseUrl || "https://api.zerobounce.net/v2";
     this.sdk = new zeroBounceSDK_default();
-    this.sdk.init(this.#apiKey, this.baseUrl);
+    if (this.#apiKey) this.sdk.init(this.#apiKey, this.baseUrl);
     if (config.warmupApiKey) {
       this.warmupClient = createWarmupClient(config.warmupApiKey, config.warmupBaseUrl);
     }
@@ -5978,8 +5982,85 @@ function getToolRegistry(availability = {}) {
   return registry;
 }
 
+// src/prompts.ts
+var PROMPTS = [
+  {
+    name: "check_email_before_sending",
+    title: "Check an address before sending",
+    description: "Validate one email address and say whether it is safe to send to.",
+    arguments: [{ name: "email", description: "The email address to check", required: true }],
+    build: ({ email }) => `Validate ${email} with the ZeroBounce validate tool (one credit). Tell me in one line whether it is safe to send to, then give the status and sub-status and what they mean. If it is catch-all or unknown, say what the risk is.`
+  },
+  {
+    name: "clean_email_list",
+    title: "Clean an email list",
+    description: "Validate a list of addresses and say which to keep and which to remove.",
+    arguments: [
+      {
+        name: "emails",
+        description: "The addresses, separated by commas, spaces or new lines",
+        required: true
+      }
+    ],
+    build: ({ emails }) => `Check my ZeroBounce credits with get_credits first. Then validate these addresses: up to 200 with validate_batch; for more, use send_file, poll file_status until it is complete, then get_file. Group the results into keep (valid), review (catch-all, unknown) and remove (invalid, spamtrap, abuse, do_not_mail), with the reason for each removal.
+
+Addresses:
+${emails}`
+  },
+  {
+    name: "find_work_email",
+    title: "Find someone's work email",
+    description: "Find a person's work email address from their name and company or domain.",
+    arguments: [
+      { name: "first_name", description: "The person's first name", required: true },
+      { name: "last_name", description: "The person's last name", required: false },
+      { name: "company", description: "Company name or domain, e.g. example.com", required: true }
+    ],
+    build: ({ first_name, last_name, company }) => {
+      const person = [first_name, last_name].filter(Boolean).join(" ");
+      return `Find the work email address of ${person} at ${company} with the ZeroBounce find_email_format tool (pass a domain if that is what I gave, otherwise the company name). Give the address, the confidence and the domain format it is based on. Do not validate it unless I ask.`;
+    }
+  },
+  {
+    name: "inbox_placement_test",
+    title: "Run an inbox placement test",
+    description: "Set up an inbox placement test and explain how to send to its seed addresses.",
+    arguments: [
+      {
+        name: "sender_email",
+        description: "The From address the test email will be sent from",
+        required: true
+      }
+    ],
+    build: ({ sender_email }) => `Set up a ZeroBounce inbox placement test for emails sent from ${sender_email}. List the test types and providers first (get_inbox_placement_test_types, get_inbox_placement_providers) and ask me which to use; creating the test uses one of my inbox placement tests, so confirm before calling create_inbox_placement_test. Then list the seed addresses I must send my email to, and tell me to ask you for the results afterwards.`
+  }
+];
+function listPrompts() {
+  return PROMPTS.map(({ name, title, description, arguments: args }) => ({
+    name,
+    title,
+    description,
+    arguments: args
+  }));
+}
+function getPrompt(name, args = {}) {
+  const prompt = PROMPTS.find((p) => p.name === name);
+  if (!prompt) throw new Error(`Unknown prompt: ${name}`);
+  const values = {};
+  for (const arg of prompt.arguments) {
+    const value = typeof args[arg.name] === "string" ? args[arg.name].trim() : "";
+    if (arg.required && !value) throw new Error(`Missing required argument: ${arg.name}`);
+    values[arg.name] = value;
+  }
+  return {
+    description: prompt.description,
+    messages: [{ role: "user", content: { type: "text", text: prompt.build(values) } }]
+  };
+}
+
 // src/server.ts
-var SERVER_VERSION = true ? "0.5.2" : "0.0.0-dev";
+var MISSING_API_KEY_MESSAGE = "ZeroBounce API key is required. Set the ZEROBOUNCE_API_KEY environment variable or pass --api-key, then restart the server.";
+var SERVER_VERSION = true ? "0.6.0" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
   client;
@@ -6007,7 +6088,8 @@ var ZeroBounceMCPServer = class {
       {
         capabilities: {
           tools: {},
-          resources: {}
+          resources: {},
+          prompts: {}
         },
         instructions: SERVER_INSTRUCTIONS
       }
@@ -6036,6 +6118,12 @@ var ZeroBounceMCPServer = class {
           isError: true
         };
       }
+      if (!this.config.apiKeyConfigured && !(name.startsWith("warmup_") && this.client.hasWarmup)) {
+        return {
+          content: [{ type: "text", text: `Error: ${MISSING_API_KEY_MESSAGE}` }],
+          isError: true
+        };
+      }
       const secrets = this.client.secretsForCall(args || {});
       return withSecrets(secrets, async () => {
         let result;
@@ -6051,6 +6139,21 @@ var ZeroBounceMCPServer = class {
           )
         };
       });
+    });
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+      prompts: listPrompts()
+    }));
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      try {
+        return getPrompt(name, args ?? {});
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          redactResultText(message, this.client.secretsForCall(args ?? {}))
+        );
+      }
     });
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       resources: [
@@ -6181,6 +6284,11 @@ async function runStdio(config) {
   console.error(
     `ZeroBounce MCP server running on stdio${config.warmupApiKey ? " (Warmup tools enabled)" : ""}`
   );
+  if (!config.apiKey) {
+    console.error(
+      "No ZeroBounce API key: tools are listed, but calls return an error until ZEROBOUNCE_API_KEY or --api-key is set."
+    );
+  }
 }
 function isHttpWhitespace(char) {
   const code = char.charCodeAt(0);
@@ -6535,12 +6643,7 @@ function parseArgs() {
   if (!config.warmupApiKey) {
     config.warmupApiKey = process.env.ZEROBOUNCE_WARMUP_API_KEY?.trim() ?? "";
   }
-  if (!config.apiKey) {
-    throw new Error(
-      "ZeroBounce API key is required. Provide it via the --api-key flag or the ZEROBOUNCE_API_KEY environment variable."
-    );
-  }
-  assertSafeApiKey(config.apiKey, "ZeroBounce API key");
+  if (config.apiKey) assertSafeApiKey(config.apiKey, "ZeroBounce API key");
   if (config.warmupApiKey) assertSafeApiKey(config.warmupApiKey, "ZeroBounce Warmup API key");
   return config;
 }
@@ -6578,7 +6681,7 @@ function handleInfoFlags(args) {
       return true;
     }
     if (arg === "--version" || arg === "-v") {
-      process.stdout.write(`${true ? "0.5.2" : "0.0.0-dev"}
+      process.stdout.write(`${true ? "0.6.0" : "0.0.0-dev"}
 `);
       return true;
     }

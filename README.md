@@ -184,6 +184,11 @@ Your ZeroBounce API key is available in the ZeroBounce dashboard:
 > **Note:** Treat your API key like a password. Do not share it or commit it to version control.
 > The hosted server needs no key: you sign in instead.
 
+Over stdio the server also starts without a key: it lists its tools and prompts, so a client or
+an MCP directory can see what it offers, and every tool call answers "ZeroBounce API key is
+required" until you set `ZEROBOUNCE_API_KEY` or `--api-key` and restart it. A key that is set
+but contains control or invisible characters is still refused at startup.
+
 ### Warmup API key
 
 Warmup is a separate ZeroBounce product with its **own API key and its own host**
@@ -810,6 +815,18 @@ The server provides the following resources:
 Current ZeroBounce API configuration: the main API base URL and whether a validation key is
 configured, plus the Warmup base URL and whether a Warmup key is configured. Keys themselves
 are never included.
+
+## Prompts
+
+Ready-made prompts your client can offer (MCP `prompts/list`). Each one only writes the request;
+the tool calls it leads to work as usual.
+
+| Prompt | Arguments | What it asks for |
+| --- | --- | --- |
+| `check_email_before_sending` | `email` | Validate one address and say whether it is safe to send to |
+| `clean_email_list` | `emails` | Check credits, validate the list (batch or bulk file) and group it into keep, review and remove |
+| `find_work_email` | `first_name`, `last_name` (optional), `company` | Find someone's work email from their name and company or domain |
+| `inbox_placement_test` | `sender_email` | Set up an inbox placement test, confirming before it uses a test, and list the seed addresses |
 
 ## Usage Examples
 

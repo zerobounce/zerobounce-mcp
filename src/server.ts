@@ -11,14 +11,29 @@ import {
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+  ErrorCode,
+  McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ZeroBounceClient } from './zerobounce-client.js';
 import { getAllTools, getToolRegistry } from './tools/index.js';
 import { SERVER_INSTRUCTIONS } from './tools/catalog.js';
 import { createErrorResponse } from './tools/types.js';
 import { redactResultText, withSecrets } from './security/redact.js';
+import { getPrompt, listPrompts } from './prompts.js';
+
+/**
+ * Returned by every tool call made without a key (stdio started with none). The
+ * server still starts and lists its tools, so clients and directories can see
+ * what it offers before the user has set a key.
+ */
+export const MISSING_API_KEY_MESSAGE =
+  'ZeroBounce API key is required. Set the ZEROBOUNCE_API_KEY environment variable or pass ' +
+  '--api-key, then restart the server.';
 
 export interface ServerConfig {
+  /** Empty when stdio started without a key: tools are listed, and every call returns an error. */
   apiKey: string;
   baseUrl: string;
   /** Optional: without it the Warmup tools are not registered at all. */
@@ -65,6 +80,7 @@ export class ZeroBounceMCPServer {
         capabilities: {
           tools: {},
           resources: {},
+          prompts: {},
         },
         instructions: SERVER_INSTRUCTIONS,
       }
@@ -101,6 +117,14 @@ export class ZeroBounceMCPServer {
         };
       }
 
+      // Without the main key, only the Warmup tools (which use their own key) can run.
+      if (!this.config.apiKeyConfigured && !(name.startsWith('warmup_') && this.client.hasWarmup)) {
+        return {
+          content: [{ type: 'text', text: `Error: ${MISSING_API_KEY_MESSAGE}` }],
+          isError: true,
+        };
+      }
+
       // One final pass over everything the model is shown, success or error,
       // with every secret of the call: the API key, the Warmup key, and any
       // username/password or token in the arguments.
@@ -115,12 +139,27 @@ export class ZeroBounceMCPServer {
         return {
           ...result,
           content: result.content.map((item) =>
-            item.type === 'text'
-              ? { ...item, text: redactResultText(item.text, secrets) }
-              : item
+            item.type === 'text' ? { ...item, text: redactResultText(item.text, secrets) } : item
           ),
         };
       });
+    });
+
+    this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+      prompts: listPrompts(),
+    }));
+
+    this.server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+      try {
+        return getPrompt(name, args ?? {});
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          redactResultText(message, this.client.secretsForCall(args ?? {}))
+        );
+      }
     });
 
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
