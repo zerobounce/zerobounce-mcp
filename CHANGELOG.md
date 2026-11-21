@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-21
+
 ### Added
 
 - Cursor plugin now registers the hosted MCP server as HTTP (`https://mcp.zerobounce.net/mcp`) and ships skills, rules, agents, and commands under `plugins/zerobounce`. The marketplace entry source is `plugins/zerobounce`.
+
+### Changed
+
+- The MCP Registry entry (`server.json`) has a new description: "Validate, score and find emails, clean lists in bulk, run inbox placement tests and email warmup.", the same as the hosted server's.
 
 ## [0.5.1] - 2026-11-20
 
@@ -410,7 +416,8 @@ hosted HTTP deployments.
 - Initial release: stdio MCP server with email validation, batch validation, credits and API
   usage, bulk validation and AI scoring files, email finder, domain search, and activity data tools.
 
-[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.3.1...v0.4.0

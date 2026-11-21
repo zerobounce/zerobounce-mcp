@@ -2,17 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.zerobounce/zerobounce-mcp",
   "title": "ZeroBounce",
-  "description": "Validate email addresses, find contacts, search domains, and score emails with ZeroBounce.",
+  "description": "Validate, score and find emails, clean lists in bulk, run inbox placement tests and email warmup.",
   "repository": {
     "url": "https://github.com/zerobounce/zerobounce-mcp",
     "source": "github"
   },
-  "version": "0.5.1",
+  "version": "0.5.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@zerobounce/mcp",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "transport": {
         "type": "stdio"
       },
