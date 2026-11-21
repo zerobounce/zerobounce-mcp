@@ -1,0 +1,92 @@
+name: Publish to MCP Registry
+
+# Publishes server.json, as it is at a release tag, to the official MCP Registry
+# (https://registry.modelcontextprotocol.io). The registry only accepts names under
+# io.github.zerobounce/* from an org Owner or from this organization's own GitHub Actions,
+# which prove where they run with an OIDC token: no secret is stored.
+# Run it after the Publish workflow has put that version on npm; the registry checks
+# that the npm package's mcpName matches server.json's name.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        description: Release tag whose server.json to publish (e.g. v0.5.1)
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mcp-registry-${{ github.event.inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  MCP_PUBLISHER_VERSION: v1.8.7
+  MCP_PUBLISHER_SHA256: 00b21004149a4ce66f0782508ae4a2bce67d1bea395a8da0bd8028159fb59579
+
+jobs:
+  publish:
+    name: Publish server.json
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # OIDC token for `mcp-publisher login github-oidc`
+    steps:
+      - name: Validate tag input
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          re='^v[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.-]+)?$'
+          if [[ ! "$TAG" =~ $re ]]; then
+            echo "Error: the tag input must be a release tag such as v1.2.3."
+            exit 1
+          fi
+
+      - name: Checkout tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ github.event.inputs.tag }}
+          persist-credentials: false
+
+      - name: Check server.json matches the tag and npm
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          WANT="${TAG#v}"
+          node -e "
+            const s = require('./server.json');
+            const p = require('./package.json');
+            const want = process.argv[1];
+            if (s.version !== want) throw new Error('server.json version ' + s.version + ' is not ' + want);
+            for (const pkg of s.packages || []) {
+              if (pkg.version !== want) throw new Error('server.json package ' + pkg.identifier + ' version ' + pkg.version + ' is not ' + want);
+            }
+            if (p.mcpName !== s.name) throw new Error('package.json mcpName ' + p.mcpName + ' is not server.json name ' + s.name);
+          " "$WANT"
+          PKG=$(node -p "require('./package.json').name")
+          if ! npm view "$PKG@$WANT" version > /dev/null 2>&1; then
+            echo "Error: $PKG@$WANT is not on npm yet. Run the Publish workflow for $TAG first."
+            exit 1
+          fi
+
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/mcp-publisher.tar.gz" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  $RUNNER_TEMP/mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" -C "$RUNNER_TEMP" mcp-publisher
+          "$RUNNER_TEMP/mcp-publisher" --version
+
+      - name: Validate server.json
+        run: '"$RUNNER_TEMP/mcp-publisher" validate'
+
+      - name: Log in with GitHub OIDC
+        run: '"$RUNNER_TEMP/mcp-publisher" login github-oidc'
+
+      - name: Publish
+        run: '"$RUNNER_TEMP/mcp-publisher" publish'

@@ -130,3 +130,7 @@ project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.ht
    The workflow tests the tag, packs it once and publishes that tarball (no rebuild); tick
    `skip_npm` to make only the GitHub release. The MCP Registry (`server.json`) is not published by
    the workflow.
+5. Once the version is on npm, run the **Publish to MCP Registry** workflow
+   (`.github/workflows/mcp-registry.yml`) with the same tag. It publishes the tag's `server.json`
+   using the workflow's GitHub OIDC token: `io.github.zerobounce/*` names are refused to anyone
+   but an org Owner from a laptop. A registry version cannot be changed once published.
