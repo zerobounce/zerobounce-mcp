@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-21
+
+### Added
+
+- MCP prompts: `check_email_before_sending`, `clean_email_list`, `find_work_email` and `inbox_placement_test`. Clients list them with `prompts/list`; each builds a request that points the model at the right tools.
+
+### Changed
+
+- Over stdio the server starts without an API key instead of exiting. It lists its tools and prompts, and every tool call returns "ZeroBounce API key is required" until `ZEROBOUNCE_API_KEY` or `--api-key` is set. MCP directories and clients that start a server without credentials now see its tools. A key that is set but contains control or invisible characters is still refused at startup. HTTP mode is unchanged.
+
 ## [0.5.2] - 2026-11-21
 
 ### Added
@@ -416,7 +426,8 @@ hosted HTTP deployments.
 - Initial release: stdio MCP server with email validation, batch validation, credits and API
   usage, bulk validation and AI scoring files, email finder, domain search, and activity data tools.
 
-[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.4.0...v0.5.0

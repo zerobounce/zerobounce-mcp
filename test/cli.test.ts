@@ -91,10 +91,86 @@ check('a stray positional argument is refused and not echoed', () => {
   assert.doesNotMatch(r.stderr, /stray-positional/);
 });
 
-check('a missing key without --help is still the key error', () => {
-  const r = run([]);
+function rpc(args: string[], messages: object[], env: Record<string, string> = {}) {
+  const clean: NodeJS.ProcessEnv = { ...process.env };
+  for (const name of Object.keys(clean)) {
+    if (name.startsWith('ZEROBOUNCE_') || name.startsWith('MCP_') || name === 'PORT') delete clean[name];
+  }
+  const r = spawnSync(process.execPath, ['--import', 'tsx', ENTRY, ...args], {
+    cwd: ROOT,
+    env: { ...clean, ...env },
+    input: messages.map((m) => JSON.stringify(m)).join('\n') + '\n',
+    encoding: 'utf8',
+    timeout: 30000,
+  });
+  const replies = new Map<number, Record<string, unknown>>();
+  for (const line of r.stdout.split('\n').filter(Boolean)) {
+    const message = JSON.parse(line) as { id?: number };
+    if (typeof message.id === 'number') replies.set(message.id, message as Record<string, unknown>);
+  }
+  return { ...r, replies };
+}
+
+const HANDSHAKE = [
+  {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'cli-test', version: '1' } },
+  },
+  { jsonrpc: '2.0', method: 'notifications/initialized' },
+];
+
+// MCP directories (LobeHub, Glama, Smithery) start a server without credentials to read its
+// tools; a server that exits without a key shows up as having none.
+check('without a key, stdio starts, lists tools and prompts, and refuses tool calls', () => {
+  for (const args of [[], ['--api-key=']]) {
+    const r = rpc(args, [
+      ...HANDSHAKE,
+      { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+      { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'get_credits', arguments: {} } },
+      { jsonrpc: '2.0', id: 4, method: 'prompts/list' },
+    ]);
+    assert.match(r.stderr, /No ZeroBounce API key/, `stderr for ${JSON.stringify(args)}`);
+    const init = r.replies.get(1)?.result as { capabilities: Record<string, unknown> };
+    assert.ok(init.capabilities.prompts, 'prompts capability');
+    const tools = (r.replies.get(2)?.result as { tools: { name: string }[] }).tools;
+    assert.ok(tools.length >= 49, `tools/list returned ${tools.length}`);
+    assert.ok(!tools.some((t) => t.name.startsWith('warmup_')), 'no Warmup tools without a Warmup key');
+    const call = r.replies.get(3)?.result as { isError: boolean; content: { text: string }[] };
+    assert.equal(call.isError, true);
+    assert.match(call.content[0].text, /API key is required/);
+    const prompts = (r.replies.get(4)?.result as { prompts: { name: string }[] }).prompts;
+    assert.ok(prompts.length >= 1, 'at least one prompt');
+  }
+});
+
+check('prompts/get builds the message and refuses a missing required argument', () => {
+  const r = rpc([], [
+    ...HANDSHAKE,
+    {
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'prompts/get',
+      params: { name: 'check_email_before_sending', arguments: { email: 'valid@example.com' } },
+    },
+    { jsonrpc: '2.0', id: 3, method: 'prompts/get', params: { name: 'clean_email_list', arguments: {} } },
+    { jsonrpc: '2.0', id: 4, method: 'prompts/get', params: { name: 'no_such_prompt' } },
+  ]);
+  const ok = r.replies.get(2)?.result as { messages: { role: string; content: { text: string } }[] };
+  assert.equal(ok.messages[0].role, 'user');
+  assert.match(ok.messages[0].content.text, /valid@example\.com/);
+  const missing = r.replies.get(3)?.error as { code: number; message: string };
+  assert.equal(missing.code, -32602);
+  assert.match(missing.message, /Missing required argument: emails/);
+  assert.match((r.replies.get(4)?.error as { message: string }).message, /Unknown prompt/);
+});
+
+check('a malformed key is still refused at startup', () => {
+  const r = run(['--api-key=bad\u200bkey']);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /API key is required/);
+  assert.match(r.stderr, /must not contain control characters or invisible characters/);
+  assert.doesNotMatch(r.stderr, /bad/);
 });
 
 check('tool definitions follow the hosted server: names, titles, hints, descriptions', () => {

@@ -372,7 +372,9 @@ export class ZeroBounceClient {
 
     // Initialize official SDK with optional regional API base URL
     this.sdk = new (ZeroBounceSDK as unknown as new () => typeof this.sdk)();
-    this.sdk.init(this.#apiKey, this.baseUrl);
+    // The SDK refuses an empty key. Stdio may start without one (tools are listed,
+    // calls are refused by the server first), so the SDK is only set up with a key.
+    if (this.#apiKey) this.sdk.init(this.#apiKey, this.baseUrl);
 
     // Built only when a Warmup key was supplied: the Warmup SDK class rejects an
     // empty key in its constructor, and the validation key would be refused by
