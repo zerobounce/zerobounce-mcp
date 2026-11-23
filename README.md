@@ -4,6 +4,7 @@
 [![License: MIT](https://img.shields.io/npm/l/%40zerobounce%2Fmcp)](LICENSE)
 [![MCP](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io/)
 [![MCP Badge](https://lobehub.com/badge/mcp/zerobounce-zerobounce-mcp)](https://lobehub.com/mcp/zerobounce-zerobounce-mcp)
+[![zerobounce/zerobounce-mcp MCP server](https://glama.ai/mcp/servers/zerobounce/zerobounce-mcp/badges/score.svg)](https://glama.ai/mcp/servers/zerobounce/zerobounce-mcp)
 
 Connect your AI assistant to your ZeroBounce account. The ZeroBounce
 [Model Context Protocol](https://modelcontextprotocol.io) server lets Claude, ChatGPT, Cursor,
