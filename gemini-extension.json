@@ -1,6 +1,6 @@
 {
   "name": "zerobounce",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Validate, score and find email addresses, clean lists in bulk, and run inbox placement and warmup from your ZeroBounce account.",
   "mcpServers": {
     "zerobounce": {

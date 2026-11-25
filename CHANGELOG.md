@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-26
+
+### Changed
+
+- The MCP Registry entry `io.github.zerobounce/zerobounce-mcp` is titled "ZeroBounce MCP" (was "ZeroBounce"), the name MCP directories and clients show for this server.
+
 ## [0.6.0] - 2026-11-21
 
 ### Added
@@ -426,7 +432,8 @@ hosted HTTP deployments.
 - Initial release: stdio MCP server with email validation, batch validation, credits and API
   usage, bulk validation and AI scoring files, email finder, domain search, and activity data tools.
 
-[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.0...v0.5.1
