@@ -25,8 +25,8 @@ assert.ok(!("trust" in server), "extensions may not set trust");
 // Context file, loaded into every Gemini session that has the extension.
 assert.equal(manifest.contextFileName, "GEMINI.md");
 const context = readFileSync(join(root, manifest.contextFileName), "utf8");
-assert.ok(context.includes("https://mcp.zerobounce.net/mcp"));
-assert.ok(context.includes("get_credits"));
+assert.match(context, /\(`https:\/\/mcp\.zerobounce\.net\/mcp`\)/);
+assert.match(context, /`get_credits`/);
 
 // Gemini reads skills from skills/ at the extension root; Cursor reads plugins/zerobounce/skills/.
 // The two are copies of one set: edit plugins/zerobounce/skills/, then
