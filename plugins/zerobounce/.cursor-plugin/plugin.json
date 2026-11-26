@@ -1,7 +1,7 @@
 {
   "name": "zerobounce",
   "displayName": "ZeroBounce",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Verify and validate email addresses, score engagement, find business emails, clean lists, and manage inbox placement and Warmup through the hosted ZeroBounce MCP server.",
   "author": {
     "name": "ZeroBounce",

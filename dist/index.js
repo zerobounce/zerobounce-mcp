@@ -6060,7 +6060,7 @@ function getPrompt(name, args = {}) {
 
 // src/server.ts
 var MISSING_API_KEY_MESSAGE = "ZeroBounce API key is required. Set the ZEROBOUNCE_API_KEY environment variable or pass --api-key, then restart the server.";
-var SERVER_VERSION = true ? "0.6.1" : "0.0.0-dev";
+var SERVER_VERSION = true ? "0.7.0" : "0.0.0-dev";
 var ZeroBounceMCPServer = class {
   server;
   client;
@@ -6681,7 +6681,7 @@ function handleInfoFlags(args) {
       return true;
     }
     if (arg === "--version" || arg === "-v") {
-      process.stdout.write(`${true ? "0.6.1" : "0.0.0-dev"}
+      process.stdout.write(`${true ? "0.7.0" : "0.0.0-dev"}
 `);
       return true;
     }

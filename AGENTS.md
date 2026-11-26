@@ -24,7 +24,12 @@ written in TypeScript on `@modelcontextprotocol/sdk` and the official
 - `test-http.js` and `test/fake-zerobounce-api.mjs`: offline HTTP test against a fake API.
 - `test/cursor-plugin.test.mjs`: Cursor Marketplace layout (manifest, `mcp.json`, skill).
 - `.cursor-plugin/marketplace.json` and `plugins/zerobounce/`: Cursor marketplace plugin (hosted MCP URL); see `docs/CURSOR_MARKETPLACE.md`.
-- `gemini-extension.json`: Gemini CLI extension (hosted MCP URL); `test/gemini-extension.test.mjs` checks it.
+- `gemini-extension.json`, `GEMINI.md` and `skills/`: Gemini CLI extension (hosted MCP URL, its
+  context file, its skills); `test/gemini-extension.test.mjs` checks them. `GEMINI.md` is the
+  extension's context for ZeroBounce users, not guidance for working on this repo.
+- `skills/` is a copy of `plugins/zerobounce/skills/` (Gemini reads skills from the extension
+  root, Cursor from the plugin). Edit the plugin's skills, then
+  `rm -rf skills && cp -R plugins/zerobounce/skills skills`; the test fails while they differ.
 - `dist/index.js`: committed esbuild bundle (see below).
 
 ## Commands
