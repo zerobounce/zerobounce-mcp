@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
+### Added
+
+- The Gemini CLI extension loads a `GEMINI.md` context (sign-in, credit-spending tools, confirming deletes, sandbox addresses) and ships the five ZeroBounce skills (`zerobounce`, `validate-emails`, `clean-email-list`, `find-email`, `warmup-and-placement`) from `skills/`, the same skills as the Cursor plugin.
+
+### Changed
+
+- The Gemini CLI extension names the hosted server with `"type": "http"` and `"url"` instead of `"httpUrl"`, which Gemini CLI now reports as deprecated.
+
 ## [0.6.1] - 2026-11-26
 
 ### Changed
@@ -432,7 +442,8 @@ hosted HTTP deployments.
 - Initial release: stdio MCP server with email validation, batch validation, credits and API
   usage, bulk validation and AI scoring files, email finder, domain search, and activity data tools.
 
-[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/zerobounce/zerobounce-mcp/compare/v0.5.1...v0.5.2

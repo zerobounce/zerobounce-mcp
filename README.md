@@ -81,7 +81,8 @@ Or add the URL manually in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a proje
 ```
 
 **Gemini CLI** — install the extension from this repo; it connects to the hosted server and
-signs you in with OAuth on first use:
+signs you in with OAuth on first use. It also adds the `GEMINI.md` context (when tools spend
+credits, confirming deletes) and the `zerobounce` skills:
 
 ```bash
 gemini extensions install https://github.com/zerobounce/zerobounce-mcp
