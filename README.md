@@ -37,7 +37,7 @@ marked destructive, so your assistant asks before calling them. See [Tools](#too
 
 Add `https://mcp.zerobounce.net/mcp` to your client as a remote (HTTP) MCP server. No API key or
 header goes in the configuration: the first time the client connects, it opens ZeroBounce in your
-browser to sign in.
+browser to sign in. Cline's step-by-step file is [llms-install.md](llms-install.md).
 
 **Claude** (claude.ai and the desktop app): Settings → Connectors → **Add custom connector**,
 with the URL `https://mcp.zerobounce.net/mcp`.
@@ -51,9 +51,10 @@ claude mcp add --transport http zerobounce https://mcp.zerobounce.net/mcp
 **ChatGPT:** add a custom connector (app) with the URL `https://mcp.zerobounce.net/mcp` and OAuth
 authentication, where your plan allows custom connectors.
 
-**Cursor** — install the plugin from this repo (**Customize → Plugins → Import from GitHub**
-→ `zerobounce/zerobounce-mcp`): hosted MCP + the `zerobounce` skill. See
-[`docs/CURSOR_MARKETPLACE.md`](docs/CURSOR_MARKETPLACE.md).
+**Cursor** — import this repo as a marketplace (**Customize → Add Marketplace**,
+`https://github.com/zerobounce/zerobounce-mcp`), then install **ZeroBounce**. The plugin
+connects to the hosted server (`"type": "http"`) and adds skills, rules, agents, and commands.
+See [`docs/CURSOR_MARKETPLACE.md`](docs/CURSOR_MARKETPLACE.md).
 
 Or add the URL manually in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a project:
 
@@ -80,9 +81,11 @@ Or add the URL manually in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a proje
 }
 ```
 
-**Cline** (`cline_mcp_settings.json`, opened from Cline's MCP Servers → Configure). Set
-`"type": "streamableHttp"`: without it Cline uses the legacy SSE transport. Cline opens your
-browser to sign in the first time it connects:
+**Cline** (`cline_mcp_settings.json`). In the IDE: Cline panel → MCP Servers → **Configure** →
+**Configure MCP Servers**. The CLI file is `~/.cline/data/settings/cline_mcp_settings.json`
+(`CLINE_MCP_SETTINGS_PATH` overrides it). Set `"type": "streamableHttp"`: without it Cline uses
+the legacy SSE transport, which this server does not serve. Leave the API key out. Cline opens
+your browser to sign in the first time it connects; a `401` before that is the sign-in prompt.
 
 ```json
 {
@@ -97,7 +100,9 @@ browser to sign in the first time it connects:
 }
 ```
 
-Agents installing the server for a user can follow [`llms-install.md`](llms-install.md).
+After sign-in, ask `How many ZeroBounce credits do I have left?` and then
+`Validate valid@example.com` (a sandbox address; it does not spend credits). Agents installing
+the server follow [`llms-install.md`](llms-install.md).
 
 **Gemini CLI** — install the extension from this repo; it connects to the hosted server and
 signs you in with OAuth on first use. It also adds the `GEMINI.md` context (when tools spend
@@ -111,7 +116,7 @@ Then ask your assistant, for example:
 
 ```
 How many ZeroBounce credits do I have left?
-Validate jane.doe@example.com
+Validate valid@example.com
 ```
 
 ### Signing in and choosing permissions
@@ -190,7 +195,7 @@ Requires **Node.js 22 or later** (check with `node --version`).
 4. **Start using it** in your AI assistant:
 
    ```
-   Validate the email address "test@example.com"
+   Validate the email address "valid@example.com"
    ```
 
 ### Getting your API key
@@ -328,8 +333,9 @@ rather than writing the key into the config file:
 
 Select your client below for detailed, client-specific setup steps:
 
-- **[Cursor plugin](docs/CURSOR_MARKETPLACE.md)** – Hosted MCP and the `zerobounce` skill (import this repo under Customize → Plugins)
+- **[Cursor plugin](docs/CURSOR_MARKETPLACE.md)** – Hosted MCP (`type: http`) plus skills, rules, agents, and commands (Customize → Add Marketplace, then install ZeroBounce)
 - **[Cursor](docs/configuration-cursor.md)** – Manual MCP config, including self-hosted `@zerobounce/mcp`
+- **[Cline](llms-install.md)** – Hosted server in `cline_mcp_settings.json` with `"type": "streamableHttp"`, or local `npx @zerobounce/mcp`
 - **[VS Code](docs/configuration-vscode.md)** – Configure ZeroBounce MCP for Visual Studio Code
 - **[Other / generic clients](docs/configuration-other.md)** – Configure ZeroBounce MCP for Claude Desktop, Continue, Zed, and others
 
@@ -846,21 +852,26 @@ the tool calls it leads to work as usual.
 | --- | --- | --- |
 | `check_email_before_sending` | `email` | Validate one address and say whether it is safe to send to |
 | `clean_email_list` | `emails` | Check credits, validate the list (batch or bulk file) and group it into keep, review and remove |
-| `find_work_email` | `first_name`, `last_name` (optional), `company` | Find someone's work email from their name and company or domain |
+| `find_work_email` | `first_name`, `last_name` (optional), `company` | Find someone's work email from their name and company or domain. This spends credits |
 | `inbox_placement_test` | `sender_email` | Set up an inbox placement test, confirming before it uses a test, and list the seed addresses |
 
 ## Usage Examples
+
+Validation examples use sandbox addresses, which do not spend credits: `valid@example.com`,
+`invalid@example.com`, `disposable@example.com`, `catch_all@example.com`. Finding an email,
+checking activity, scoring, and bulk jobs do spend credits. Run those only on addresses, names,
+and domains you meant to check.
 
 ### Basic Email Validation
 
 **Validate a single email:**
 ```text
-Validate the email address "test@example.com"
+Validate the email address "valid@example.com"
 ```
 
 **Validate with IP address for better accuracy:**
 ```text
-Validate "test@example.com" from IP address "192.168.1.1"
+Validate "valid@example.com" from IP address "192.168.1.1"
 ```
 
 **Validate multiple emails in batch:**
@@ -894,6 +905,8 @@ Use AI to score the quality and deliverability of these email addresses and retu
 
 ### Email Finding
 
+These calls spend credits.
+
 **Find an email by name and domain:**
 ```text
 Find the email for John Doe at example.com
@@ -918,9 +931,11 @@ Find emails for people named John at example.com
 
 ### Activity Data
 
+This call spends one credit.
+
 **Check email activity:**
 ```text
-Check if test@example.com has been active recently
+Check if valid@example.com has been active recently
 ```
 
 ### Bulk Operations

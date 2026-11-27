@@ -6,8 +6,20 @@ connect to remote servers.
 
 ## Option 1: hosted server (recommended, no API key)
 
-Nothing to install or build. Add this entry to the MCP settings file (for Cline,
-`cline_mcp_settings.json`), keeping any servers already in it:
+Nothing to install or build. Leave the API key and any `Authorization` header out of the config.
+On the first connection the client opens the user's browser at ZeroBounce: the user signs in,
+chooses which permissions and tools to grant (spending credits, changing account data, Warmup)
+and picks the API region. Tell the user to expect this page and finish it in the browser. A
+`401` before that sign-in is the sign-in prompt.
+
+### Cline
+
+Add this entry to `cline_mcp_settings.json`, keeping any servers already in it.
+
+- IDE: Cline panel → MCP Servers → **Configure** → **Configure MCP Servers**.
+- CLI: `~/.cline/data/settings/cline_mcp_settings.json`. `CLINE_MCP_SETTINGS_PATH` overrides that path.
+- Remote Servers tab, instead of editing JSON: name `zerobounce`, URL
+  `https://mcp.zerobounce.net/mcp`, transport **Streamable HTTP**.
 
 ```json
 {
@@ -22,13 +34,28 @@ Nothing to install or build. Add this entry to the MCP settings file (for Cline,
 }
 ```
 
-- `"type": "streamableHttp"` is required. Without it Cline uses the legacy SSE transport, which
-  this server does not offer.
-- Do not add an `Authorization` header or an API key. On the first connection the client opens
-  the user's browser at ZeroBounce: the user signs in, chooses which permissions and tools to
-  grant (spending credits, changing account data, Warmup) and picks the API region. Tell the user
-  to expect this page and finish it in the browser.
-- The server answers `401` until the user has signed in. That is the sign-in prompt, not an error.
+`"type": "streamableHttp"` is required. Without it Cline uses the legacy SSE transport, which
+this server does not offer. Leave `autoApprove` empty so credit-spending and delete tools stay
+behind a confirmation.
+
+### Cursor
+
+Prefer the plugin: Customize → Add Marketplace → import
+`https://github.com/zerobounce/zerobounce-mcp`, then install **ZeroBounce**. The plugin sets
+`"type": "http"` and adds skills, rules, agents, and commands. See
+[docs/CURSOR_MARKETPLACE.md](docs/CURSOR_MARKETPLACE.md).
+
+Manual config, in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a project:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "url": "https://mcp.zerobounce.net/mcp"
+    }
+  }
+}
+```
 
 ## Option 2: run it locally (needs an API key)
 
@@ -63,11 +90,16 @@ API host for single-address calls.
 
 ## Check that it works
 
-Ask the server for the credit balance with the `get_credits` tool. To test validation without
-spending credits, validate a sandbox address such as `valid@example.com`.
+After the user finishes sign-in, send these prompts in order:
 
-Tools that spend credits or change the account say so in their descriptions, and deletes are
-marked destructive: confirm with the user before calling those. Do not add them to
-`autoApprove`.
+1. `How many ZeroBounce credits do I have left?` — calls `get_credits`. Does not spend credits.
+2. `Validate valid@example.com` — sandbox address. Does not spend credits. The other sandbox
+   addresses are `invalid@example.com`, `disposable@example.com`, and `catch_all@example.com`.
+
+Finding an email, checking activity, scoring, and bulk jobs spend credits. Use them only for
+addresses, names, and domains the user provided, and confirm before delete tools. The ready-made
+MCP prompts are `check_email_before_sending`, `clean_email_list`, `find_work_email`, and
+`inbox_placement_test`. `find_work_email` and `inbox_placement_test` spend credits; say so before
+running them.
 
 More detail: [README.md](README.md) and https://mcp.zerobounce.net/llms.txt.

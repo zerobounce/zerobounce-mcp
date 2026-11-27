@@ -6010,7 +6010,7 @@ ${emails}`
   {
     name: "find_work_email",
     title: "Find someone's work email",
-    description: "Find a person's work email address from their name and company or domain.",
+    description: "Find a person's work email address from their name and company or domain. This spends credits.",
     arguments: [
       { name: "first_name", description: "The person's first name", required: true },
       { name: "last_name", description: "The person's last name", required: false },
@@ -6018,7 +6018,7 @@ ${emails}`
     ],
     build: ({ first_name, last_name, company }) => {
       const person = [first_name, last_name].filter(Boolean).join(" ");
-      return `Find the work email address of ${person} at ${company} with the ZeroBounce find_email_format tool (pass a domain if that is what I gave, otherwise the company name). Give the address, the confidence and the domain format it is based on. Do not validate it unless I ask.`;
+      return `Find the work email address of ${person} at ${company} with the ZeroBounce find_email_format tool (pass a domain if that is what I gave, otherwise the company name). This spends credits. Give the address, the confidence and the domain format it is based on. Do not validate it unless I ask.`;
     }
   },
   {
