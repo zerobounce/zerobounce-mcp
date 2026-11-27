@@ -80,6 +80,25 @@ Or add the URL manually in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a proje
 }
 ```
 
+**Cline** (`cline_mcp_settings.json`, opened from Cline's MCP Servers → Configure). Set
+`"type": "streamableHttp"`: without it Cline uses the legacy SSE transport. Cline opens your
+browser to sign in the first time it connects:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "type": "streamableHttp",
+      "url": "https://mcp.zerobounce.net/mcp",
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+Agents installing the server for a user can follow [`llms-install.md`](llms-install.md).
+
 **Gemini CLI** — install the extension from this repo; it connects to the hosted server and
 signs you in with OAuth on first use. It also adds the `GEMINI.md` context (when tools spend
 credits, confirming deletes) and the `zerobounce` skills:

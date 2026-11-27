@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Cline setup: the README shows the hosted server's `cline_mcp_settings.json` entry (with `"type": "streamableHttp"`, without which Cline falls back to legacy SSE), and `llms-install.md` gives agents such as Cline step-by-step install instructions for the hosted server and for `npx @zerobounce/mcp`. `docs/assets/logo-400.png` is the 400×400 icon for the Cline MCP Marketplace listing.
+
 ## [0.7.0] - 2026-11-26
 
 ### Added
