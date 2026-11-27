@@ -2,8 +2,9 @@
 
 Setup for the ZeroBounce MCP server in Cline (the IDE extension and the CLI).
 
-Use the hosted server. It needs no install and no API key: Cline opens ZeroBounce in the browser
-so you can sign in. The local `npx` option is for when you want the server on your own machine.
+The default is the hosted remote server. It needs no install and no API key: Cline opens
+ZeroBounce in the browser so you can sign in. Use **Run it locally** only when you were asked to
+run the server on your own machine.
 
 ## Hosted server
 

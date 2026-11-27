@@ -1,121 +1,57 @@
 # Configuration Guide: Cursor IDE
 
-Complete setup guide for using ZeroBounce MCP server in Cursor IDE.
+Setup for the ZeroBounce MCP server in Cursor.
 
-For **hosted OAuth** (`https://mcp.zerobounce.net/mcp`), prefer the plugin in this repository:
-[`docs/CURSOR_MARKETPLACE.md`](CURSOR_MARKETPLACE.md). The sections below cover manual `mcp.json`
-and **self-hosted** `@zerobounce/mcp` with an API key.
+The default is the hosted remote server at `https://mcp.zerobounce.net/mcp`. Nothing to install
+and no API key: Cursor opens ZeroBounce in the browser so you can sign in. Use **Run it locally**
+only when you want `@zerobounce/mcp` on your own machine.
 
-## Prerequisites
+## Hosted server
 
-Before configuring Cursor, make sure you've completed the **Quick Start** steps in `README.md`:
+**URL:** `https://mcp.zerobounce.net/mcp`
 
-- Installed Node.js 22 or later and the ZeroBounce MCP server
-- Obtained a ZeroBounce API key (see **Getting Your API Key** in `README.md`)
-- Verified your environment with `node --version` and `npm --version`
+On the first connection Cursor opens your browser at ZeroBounce. Sign in, choose which
+permissions and tools to grant (spending credits, changing account data, Warmup), and pick the
+API region. A `401` before that sign-in is the sign-in prompt. Leave the API key and any
+`Authorization` header out of the config.
 
-You only need the repository locally if you're developing the server itself—otherwise installing from npm/git is sufficient.
+### Plugin
 
-## Installation & Configuration
+Import this repo as a marketplace (**Customize → Add Marketplace**,
+`https://github.com/zerobounce/zerobounce-mcp`), then install **ZeroBounce**. The plugin
+connects with `"type": "http"` and adds skills, rules, agents, and commands. See
+[CURSOR_MARKETPLACE.md](CURSOR_MARKETPLACE.md).
 
-### 1. Install the MCP server
+### Manual config
 
-The server requires Node.js 22 or later; check with `node --version`.
-
-```bash
-npm install -g @zerobounce/mcp
-```
-
-
-
-### 2. Configure Cursor
-
-1. **Open the MCP configuration**
-   - Cursor manages MCP servers from **Customize** in the sidebar
-   - For a custom server, edit `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (one project)
-   - Menu names change between Cursor versions; see [Cursor's MCP documentation](https://cursor.com/docs/context/mcp) if yours differ
-
-2. **Add a custom server**
-   - Open the `mcp.json` file in an editor
-
-4. **Copy the configuration**
-   You can copy and paste the configuration below:
+Edit `~/.cursor/mcp.json` (all projects) or `.cursor/mcp.json` (one project). Cursor also
+manages MCP servers from **Customize** in the sidebar. Menu names change between versions; see
+[Cursor's MCP documentation](https://cursor.com/docs/context/mcp) if yours differ.
 
 ```json
 {
   "mcpServers": {
     "zerobounce": {
-      "command": "zerobounce-mcp",
-      "args": ["--api-key=YOUR_API_KEY"]
+      "url": "https://mcp.zerobounce.net/mcp"
     }
   }
 }
 ```
 
-> **⚠️ Important:** 
-> - Replace `YOUR_API_KEY` with your actual ZeroBounce API key
+Keep any servers already in the file. Restart Cursor if the server does not appear.
 
-5. **Replace `YOUR_API_KEY`**
-   - Replace with your actual ZeroBounce API key
-   - You can get your API key from [ZeroBounce Dashboard](https://www.zerobounce.net)
+## Check that it works
 
-6. **Restart Cursor**
-   - Close and reopen Cursor for the changes to take effect
+1. Open the Composer (⌘/Ctrl + I).
+2. Ask `How many ZeroBounce credits do I have left?` — calls `get_credits`. Does not spend credits.
+3. Ask `Validate valid@example.com`. That sandbox address does not spend a credit. The other
+   sandbox addresses are `invalid@example.com`, `disposable@example.com`, and
+   `catch_all@example.com`.
 
-### Connecting to a hosted server
+Finding an email, checking activity, scoring, and bulk jobs spend credits. Use them only for
+addresses, names, and domains you meant to check.
 
-If ZeroBounce MCP is deployed as a remote server, point Cursor at its URL instead of a local command:
-
-```json
-{
-  "mcpServers": {
-    "zerobounce": {
-      "url": "https://your-host.example.com/mcp",
-      "headers": { "X-ZeroBounce-Api-Key": "YOUR_API_KEY" }
-    }
-  }
-}
-```
-
-Replace `https://your-host.example.com/mcp` with the address of your deployment (see
-**Remote (HTTP) Mode** in `README.md`). Nothing needs to be installed locally, and the API key
-travels with every request in the `X-ZeroBounce-Api-Key` header.
-
-## Getting Your API Key
-
-See **"Getting Your API Key"** in `README.md` for steps to obtain and manage your ZeroBounce API key.
-
-## Verifying Installation
-
-After installation, verify the server is running:
-
-1. **Open the Composer** (⌘/Ctrl + I)
-2. **Try a test command**:
-   ```
-   How many ZeroBounce credits do I have?
-   ```
-3. **You should see** the server respond with your credit balance
-
-If the tools don't appear, check the troubleshooting section below.
-
-## Usage in Cursor
-
-### In the Composer
-
-Ask natural language questions. `valid@example.com` is a sandbox address and does not spend a credit; other addresses do.
-```
-Validate the email "valid@example.com"
-How many credits do I have?
-```
-
-### In Chat
-
-Use the ZeroBounce tools directly in your coding conversations:
-```
-Can you validate this email address for me: valid@example.com
-```
-
-### Example Workflows
+### Example workflows
 
 **1. Validate emails in a file:**
 ```
@@ -132,66 +68,87 @@ Create a function that validates an email using ZeroBounce and returns the resul
 Show me my ZeroBounce account credits and recent usage
 ```
 
+## Run it locally
+
+Use this only when you want the server on your machine instead of `https://mcp.zerobounce.net/mcp`.
+
+The server requires Node.js 22 or later (`node --version`).
+
+```bash
+npm install -g @zerobounce/mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "command": "zerobounce-mcp",
+      "args": ["--api-key=YOUR_API_KEY"]
+    }
+  }
+}
+```
+
+Replace `YOUR_API_KEY` with a key from the [ZeroBounce dashboard](https://www.zerobounce.net).
+See **Getting your API key** in `README.md`. Restart Cursor after saving.
+
+To run your own HTTP deployment instead, see **Remote (HTTP) Mode** in `README.md`. That mode
+sends the key on each request in `X-ZeroBounce-Api-Key`. It is separate from the hosted server
+above.
+
 ## Troubleshooting
 
-### Common Issues
+### Server not appearing
 
-#### Server Not Appearing
-
-**Problem:** ZeroBounce tools don't show up in Cursor
+**Problem:** ZeroBounce tools don't show up in Cursor.
 
 **Solutions:**
-- Ensure you're using Cursor v1 or greater (check Help → About)
-- Verify Node.js 22 or later is installed: run `node --version` in terminal
-- Restart Cursor completely (quit and reopen)
-- Check the MCP configuration under **Customize** in the sidebar
 
-#### Invalid API Key
+- Confirm `~/.cursor/mcp.json` or `.cursor/mcp.json` contains the hosted URL, with no API key.
+- Restart Cursor completely (quit and reopen).
+- Check the MCP configuration under **Customize** in the sidebar.
+- For a local install only: Node.js 22 or later is installed (`node --version`).
 
-**Problem:** Error message about invalid API key
+### 401 before you have signed in
 
-**Solutions:**
-- Verify your API key at [ZeroBounce Dashboard](https://www.zerobounce.net)
-- Ensure there are no extra spaces in the configuration
-- Check that the API key hasn't expired
-- Try regenerating your API key in the dashboard
-
-#### Hosted Server Returns 401 or 405
-
-**Problem:** Connecting to a hosted server fails with `401` or `405`
+**Problem:** The first tool call to `https://mcp.zerobounce.net/mcp` returns `401`.
 
 **Solutions:**
-- `401` means the request reached the server without an API key: check that the
-  `X-ZeroBounce-Api-Key` header is set and not empty
-- `405 Method Not Allowed` when you open the URL in a browser is expected; MCP clients use `POST`
-- Make sure the URL ends in `/mcp`
 
-#### Connection Errors
+- That is the sign-in prompt. Finish the ZeroBounce page in the browser.
+- Do not add an API key or `Authorization` header to the hosted entry.
+- `405 Method Not Allowed` when you open the URL in a browser is expected; MCP clients use `POST`.
+- The URL ends in `/mcp`.
 
-**Problem:** Cannot connect to ZeroBounce API
+### Invalid API key (local install)
+
+**Problem:** A local `zerobounce-mcp` process reports an invalid API key.
 
 **Solutions:**
-- Check your internet connection
-- Verify no firewall is blocking `api.zerobounce.net`
-- Check if a proxy is interfering with connections
-- Try using a different network
 
-### Viewing Logs
+- Verify the key at the [ZeroBounce dashboard](https://www.zerobounce.net).
+- Remove extra spaces from the configuration.
+- Regenerate the key in the dashboard if it no longer works.
 
-To see detailed error messages:
+### Connection errors
 
-1. Open **Customize** in the sidebar
-2. Select the zerobounce server
-3. Open its logs (or the "MCP Logs" output channel)
-4. Look for error messages or connection issues
+**Problem:** Cannot connect to ZeroBounce.
 
-### Still Having Issues?
+**Solutions:**
+
+- Check your internet connection.
+- Verify no firewall is blocking `mcp.zerobounce.net` (hosted) or `api.zerobounce.net` (local).
+- Check whether a proxy is interfering, and try another network.
+
+### Viewing logs
+
+1. Open **Customize** in the sidebar.
+2. Select the zerobounce server.
+3. Open its logs (or the "MCP Logs" output channel).
+
+### Still having issues?
 
 - Check the [main documentation](../README.md)
 - Search [GitHub Issues](https://github.com/zerobounce/zerobounce-mcp/issues)
-- Open a new issue with:
-  - Your Cursor version
-  - Your Node.js version (`node --version`)
-  - Your operating system
-  - The exact error message
-  - Your configuration (without the API key)
+- Open a new issue with your Cursor version, operating system, the error message, and your
+  configuration with any API key removed

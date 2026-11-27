@@ -1,146 +1,87 @@
 # Configuration Guide: Other MCP Clients
 
-Complete setup guide for using ZeroBounce MCP server with any MCP-compatible client.
+Setup for the ZeroBounce MCP server in clients other than Cursor, VS Code, and Cline.
 
-## Supported Clients
+The default is the hosted remote server at `https://mcp.zerobounce.net/mcp`. Nothing to install
+and no API key: the client opens ZeroBounce in the browser so you can sign in. Use **Run it
+locally** only when you want `@zerobounce/mcp` on your own machine, or when the client cannot
+connect to a remote MCP server.
 
-This guide covers configuration for:
+## Hosted server
 
-- **Claude Desktop** - Anthropic's desktop app
-- **Continue** - VS Code extension
-- **Zed** - Modern code editor
-- **Any MCP-compatible client** - Following the MCP specification
+**URL:** `https://mcp.zerobounce.net/mcp`
 
-## Prerequisites
+On the first connection the client opens your browser at ZeroBounce. Sign in, choose which
+permissions and tools to grant (spending credits, changing account data, Warmup), and pick the
+API region. A `401` before that sign-in is the sign-in prompt. Leave the API key and any
+`Authorization` header out of the config.
 
-Before configuring any other MCP client, make sure you've completed the **Quick Start** steps in `README.md`:
-
-- Installed Node.js 22 or later and the ZeroBounce MCP server
-- Obtained a ZeroBounce API key (see **Getting Your API Key** in `README.md`)
-- Verified your environment with `node --version` and `npm --version`
-- Installed your MCP-compatible client
-
-
-## Generic Configuration
-
-For any MCP client that follows the standard specification, you can start from the examples in **MCP Client Configuration** in `README.md`. A minimal configuration looks like:
+A typical remote entry:
 
 ```json
 {
   "mcpServers": {
     "zerobounce": {
-      "command": "zerobounce-mcp",
-      "args": ["--api-key=YOUR_API_KEY"]
+      "url": "https://mcp.zerobounce.net/mcp"
     }
   }
 }
 ```
 
-> **⚠️ Important:** 
-> - Replace `YOUR_API_KEY` with your actual ZeroBounce API key
+`405 Method Not Allowed` when you open that URL in a browser is expected; MCP clients use `POST`.
 
-The key can also be supplied as an environment variable instead of a flag. Clients that
-spawn the server as a child process usually expose an `env` block for this:
+### Claude
 
-```json
-{
-  "mcpServers": {
-    "zerobounce": {
-      "command": "zerobounce-mcp",
-      "env": { "ZEROBOUNCE_API_KEY": "YOUR_API_KEY" }
-    }
-  }
-}
-```
+claude.ai and the Claude desktop app: Settings → Connectors → **Add custom connector**, with the
+URL `https://mcp.zerobounce.net/mcp`.
 
-`--api-key` wins if both are present.
-
-### A note on `${ZEROBOUNCE_API_KEY}` references
-
-Several clients support referencing a variable that already exists in their environment,
-for example `"ZEROBOUNCE_API_KEY": "${ZEROBOUNCE_API_KEY}"`. This is only safe when the
-variable is genuinely present in the **client process's** environment.
-
-Desktop clients launched from a Dock icon, Spotlight, or a Start-menu shortcut do not
-source `~/.zshrc`, `~/.bashrc`, or `~/.profile`, so exports in those files never reach
-them. When the reference cannot be resolved, some clients forward the literal string
-`${ZEROBOUNCE_API_KEY}` as the key. The server treats it as a valid non-empty key and
-starts, so the client shows the server connected with all tools available — yet every
-request fails with `api_key is invalid`.
-
-On macOS, publish the variable to the GUI session and restart the client:
+Claude Code:
 
 ```bash
-zsh -ic 'launchctl setenv ZEROBOUNCE_API_KEY "$ZEROBOUNCE_API_KEY"'
+claude mcp add --transport http zerobounce https://mcp.zerobounce.net/mcp
 ```
 
-Run it through an interactive shell as shown, otherwise `$ZEROBOUNCE_API_KEY` may expand
-to nothing and set an empty value. Verify with `launchctl getenv ZEROBOUNCE_API_KEY`.
-This setting is cleared on reboot, so prefer a login LaunchAgent — or simply write the
-key literally into the config file — if you need it to persist.
+### ChatGPT
 
+Add a custom connector (app) with the URL `https://mcp.zerobounce.net/mcp` and OAuth
+authentication, where your plan allows custom connectors.
 
-## Connecting to a Hosted Server
+### Clients that only launch a local command
 
-If ZeroBounce MCP is deployed as a remote server, clients that support Streamable HTTP with
-custom headers can connect to its URL directly:
-
-```json
-{
-  "mcpServers": {
-    "zerobounce": {
-      "url": "https://your-host.example.com/mcp",
-      "headers": { "X-ZeroBounce-Api-Key": "YOUR_API_KEY" }
-    }
-  }
-}
-```
-
-Replace `https://your-host.example.com/mcp` with the address of your deployment (see
-**Remote (HTTP) Mode** in `README.md`). Nothing needs to be installed locally, and the API key
-travels with every request in the `X-ZeroBounce-Api-Key` header. Clients that accept a bearer
-token instead of arbitrary headers can send the key as `Authorization: Bearer YOUR_API_KEY`.
-
-Clients that can only launch local commands can reach a hosted server through the
-[`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge:
+Point [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) at the hosted URL. Do not put an
+API key in the arguments. The first connection still opens the browser to sign in.
 
 ```json
 {
   "mcpServers": {
     "zerobounce": {
       "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote",
-        "https://your-host.example.com/mcp",
-        "--header",
-        "X-ZeroBounce-Api-Key:${ZEROBOUNCE_API_KEY}"
-      ],
-      "env": { "ZEROBOUNCE_API_KEY": "YOUR_API_KEY" }
+      "args": ["-y", "mcp-remote", "https://mcp.zerobounce.net/mcp"]
     }
   }
 }
 ```
 
-Keep the header value free of spaces (`Name:value`), because some clients split arguments on
-whitespace; `mcp-remote` expands `${ZEROBOUNCE_API_KEY}` from the `env` block. This is also the
-way to use a hosted server from **Claude Desktop**, whose configuration file only launches local
-commands.
+This is the fallback for a client that cannot store a remote URL. It is still the hosted server.
 
-A `401` response means the key header did not arrive; a `405` when opening the URL in a browser
-is expected, since MCP clients use `POST`.
+## Check that it works
 
+1. Ask `How many ZeroBounce credits do I have left?` — calls `get_credits`. Does not spend credits.
+2. Ask `Validate valid@example.com`. That sandbox address does not spend a credit. Other addresses do.
 
-## Client-Specific Examples
+## Run it locally
 
-### Claude Desktop
+Use this only when you were asked to run the server on your machine, or the client cannot reach
+`https://mcp.zerobounce.net/mcp` even through `mcp-remote`.
 
-**Configuration file location:**
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
+The server requires Node.js 22 or later (`node --version`). Create a key in the API section of
+the [ZeroBounce dashboard](https://www.zerobounce.net). See **Getting your API key** in
+`README.md`.
 
-**Configuration:**
+```bash
+npm install -g @zerobounce/mcp
+```
+
 ```json
 {
   "mcpServers": {
@@ -152,13 +93,62 @@ is expected, since MCP clients use `POST`.
 }
 ```
 
-### Continue (VS Code Extension)
+The key can also be an environment variable. `--api-key` wins if both are set.
 
-**Configuration file:** a YAML file in `.continue/mcpServers/` at the top of your workspace
-(for example `.continue/mcpServers/zerobounce.yaml`), or an `mcpServers:` block in Continue's
-`config.yaml`. Continue's MCP tools work in agent mode only.
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "command": "zerobounce-mcp",
+      "env": { "ZEROBOUNCE_API_KEY": "YOUR_API_KEY" }
+    }
+  }
+}
+```
 
-**Configuration:**
+A reference such as `"${ZEROBOUNCE_API_KEY}"` works only when that variable is already in the
+**client process** environment. Desktop apps launched from a Dock icon, Spotlight, or a
+Start-menu shortcut do not read `~/.zshrc` or `~/.bashrc`. When the reference is not expanded,
+some clients send the literal text `${ZEROBOUNCE_API_KEY}` as the key: the server starts, and
+every call then fails with `api_key is invalid`. On macOS, publish the variable and restart the
+client:
+
+```bash
+zsh -ic 'launchctl setenv ZEROBOUNCE_API_KEY "$ZEROBOUNCE_API_KEY"'
+```
+
+`launchctl setenv` is cleared on reboot. Writing the key in the config file avoids that.
+
+To run your own HTTP deployment instead, see **Remote (HTTP) Mode** in `README.md`. That mode
+sends the key on each request. It is separate from `https://mcp.zerobounce.net/mcp`.
+
+### Claude Desktop (local)
+
+**Configuration file:**
+
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
+
+Use the hosted connector above unless you were asked for a local process. A local entry:
+
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "command": "zerobounce-mcp",
+      "args": ["--api-key=YOUR_API_KEY"]
+    }
+  }
+}
+```
+
+### Continue (local)
+
+**Configuration file:** a YAML file in `.continue/mcpServers/` (for example
+`.continue/mcpServers/zerobounce.yaml`), or an `mcpServers:` block in Continue's `config.yaml`.
+Continue's MCP tools work in agent mode only.
+
 ```yaml
 name: ZeroBounce
 version: 0.0.1
@@ -170,16 +160,20 @@ mcpServers:
       - "--api-key=YOUR_API_KEY"
 ```
 
-Continue also picks up a JSON file in the Claude Desktop / Cursor `mcpServers` format placed in
-`.continue/mcpServers/`.
+If Continue can store a remote URL, use `https://mcp.zerobounce.net/mcp` with no API key instead
+of this command.
 
-### Zed Editor
+### Zed (local)
 
-**Configuration file location:**
+**Configuration file:**
+
 - macOS/Linux: `~/.config/zed/settings.json`
 - Windows: `%APPDATA%\Zed\settings.json`
 
-**Configuration:**
+Zed's top-level key is `context_servers`. Open the file with `zed: open settings file`, or add
+the server under Settings, AI, MCP Servers. If Zed can store a remote URL, use
+`https://mcp.zerobounce.net/mcp` with no API key. A local entry:
+
 ```json
 {
   "context_servers": {
@@ -192,17 +186,15 @@ Continue also picks up a JSON file in the Claude Desktop / Cursor `mcpServers` f
 }
 ```
 
-Zed's top-level key is `context_servers`. Open the file with the `zed: open settings file` action
-or add the server under Settings, AI, MCP Servers.
+### Configuration file locations
 
-### Configuration File Locations by Client
+| Client | Configuration file |
+| --- | --- |
+| Cursor | `~/.cursor/mcp.json` (global), `.cursor/mcp.json` (project) |
+| VS Code | `.vscode/mcp.json` (workspace) or the user `mcp.json` (top-level key `servers`) |
+| Cline | `cline_mcp_settings.json` (see [configuration-cline.md](configuration-cline.md)) |
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `%APPDATA%\Claude\claude_desktop_config.json` (Windows) |
+| Continue | `.continue/mcpServers/*.yaml` or `config.yaml` |
+| Zed | `~/.config/zed/settings.json` (macOS/Linux) |
 
-| Client | Configuration File Location |
-|--------|----------------------------|
-| **Cursor** | `~/.cursor/mcp.json` (global), `.cursor/mcp.json` (project) |
-| **VS Code** | `.vscode/mcp.json` (workspace) or the user `mcp.json` (top-level key `servers`; built in, no extension) |
-| **Claude Desktop** | `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)<br>`%APPDATA%\Claude\claude_desktop_config.json` (Windows) |
-| **Continue** | `.continue/mcpServers/*.yaml` or `config.yaml` |
-| **Zed** | `~/.config/zed/settings.json` (macOS/Linux) |
-
-> **Note:** Configuration file paths and formats may vary by client version. Always check your client's documentation for the most up-to-date information.
+Paths and formats change between client versions. Check the client's own documentation.

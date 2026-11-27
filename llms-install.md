@@ -1,20 +1,22 @@
 # Installing the ZeroBounce MCP server (for AI agents)
 
-These steps are for an agent such as Cline setting up ZeroBounce for a user. There are two ways
-to connect. Use the hosted server unless the user asks to run it locally or their client cannot
-connect to remote servers.
+Set up the hosted remote server at `https://mcp.zerobounce.net/mcp`. That is the default.
+Do not install a package, do not ask for an API key, and do not add an `Authorization` header.
 
-## Option 1: hosted server (recommended, no API key)
+Use the local `npx` setup only when the user explicitly asks to run the server on their machine,
+or when their client cannot connect to a remote MCP server. If they did not say that, stay on
+the hosted server.
 
-Nothing to install or build. Leave the API key and any `Authorization` header out of the config.
-On the first connection the client opens the user's browser at ZeroBounce: the user signs in,
-chooses which permissions and tools to grant (spending credits, changing account data, Warmup)
+On the first connection the client opens the user's browser at ZeroBounce. The user signs in,
+chooses which permissions and tools to grant (spending credits, changing account data, Warmup),
 and picks the API region. Tell the user to expect this page and finish it in the browser. A
 `401` before that sign-in is the sign-in prompt.
 
-### Cline
+Keep any servers already in the settings file.
 
-Add this entry to `cline_mcp_settings.json`, keeping any servers already in it.
+## Cline
+
+Add this entry to `cline_mcp_settings.json`.
 
 - IDE: Cline panel → MCP Servers → **Configure** → **Configure MCP Servers**.
 - CLI: `~/.cline/data/settings/cline_mcp_settings.json`. `CLINE_MCP_SETTINGS_PATH` overrides that path.
@@ -38,7 +40,7 @@ Add this entry to `cline_mcp_settings.json`, keeping any servers already in it.
 this server does not offer. Leave `autoApprove` empty so credit-spending and delete tools stay
 behind a confirmation.
 
-### Cursor
+## Cursor
 
 Prefer the plugin: Customize → Add Marketplace → import
 `https://github.com/zerobounce/zerobounce-mcp`, then install **ZeroBounce**. The plugin sets
@@ -57,33 +59,66 @@ Manual config, in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a project:
 }
 ```
 
-## Option 2: run it locally (needs an API key)
+## VS Code
+
+`.vscode/mcp.json`, or the user `mcp.json`. The top-level key is `servers`.
+
+```json
+{
+  "servers": {
+    "zerobounce": {
+      "type": "http",
+      "url": "https://mcp.zerobounce.net/mcp"
+    }
+  }
+}
+```
+
+## Claude and other clients
+
+- Claude (claude.ai and the desktop app): Settings → Connectors → Add custom connector, URL
+  `https://mcp.zerobounce.net/mcp`.
+- Claude Code: `claude mcp add --transport http zerobounce https://mcp.zerobounce.net/mcp`
+- Any other client that accepts a remote URL: `https://mcp.zerobounce.net/mcp`, with no API key.
+- A client that can only launch a local command still uses the hosted server, through
+  `npx -y mcp-remote https://mcp.zerobounce.net/mcp`, with no API key. The browser sign-in is the
+  same.
+
+Client details: [docs/configuration-cline.md](docs/configuration-cline.md),
+[docs/configuration-cursor.md](docs/configuration-cursor.md),
+[docs/configuration-vscode.md](docs/configuration-vscode.md),
+[docs/configuration-other.md](docs/configuration-other.md).
+
+## Local server, only when the user asked for it
+
+Skip this section unless the user asked to run ZeroBounce locally, or their client cannot reach
+the hosted URL.
 
 1. Check that Node.js 22 or later is installed: `node --version`.
 2. Ask the user for their ZeroBounce API key. They can create one in the API section of their
-   ZeroBounce dashboard at https://www.zerobounce.net. Never invent a key, and never
-   write it anywhere except the MCP settings file.
-3. Add this entry to the MCP settings file, keeping any servers already in it:
+   ZeroBounce dashboard at https://www.zerobounce.net. Never invent a key, and never write it
+   anywhere except the MCP settings file.
+3. Add this entry, keeping any servers already in the file:
 
-   ```json
-   {
-     "mcpServers": {
-       "zerobounce": {
-         "command": "npx",
-         "args": ["-y", "@zerobounce/mcp"],
-         "env": {
-           "ZEROBOUNCE_API_KEY": "THE_USER_API_KEY"
-         },
-         "disabled": false,
-         "autoApprove": []
-       }
-     }
-   }
-   ```
+```json
+{
+  "mcpServers": {
+    "zerobounce": {
+      "command": "npx",
+      "args": ["-y", "@zerobounce/mcp"],
+      "env": {
+        "ZEROBOUNCE_API_KEY": "THE_USER_API_KEY"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
 
-4. Optional: the 25 Warmup tools need a separate Warmup API key (Warmup is a separate product
-   with its own key). If the user has one, add `"ZEROBOUNCE_WARMUP_API_KEY": "THE_USER_WARMUP_KEY"`
-   to `env`. Without it the Warmup tools are simply not listed.
+4. Optional: the 25 Warmup tools need a separate Warmup API key. If the user has one, add
+   `"ZEROBOUNCE_WARMUP_API_KEY": "THE_USER_WARMUP_KEY"` to `env`. Without it the Warmup tools are
+   not listed.
 
 Users in the US or EU can add `"ZEROBOUNCE_API_URL": "us"` or `"eu"` to `env` to use a regional
 API host for single-address calls.
@@ -102,4 +137,4 @@ MCP prompts are `check_email_before_sending`, `clean_email_list`, `find_work_ema
 `inbox_placement_test`. `find_work_email` and `inbox_placement_test` spend credits; say so before
 running them.
 
-More detail: [README.md](README.md), [docs/configuration-cline.md](docs/configuration-cline.md), and https://mcp.zerobounce.net/llms.txt.
+More detail: [README.md](README.md) and https://mcp.zerobounce.net/llms.txt.

@@ -1,43 +1,72 @@
 # Configuration Guide: Visual Studio Code
 
-Complete setup guide for using ZeroBounce MCP server in Visual Studio Code.
+Setup for the ZeroBounce MCP server in Visual Studio Code.
 
-## Prerequisites
+The default is the hosted remote server at `https://mcp.zerobounce.net/mcp`. Nothing to install
+and no API key: VS Code opens ZeroBounce in the browser so you can sign in. MCP support is built
+into VS Code (Copilot Chat in agent mode). Use **Run it locally** only when you want
+`@zerobounce/mcp` on your own machine.
 
-Before configuring VS Code, make sure you've completed the **Quick Start** steps in `README.md`:
+## Hosted server
 
-- Installed Node.js 22 or later and the ZeroBounce MCP server
-- Obtained a ZeroBounce API key (see **Getting Your API Key** in `README.md`)
-- Verified your environment with `node --version` and `npm --version`
+**URL:** `https://mcp.zerobounce.net/mcp`
 
-This guide assumes you already have a current VS Code installed. MCP support is built into VS Code
-(used from Copilot Chat in agent mode); no extension is needed.
+On the first connection VS Code opens your browser at ZeroBounce. Sign in, choose which
+permissions and tools to grant (spending credits, changing account data, Warmup), and pick the
+API region. A `401` before that sign-in is the sign-in prompt. Leave the API key and any
+`Authorization` header out of the config.
 
-## Installation Steps
+Add this to `.vscode/mcp.json` (this workspace) or the user `mcp.json` (**MCP: Open User
+Configuration**). VS Code uses the top-level key `servers`, not `mcpServers`.
 
-### 1. Install the MCP server
+```json
+{
+  "servers": {
+    "zerobounce": {
+      "type": "http",
+      "url": "https://mcp.zerobounce.net/mcp"
+    }
+  }
+}
+```
 
-The server requires Node.js 22 or later; check with `node --version`.
+You can also run **MCP: Add Server** from the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
+and choose an HTTP server with that URL.
+
+## Check that it works
+
+1. Open the Command Palette and run **MCP: List Servers**.
+2. Start `zerobounce` if it is stopped. Its tools appear in Copilot Chat (agent mode) under the
+   tools picker.
+3. Ask `How many ZeroBounce credits do I have left?` — calls `get_credits`. Does not spend credits.
+4. Ask `Validate valid@example.com`. That sandbox address does not spend a credit. Other addresses do.
+
+### Example workflows
+
+**1. Validate emails in the workspace:**
+```
+Find all email addresses in this file and validate them using ZeroBounce
+```
+
+**2. Build validation logic:**
+```
+Create a TypeScript function that validates emails using ZeroBounce
+```
+
+**3. Monitor the account:**
+```
+Show me my ZeroBounce account status and usage for this month
+```
+
+## Run it locally
+
+Use this only when you want the server on your machine instead of `https://mcp.zerobounce.net/mcp`.
+
+The server requires Node.js 22 or later (`node --version`).
 
 ```bash
 npm install -g @zerobounce/mcp
 ```
-### 2. Configure VS Code
-
-1. **Open VS Code**
-   - Launch Visual Studio Code
-
-2. **Run the Command Palette**
-   - Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS)
-
-3. **Select "MCP: Add Server"**
-   - Type "MCP: Add Server" and select it from the list
-
-4. **Choose workspace or user settings**
-   - Select whether to add the server for the current workspace or globally for your user
-
-5. **Copy the configuration**
-   - You can copy and paste the configuration below:
 
 ```json
 {
@@ -51,160 +80,78 @@ npm install -g @zerobounce/mcp
 }
 ```
 
-VS Code's own `mcp.json` (workspace `.vscode/mcp.json`, or the user-profile file opened with
-**MCP: Open User Configuration**) uses the top-level key `servers`, not `mcpServers`.
+Replace `YOUR_API_KEY` with a key from the [ZeroBounce dashboard](https://www.zerobounce.net).
+See **Getting your API key** in `README.md`.
 
-> **⚠️ Important:** 
-> - Replace `YOUR_API_KEY` with your actual ZeroBounce API key
-
-6. **Save the configuration**
-   - The MCP server should now be available in VS Code
-
-### Connecting to a hosted server
-
-If ZeroBounce MCP is deployed as a remote server, add it as an HTTP server in `.vscode/mcp.json`
-(or your user `mcp.json`). The `inputs` block makes VS Code prompt for the key once and store it
-securely instead of keeping it in the file:
-
-```json
-{
-  "inputs": [
-    {
-      "type": "promptString",
-      "id": "zerobounce-api-key",
-      "description": "ZeroBounce API key",
-      "password": true
-    }
-  ],
-  "servers": {
-    "zerobounce": {
-      "type": "http",
-      "url": "https://your-host.example.com/mcp",
-      "headers": { "X-ZeroBounce-Api-Key": "${input:zerobounce-api-key}" }
-    }
-  }
-}
-```
-
-Replace `https://your-host.example.com/mcp` with the address of your deployment (see
-**Remote (HTTP) Mode** in `README.md`). Nothing needs to be installed locally, and the API key
-travels with every request in the `X-ZeroBounce-Api-Key` header.
-
-## Verifying Installation
-
-After installation, verify the server is running:
-
-1. **Open the Command Palette** (`Ctrl+Shift+P` / `Cmd+Shift+P`)
-2. **Type and select** "MCP: List Servers"
-3. **Look for** the `zerobounce` server in the list and start it if it is stopped; its tools appear in Copilot Chat (agent mode) under the tools picker
-4. **Try a test command**:
-   ```
-   How many ZeroBounce credits do I have?
-   ```
-
-If the tools don't appear, check the troubleshooting section below.
-
-## Usage in VS Code
-
-### With AI Assistant
-
-If you're using VS Code with an AI assistant extension that supports MCP:
-
-`valid@example.com` is a sandbox address and does not spend a credit; other addresses do.
-
-```
-Validate the email "valid@example.com"
-How many credits do I have?
-```
-
-### Choosing tools
-
-In Copilot Chat, switch to agent mode and use the tools picker to enable or disable the ZeroBounce tools.
-
-### Example Workflows
-
-**1. Validate emails in workspace:**
-```
-Find all email addresses in this file and validate them using ZeroBounce
-```
-
-**2. Build validation logic:**
-```
-Create a TypeScript function that validates emails using ZeroBounce
-```
-
-**3. Monitor account:**
-```
-Show me my ZeroBounce account status and usage for this month
-```
+To run your own HTTP deployment instead, see **Remote (HTTP) Mode** in `README.md`. That mode
+sends the key on each request in `X-ZeroBounce-Api-Key`. It is separate from the hosted server
+above.
 
 ## Troubleshooting
 
-### Common Issues
+### MCP not available
 
-#### MCP Not Available
-
-**Problem:** There is no MCP option in VS Code
+**Problem:** There is no MCP option in VS Code.
 
 **Solutions:**
-- Update VS Code: MCP support is built in, not an extension
-- Check that MCP is not disabled by your organization's policy
 
-#### Server Not Appearing
+- Update VS Code: MCP support is built in, not an extension.
+- Check that MCP is not disabled by your organization's policy.
 
-**Problem:** ZeroBounce tools don't show up
+### Server not appearing
 
-**Solutions:**
-- Verify Node.js 22 or later is installed: run `node --version` in integrated terminal
-- Restart VS Code completely
-- Run "MCP: List Servers", select zerobounce and choose the option that shows its output
-
-#### Invalid API Key
-
-**Problem:** Error about invalid API key
+**Problem:** ZeroBounce tools don't show up.
 
 **Solutions:**
-- Double-check your API key at [ZeroBounce Dashboard](https://www.zerobounce.net)
-- Ensure no extra spaces or characters in the configuration
-- Verify the API key hasn't expired
-- Try regenerating your API key
 
-#### Hosted Server Returns 401 or 405
+- Confirm `.vscode/mcp.json` or the user `mcp.json` contains `"type": "http"` and
+  `https://mcp.zerobounce.net/mcp`, with no API key.
+- Restart VS Code completely.
+- Run **MCP: List Servers**, select zerobounce, and open its output.
+- For a local install only: Node.js 22 or later is installed (`node --version`).
 
-**Problem:** Connecting to a hosted server fails with `401` or `405`
+### 401 before you have signed in
 
-**Solutions:**
-- `401` means the request reached the server without an API key: check that the
-  `X-ZeroBounce-Api-Key` header is set and not empty
-- `405 Method Not Allowed` when you open the URL in a browser is expected; MCP clients use `POST`
-- Make sure the URL ends in `/mcp`
-
-#### Connection Errors
-
-**Problem:** Cannot connect to ZeroBounce API
+**Problem:** The first tool call to `https://mcp.zerobounce.net/mcp` returns `401`.
 
 **Solutions:**
-- Check your internet connection
-- Verify firewall allows `api.zerobounce.net`
-- Check proxy settings in VS Code (File → Preferences → Settings → Proxy)
-- Disable VPN temporarily to test
 
-### Viewing Logs
+- That is the sign-in prompt. Finish the ZeroBounce page in the browser.
+- Do not add an API key or `Authorization` header to the hosted entry.
+- `405 Method Not Allowed` when you open the URL in a browser is expected; MCP clients use `POST`.
+- The URL ends in `/mcp`.
 
-To see detailed error messages:
+### Invalid API key (local install)
 
-1. Press `Ctrl+Shift+P` / `Cmd+Shift+P`
-2. Run "MCP: List Servers" and select the zerobounce server
-3. Choose the option that shows its output and review it for errors
+**Problem:** A local `zerobounce-mcp` process reports an invalid API key.
 
-### Still Having Issues?
+**Solutions:**
+
+- Double-check the key at the [ZeroBounce dashboard](https://www.zerobounce.net).
+- Remove extra spaces from the configuration.
+- Regenerate the key in the dashboard if it no longer works.
+
+### Connection errors
+
+**Problem:** Cannot connect to ZeroBounce.
+
+**Solutions:**
+
+- Check your internet connection.
+- Verify the firewall allows `mcp.zerobounce.net` (hosted) or `api.zerobounce.net` (local).
+- Check proxy settings in VS Code (File → Preferences → Settings → Proxy).
+- Disable a VPN temporarily to test.
+
+### Viewing logs
+
+1. Press `Ctrl+Shift+P` / `Cmd+Shift+P`.
+2. Run **MCP: List Servers** and select the zerobounce server.
+3. Open its output and review it for errors.
+
+### Still having issues?
 
 - Review the [main documentation](../README.md)
 - Check [GitHub Issues](https://github.com/zerobounce/zerobounce-mcp/issues)
 - View [VS Code's MCP documentation](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
-- Open a new issue with:
-  - VS Code version (Help → About)
-  - Node.js version (`node --version`)
-  - Operating system
-  - Complete error message
-  - Configuration (without API key)
+- Open a new issue with your VS Code version, operating system, the error message, and your
+  configuration with any API key removed

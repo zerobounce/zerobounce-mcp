@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Connection-check examples in the README and the Cursor and VS Code guides validate the sandbox address `valid@example.com`, which does not spend credits. Finder and activity examples say that those calls do. The `find_work_email` prompt says the lookup spends credits.
+- The Cursor, VS Code, Cline, and other-client guides, and `llms-install.md`, connect to the hosted server at `https://mcp.zerobounce.net/mcp` by default. A local install with an API key is only for when the user asks to run the server on their own machine.
 
 ## [0.7.0] - 2026-11-26
 
