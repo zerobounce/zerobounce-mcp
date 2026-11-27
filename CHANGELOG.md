@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Cline setup: the README shows the hosted server's `cline_mcp_settings.json` entry (IDE: MCP Servers → Configure → Configure MCP Servers; CLI: `~/.cline/data/settings/cline_mcp_settings.json`) with `"type": "streamableHttp"`, without which Cline falls back to legacy SSE. `llms-install.md` walks agents through the hosted and `npx @zerobounce/mcp` installs and the two check prompts (`get_credits`, then `Validate valid@example.com`). `docs/assets/logo-400.png` is the 400×400 icon for the Cline MCP Marketplace listing.
+- Cline setup: the README shows the hosted server's `cline_mcp_settings.json` entry (IDE: MCP Servers → Configure → Configure MCP Servers; CLI: `~/.cline/data/settings/cline_mcp_settings.json`) with `"type": "streamableHttp"`, without which Cline falls back to legacy SSE. `llms-install.md` walks agents through the hosted and `npx @zerobounce/mcp` installs and the two check prompts (`get_credits`, then `Validate valid@example.com`). `docs/configuration-cline.md` is the Cline configuration guide. `docs/assets/logo-400.png` is the 400×400 icon for the Cline MCP Marketplace listing.
 
 ### Changed
 

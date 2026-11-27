@@ -102,4 +102,4 @@ MCP prompts are `check_email_before_sending`, `clean_email_list`, `find_work_ema
 `inbox_placement_test`. `find_work_email` and `inbox_placement_test` spend credits; say so before
 running them.
 
-More detail: [README.md](README.md) and https://mcp.zerobounce.net/llms.txt.
+More detail: [README.md](README.md), [docs/configuration-cline.md](docs/configuration-cline.md), and https://mcp.zerobounce.net/llms.txt.

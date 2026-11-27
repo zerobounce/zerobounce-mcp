@@ -101,8 +101,9 @@ your browser to sign in the first time it connects; a `401` before that is the s
 ```
 
 After sign-in, ask `How many ZeroBounce credits do I have left?` and then
-`Validate valid@example.com` (a sandbox address; it does not spend credits). Agents installing
-the server follow [`llms-install.md`](llms-install.md).
+`Validate valid@example.com` (a sandbox address; it does not spend credits). Full steps are in
+[`docs/configuration-cline.md`](docs/configuration-cline.md). Agents installing the server follow
+[`llms-install.md`](llms-install.md).
 
 **Gemini CLI** — install the extension from this repo; it connects to the hosted server and
 signs you in with OAuth on first use. It also adds the `GEMINI.md` context (when tools spend
@@ -335,7 +336,7 @@ Select your client below for detailed, client-specific setup steps:
 
 - **[Cursor plugin](docs/CURSOR_MARKETPLACE.md)** – Hosted MCP (`type: http`) plus skills, rules, agents, and commands (Customize → Add Marketplace, then install ZeroBounce)
 - **[Cursor](docs/configuration-cursor.md)** – Manual MCP config, including self-hosted `@zerobounce/mcp`
-- **[Cline](llms-install.md)** – Hosted server in `cline_mcp_settings.json` with `"type": "streamableHttp"`, or local `npx @zerobounce/mcp`
+- **[Cline](docs/configuration-cline.md)** – Hosted server in `cline_mcp_settings.json` with `"type": "streamableHttp"`, or local `npx @zerobounce/mcp`
 - **[VS Code](docs/configuration-vscode.md)** – Configure ZeroBounce MCP for Visual Studio Code
 - **[Other / generic clients](docs/configuration-other.md)** – Configure ZeroBounce MCP for Claude Desktop, Continue, Zed, and others
 
