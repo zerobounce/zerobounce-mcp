@@ -84,8 +84,10 @@ Or add the URL manually in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a proje
 **Cline** (`cline_mcp_settings.json`). In the IDE: Cline panel → MCP Servers → **Configure** →
 **Configure MCP Servers**. The CLI file is `~/.cline/data/settings/cline_mcp_settings.json`
 (`CLINE_MCP_SETTINGS_PATH` overrides it). Set `"type": "streamableHttp"`: without it Cline uses
-the legacy SSE transport, which this server does not serve. Leave the API key out. Cline opens
-your browser to sign in the first time it connects; a `401` before that is the sign-in prompt.
+the legacy SSE transport, which this server does not serve. Leave the API key out. Cline does
+not open the browser on its own: after you save, the server's row under MCP Servers →
+**Configure** says it requires authentication. Click **Authenticate** there to sign in. In the
+CLI, run `cline mcp` and choose **Authorize OAuth**.
 
 ```json
 {
