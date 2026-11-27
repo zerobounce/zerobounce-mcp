@@ -102,10 +102,9 @@ If the tools don't appear, check the troubleshooting section below.
 
 ### In the Composer
 
-Ask natural language questions:
+Ask natural language questions. `valid@example.com` is a sandbox address and does not spend a credit; other addresses do.
 ```
-Validate the email "test@example.com"
-Check if "user@domain.com" is valid
+Validate the email "valid@example.com"
 How many credits do I have?
 ```
 
@@ -113,7 +112,7 @@ How many credits do I have?
 
 Use the ZeroBounce tools directly in your coding conversations:
 ```
-Can you validate this email address for me: user@example.com
+Can you validate this email address for me: valid@example.com
 ```
 
 ### Example Workflows

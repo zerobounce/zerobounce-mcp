@@ -110,9 +110,10 @@ If the tools don't appear, check the troubleshooting section below.
 
 If you're using VS Code with an AI assistant extension that supports MCP:
 
+`valid@example.com` is a sandbox address and does not spend a credit; other addresses do.
+
 ```
-Validate the email "test@example.com"
-Check if "user@domain.com" is valid
+Validate the email "valid@example.com"
 How many credits do I have?
 ```
 
