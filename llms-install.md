@@ -15,19 +15,33 @@ error.
 
 Keep any servers already in the settings file.
 
+**If you are Cline, follow the Cline section below and edit Cline's own MCP settings file.** Do
+not create `.vscode/mcp.json`, `.cursor/mcp.json` or any other file in the workspace: Cline does
+not read those, so the server would never appear in Cline. The other sections are for other
+clients.
+
 ## Cline
 
-Add this entry to `cline_mcp_settings.json`.
+Add this entry to Cline's `cline_mcp_settings.json`.
 
-- Current Cline (IDE extension and CLI share it): `~/.cline/data/settings/cline_mcp_settings.json`.
-  `CLINE_MCP_SETTINGS_PATH` overrides that path.
-- Older versions of the VS Code extension: VS Code's storage, under
-  `Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
-  (macOS `~/Library/Application Support/`, Windows `%APPDATA%\`, Linux `~/.config/`).
-- If unsure, use the first path if it exists. In the IDE, Cline panel → MCP Servers →
-  **Configure** → **Configure MCP Servers** opens the file that version reads.
-- Remote Servers tab, instead of editing JSON: name `zerobounce`, URL
-  `https://mcp.zerobounce.net/mcp`, transport **Streamable HTTP**.
+1. Find the file. Your file tools may not expand `~`, so get the home directory first (run
+   `echo $HOME`, or `echo %USERPROFILE%` on Windows) and use the absolute path:
+   - Current Cline (the IDE extension and the CLI share it):
+     `$HOME/.cline/data/settings/cline_mcp_settings.json`, for example
+     `/Users/<name>/.cline/data/settings/cline_mcp_settings.json`. If `CLINE_MCP_SETTINGS_PATH`
+     is set, use that path instead.
+   - Older versions of the VS Code extension, only if the first path does not exist: VS Code's
+     storage, `Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+     under `$HOME/Library/Application Support/` (macOS), `%APPDATA%\` (Windows) or
+     `$HOME/.config/` (Linux).
+2. The file may be empty (0 bytes) or missing; both are normal for a first server. If it is
+   empty or missing, write the whole JSON object below (create the folders if needed). If it
+   already has `mcpServers`, add the `zerobounce` entry next to the servers there.
+3. Read the file back and check it is valid JSON with `zerobounce` under `mcpServers`.
+
+A person can also add it by hand: in the IDE, Cline panel → MCP Servers → **Configure** →
+**Configure MCP Servers** opens the file, or the **Remote Servers** tab takes name `zerobounce`,
+URL `https://mcp.zerobounce.net/mcp`, transport **Streamable HTTP**.
 
 ```json
 {
@@ -58,7 +72,9 @@ saving, tell the user to finish sign-in:
 
 Wait until the user says sign-in is done before running the checks below.
 
-## Cursor
+## Other clients (skip this section if you are Cline)
+
+### Cursor
 
 Prefer the plugin: Customize → Add Marketplace → import
 `https://github.com/zerobounce/zerobounce-mcp`, then install **ZeroBounce**. The plugin sets
@@ -77,7 +93,9 @@ Manual config, in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a project:
 }
 ```
 
-## VS Code
+### VS Code
+
+VS Code's own MCP support (GitHub Copilot agent mode). Cline running inside VS Code does not read this file; it uses the Cline section above.
 
 `.vscode/mcp.json`, or the user `mcp.json`. The top-level key is `servers`.
 
@@ -92,7 +110,7 @@ Manual config, in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a project:
 }
 ```
 
-## Claude and other clients
+### Claude and other clients
 
 - Claude (claude.ai and the desktop app): Settings → Connectors → Add custom connector, URL
   `https://mcp.zerobounce.net/mcp`.
