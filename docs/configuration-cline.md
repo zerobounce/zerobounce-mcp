@@ -2,25 +2,32 @@
 
 Setup for the ZeroBounce MCP server in Cline (the IDE extension and the CLI).
 
-The default is the hosted remote server. It needs no install and no API key: Cline opens
-ZeroBounce in the browser so you can sign in. Use **Run it locally** only when you were asked to
-run the server on your own machine.
+The default is the hosted remote server. It needs no install and no API key: you sign in to
+ZeroBounce in the browser. Use **Run it locally** only when you were asked to run the server on
+your own machine.
 
 ## Hosted server
 
 **URL:** `https://mcp.zerobounce.net/mcp`
 
 Nothing to install or build. Leave the API key and any `Authorization` header out of the config.
-On the first connection Cline opens your browser at ZeroBounce. Sign in, choose which permissions
-and tools to grant (spending credits, changing account data, Warmup), and pick the API region.
-A `401` before that sign-in is the sign-in prompt.
+Cline does not open the browser by itself: you start sign-in (see **Sign in** below). On the
+ZeroBounce page, sign in, choose which permissions and tools to grant (spending credits, changing
+account data, Warmup), and pick the API region. A `401` before that sign-in is the sign-in
+prompt.
 
 ### Where the settings file is
 
 The file is `cline_mcp_settings.json`. Keep any servers already in it.
 
-- **IDE:** Cline panel → MCP Servers icon → **Configure** tab → **Configure MCP Servers**.
-- **CLI:** `~/.cline/data/settings/cline_mcp_settings.json`. `CLINE_MCP_SETTINGS_PATH` overrides that path.
+- **Current Cline:** `~/.cline/data/settings/cline_mcp_settings.json`. The IDE extension, the
+  CLI and the SDK all read this one file. `CLINE_MCP_SETTINGS_PATH` overrides that path.
+- **Older VS Code extension versions:** VS Code's storage instead:
+  - macOS: `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+  - Windows: `%APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json`
+  - Linux: `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+- **To open the right one in the IDE:** Cline panel → MCP Servers icon → **Configure** tab →
+  **Configure MCP Servers**.
 - **Remote Servers tab,** instead of editing JSON: server name `zerobounce`, URL
   `https://mcp.zerobounce.net/mcp`, transport **Streamable HTTP**.
 
@@ -43,8 +50,16 @@ behind a confirmation.
 }
 ```
 
-Save the file, or click **Add Server** on the Remote Servers tab. Cline connects on the next
-message that needs the server.
+Save the file, or click **Add Server** on the Remote Servers tab. Cline connects right away.
+
+### Sign in
+
+- **IDE:** Cline panel → MCP Servers → **Configure**. The `zerobounce` row says "This MCP server
+  requires authentication to get started." Click **Authenticate** and finish the ZeroBounce page
+  in the browser. The row then shows the server as connected, with its tools.
+- **CLI:** run `cline mcp`, choose **Authorize OAuth**, and pick `zerobounce`. Adding the server
+  from the wizard instead (`cline mcp` → Add server, Streamable HTTP, auth **OAuth**, client ID
+  left empty for dynamic registration) opens the browser as soon as the server is saved.
 
 ## Run it locally
 
@@ -90,8 +105,8 @@ Finding an email, checking activity, scoring, and bulk jobs spend credits. Use t
 addresses, names, and domains you meant to check, and confirm before delete tools.
 
 Cline can also offer the server's prompts: `check_email_before_sending`, `clean_email_list`,
-`find_work_email`, and `inbox_placement_test`. `find_work_email` and `inbox_placement_test`
-spend credits.
+`find_work_email`, and `inbox_placement_test`. `find_work_email` spends credits, and
+`inbox_placement_test` uses one of your inbox placement tests.
 
 ## Troubleshooting
 
@@ -105,17 +120,26 @@ spend credits.
 - On the Remote Servers tab, choose **Streamable HTTP**, not **SSE (Legacy)**.
 - The URL is `https://mcp.zerobounce.net/mcp`, including `/mcp`.
 
-### 401 before you have signed in
+### "This MCP server requires authentication to get started."
 
-**Problem:** The first tool call returns `401`.
+**Problem:** The `zerobounce` row shows this message and no tools, or a call returns `401`.
 
 **Solutions:**
 
-- On the hosted server that is the sign-in prompt. Finish the ZeroBounce page in the browser.
-- To run the OAuth flow again, use Cline's MCP settings or, in the CLI, `cline mcp` and choose
-  **Authorize OAuth**.
-- A `401` on the local `npx` server means the API key is missing or was not passed through.
-  Check `ZEROBOUNCE_API_KEY` in the settings file.
+- On the hosted server that is the sign-in prompt, not a failure. Click **Authenticate** on the
+  row (IDE), or run `cline mcp` and choose **Authorize OAuth** (CLI), then finish the ZeroBounce
+  page in the browser.
+- Use the same button or wizard action to sign in again, for example to grant more tools.
+
+### "ZeroBounce API key is required" (local server)
+
+**Problem:** The local `npx` server lists its tools, but every call answers that the API key is
+required.
+
+**Solutions:**
+
+- The key did not reach the server. Check `ZEROBOUNCE_API_KEY` under `env` in the settings file,
+  then save it again so Cline restarts the server.
 
 ### Tools that spend credits or delete data
 

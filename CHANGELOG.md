@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Connection-check examples in the README and the Cursor and VS Code guides validate the sandbox address `valid@example.com`, which does not spend credits. Finder and activity examples say that those calls do. The `find_work_email` prompt says the lookup spends credits.
+- Cline settings file: `~/.cline/data/settings/cline_mcp_settings.json` is named as the file current Cline uses for both the IDE extension and the CLI, with the VS Code `globalStorage/saoudrizwan.claude-dev/settings/` path as the location for older extension versions.
+- Cline sign-in: the README, `llms-install.md`, and `docs/configuration-cline.md` say that Cline does not open the browser on its own. In the IDE the user clicks **Authenticate** on the server's row under MCP Servers → Configure; in the CLI, `cline mcp` → **Authorize OAuth**. `llms-install.md` tells the installing agent to wait for that sign-in before the check prompts. The Cline guide says Cline connects as soon as the settings file is saved, explains the local server's "ZeroBounce API key is required" answer (it has no `401`), and says `inbox_placement_test` uses one of the account's inbox placement tests rather than credits.
 - The Cursor, VS Code, Cline, and other-client guides, and `llms-install.md`, connect to the hosted server at `https://mcp.zerobounce.net/mcp` by default. A local install with an API key is only for when the user asks to run the server on their own machine.
 
 ## [0.7.0] - 2026-11-26

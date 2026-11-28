@@ -7,10 +7,11 @@ Use the local `npx` setup only when the user explicitly asks to run the server o
 or when their client cannot connect to a remote MCP server. If they did not say that, stay on
 the hosted server.
 
-On the first connection the client opens the user's browser at ZeroBounce. The user signs in,
-chooses which permissions and tools to grant (spending credits, changing account data, Warmup),
-and picks the API region. Tell the user to expect this page and finish it in the browser. A
-`401` before that sign-in is the sign-in prompt.
+Sign-in happens in the user's browser at ZeroBounce. The user signs in, chooses which
+permissions and tools to grant (spending credits, changing account data, Warmup), and picks the
+API region. Most clients open that page on the first connection; Cline waits for the user to
+click **Authenticate** (see below). A `401` before that sign-in is the sign-in prompt, not an
+error.
 
 Keep any servers already in the settings file.
 
@@ -18,8 +19,13 @@ Keep any servers already in the settings file.
 
 Add this entry to `cline_mcp_settings.json`.
 
-- IDE: Cline panel → MCP Servers → **Configure** → **Configure MCP Servers**.
-- CLI: `~/.cline/data/settings/cline_mcp_settings.json`. `CLINE_MCP_SETTINGS_PATH` overrides that path.
+- Current Cline (IDE extension and CLI share it): `~/.cline/data/settings/cline_mcp_settings.json`.
+  `CLINE_MCP_SETTINGS_PATH` overrides that path.
+- Older versions of the VS Code extension: VS Code's storage, under
+  `Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+  (macOS `~/Library/Application Support/`, Windows `%APPDATA%\`, Linux `~/.config/`).
+- If unsure, use the first path if it exists. In the IDE, Cline panel → MCP Servers →
+  **Configure** → **Configure MCP Servers** opens the file that version reads.
 - Remote Servers tab, instead of editing JSON: name `zerobounce`, URL
   `https://mcp.zerobounce.net/mcp`, transport **Streamable HTTP**.
 
@@ -39,6 +45,18 @@ Add this entry to `cline_mcp_settings.json`.
 `"type": "streamableHttp"` is required. Without it Cline uses the legacy SSE transport, which
 this server does not offer. Leave `autoApprove` empty so credit-spending and delete tools stay
 behind a confirmation.
+
+Cline connects as soon as the file is saved, and does not open the browser by itself. After
+saving, tell the user to finish sign-in:
+
+- IDE: Cline panel → MCP Servers → **Configure**. The `zerobounce` row says "This MCP server
+  requires authentication to get started." Click **Authenticate**, then complete the ZeroBounce
+  page in the browser.
+- CLI: run `cline mcp`, choose **Authorize OAuth**, and pick `zerobounce`. (Adding the server
+  with `cline mcp` → Add server, Streamable HTTP, auth **OAuth**, client ID left empty, opens the
+  browser right away.)
+
+Wait until the user says sign-in is done before running the checks below.
 
 ## Cursor
 
@@ -134,7 +152,7 @@ After the user finishes sign-in, send these prompts in order:
 Finding an email, checking activity, scoring, and bulk jobs spend credits. Use them only for
 addresses, names, and domains the user provided, and confirm before delete tools. The ready-made
 MCP prompts are `check_email_before_sending`, `clean_email_list`, `find_work_email`, and
-`inbox_placement_test`. `find_work_email` and `inbox_placement_test` spend credits; say so before
-running them.
+`inbox_placement_test`. `find_work_email` spends credits and `inbox_placement_test` uses one of
+the account's inbox placement tests; say so before running them.
 
 More detail: [README.md](README.md) and https://mcp.zerobounce.net/llms.txt.
