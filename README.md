@@ -81,9 +81,12 @@ Or add the URL manually in `~/.cursor/mcp.json` or `.cursor/mcp.json` in a proje
 }
 ```
 
-**Cline** (`cline_mcp_settings.json`). In the IDE: Cline panel → MCP Servers → **Configure** →
-**Configure MCP Servers**. The CLI file is `~/.cline/data/settings/cline_mcp_settings.json`
-(`CLINE_MCP_SETTINGS_PATH` overrides it). Set `"type": "streamableHttp"`: without it Cline uses
+**Cline** (`~/.cline/data/settings/cline_mcp_settings.json`, shared by the IDE extension and
+the CLI; `CLINE_MCP_SETTINGS_PATH` overrides it). In the IDE, Cline panel → MCP Servers →
+**Configure** → **Configure MCP Servers** opens the file your version uses. Older versions of the
+VS Code extension kept it in VS Code's storage instead, under
+`Code/User/globalStorage/saoudrizwan.claude-dev/settings/` (see
+[`docs/configuration-cline.md`](docs/configuration-cline.md)). Set `"type": "streamableHttp"`: without it Cline uses
 the legacy SSE transport, which this server does not serve. Leave the API key out. Cline does
 not open the browser on its own: after you save, the server's row under MCP Servers →
 **Configure** says it requires authentication. Click **Authenticate** there to sign in. In the

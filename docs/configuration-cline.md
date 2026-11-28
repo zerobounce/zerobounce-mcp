@@ -20,8 +20,14 @@ prompt.
 
 The file is `cline_mcp_settings.json`. Keep any servers already in it.
 
-- **IDE:** Cline panel → MCP Servers icon → **Configure** tab → **Configure MCP Servers**.
-- **CLI:** `~/.cline/data/settings/cline_mcp_settings.json`. `CLINE_MCP_SETTINGS_PATH` overrides that path.
+- **Current Cline:** `~/.cline/data/settings/cline_mcp_settings.json`. The IDE extension, the
+  CLI and the SDK all read this one file. `CLINE_MCP_SETTINGS_PATH` overrides that path.
+- **Older VS Code extension versions:** VS Code's storage instead:
+  - macOS: `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+  - Windows: `%APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json`
+  - Linux: `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+- **To open the right one in the IDE:** Cline panel → MCP Servers icon → **Configure** tab →
+  **Configure MCP Servers**.
 - **Remote Servers tab,** instead of editing JSON: server name `zerobounce`, URL
   `https://mcp.zerobounce.net/mcp`, transport **Streamable HTTP**.
 
